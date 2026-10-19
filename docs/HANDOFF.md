@@ -195,16 +195,18 @@ distributionSha256Sum=20f1b1176237254a6fc204d8434196fa11a4cfb387567519c61556e871
 ## 8. GIT_HEAD
 
 ```
-分支：main
-HEAD：eaafe94  PHASE 2-6: dedup w/ source timestamp, image MIME+magic validation,
-                async UI, retention & storage, zoom viewer, search filters,
-                JUnit tests, predictive back
-前一 commit：382395d  PHASE 0: baseline audit
+分支：feature/phase1-build-recovery-and-verification
+HEAD：d4f551642b5a25004f53ab3790ca59e20da8b707
+      PHASE 1-8: build recovery, real APK, PRAGMA fix, instrumentation tests, docs
+前一 commit：eaafe94  PHASE 2-6: dedup w/ source timestamp, image MIME+magic
+                validation, async UI, retention & storage, zoom viewer,
+                search filters, JUnit tests, predictive back
+再前一：382395d  PHASE 0: baseline audit
 ```
 
-> 注意：工作階段間有其他程序提交了 `eaafe94`（涵蓋 PHASE 2–6 的功能實作）。
-> 本階段的編譯錯誤修復、Gradle Wrapper、文件與 androidTest 尚未提交。
-> **下一步應先建立分支並提交本階段變更。**
+> 本階段變更已提交到功能分支 `feature/phase1-build-recovery-and-verification`，
+> **未推送到 main，也未推送到任何遠端**（未取得使用者授權）。
+> `main` 仍停留在 `eaafe94`。
 
 ---
 
@@ -229,34 +231,30 @@ HEAD：eaafe94  PHASE 2-6: dedup w/ source timestamp, image MIME+magic validatio
 
 ### 優先級 P0 — 必須先做
 
-1. **建立功能分支並提交本階段變更**（目前 main 有未提交的修改）。
-   ```bash
-   git checkout -b feature/phase1-build-recovery
-   git add -A
-   git commit -m "PHASE 1-8: build recovery, wrapper, compile fixes, async images, badge semantics, instrumentation tests, docs"
-   ```
-2. **實作 Keystore 金鑰失效的明確處理**（`docs/SECURITY.md` §2.1 指出這是最優先缺口）：
+1. **實作 Keystore 金鑰失效的明確處理**（`docs/SECURITY.md` §2.1 指出這是最優先缺口）：
    - 在 `CryptoStore` 捕捉 `KeyInvalidatedException` / `UnrecoverableKeyException`；
    - 在 UI 明確提示「金鑰已失效，既有資料無法解密」；
    - 提供「清除無法解密的資料列」動作；
    - 加入 instrumentation 測試覆蓋。
-3. **重新產生正式 APK 並更新 SHA-256**（提交前必須重跑 build + 測試 + 權限檢查）。
+2. **審查並合併本功能分支**（`d4f5516`）：需人工確認後再 merge 到 main。
+3. **重新產生正式 APK 並更新 SHA-256**（任何後續程式碼變更後都必須重跑
+   build + 測試 + 權限檢查）。
 
 ### 優先級 P1
 
-4. **取得 UI 截圖**：`FLAG_SECURE` 使 `adb screencap` 全黑。
-   解法：在 debug 組態加入 `BuildConfig` 旗標控制的截圖開關（僅 debug build），
-   或用 `adb shell screenrecord`（同樣受 FLAG_SECURE 限制），
-   最佳解法是 debug 組態暫時停用 FLAG_SECURE 供截圖使用，release 必須啟用。
-5. **補齊聊天室列表的分頁**（目前一次載入 1500 筆全解密）。
-6. **確認 Android 9/13/14/15 的實機或模擬器相容性**。
+4. **補齊聊天室列表的分頁**（目前一次載入 1500 筆全解密）。
+5. **確認 Android 9/13/14/15 的實機或模擬器相容性**。
+
+> UI 截圖**已完成**：`screenshots/` 內 4 張（鎖定、列表、聊天室、設定）。
+> 由 `UiSnapshotInstrumentedTest` 把真實 View 繪到 Bitmap 產生，
+> 完全不需要放寬 `FLAG_SECURE`（該保護在任何 build type 都無條件啟用）。
 
 ### 優先級 P2
 
-7. 若要對外散布：**GPL 相關確認**（本專案為獨立實作，無 GPL 程式碼混入，
+6. 若要對外散布：**GPL 相關確認**（本專案為獨立實作，無 GPL 程式碼混入，
    但需在 LICENSE 檔案中明確聲明）。
-8. Release keystore 流程與簽章輪替政策。
-9. 資料匯出／備份（需使用者明確同意，且需處理金鑰遷移）。
+7. Release keystore 流程與簽章輪替政策。
+8. 資料匯出／備份（需使用者明確同意，且需處理金鑰遷移）。
 
 ---
 
