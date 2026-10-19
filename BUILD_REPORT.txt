@@ -1,0 +1,29 @@
+BUILD REPORT — 2026-10-19
+Product: Private Inbox Classic 0.2.0-source-candidate
+Source: Independently developed from previously created PrivateUnreadInbox v0.1.
+QuietInbox was reviewed as a product reference; NOT a copied/forked source tree.
+
+Completed:
+- Kotlin native Android Material One-style UI: lock, conversations, chat,
+  image preview, search, source/privacy settings.
+- Image extraction paths: MessagingStyle image Content URI, BigPicture Bitmap/Icon.
+- Attachment resampling, JPEG cap, encrypted database blobs.
+- SQLite migration v1->v2 preserving existing text rows.
+- Explicit opt-in sources and photo recording, no declared network permission.
+- GitHub Actions Android build configuration and APK permission gate.
+
+Checks executed in container:
+- XML resource parsing: PASS
+- Manifest security rules: PASS
+- CapturePolicy pure Kotlin tests: 8/8 PASS
+- Android SDK/AGP Gradle build: NOT EXECUTED (no Android SDK and no external Maven access)
+- Emulator/physical-device tests: NOT EXECUTED
+- Android APK: NOT PRODUCED
+
+Important engineering caveats:
+- source candidate may contain unresolved Android compiler/runtime issues;
+  only an actual CI compile and device test can validate it.
+- photo access only when notification exposes actual media bytes, never guarantees original.
+- notification-count badges are captured copies, not official unread count.
+- Android native notification listener is a broad permission, restricted in-app by allowlist.
+- DB row ciphertext, NOT whole-file SQLCipher encryption; metadata in clear.

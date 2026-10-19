@@ -1,0 +1,44 @@
+name: Android debug APK
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Accept SDK licenses
+        run: yes | sdkmanager --licenses >/dev/null || true
+      - name: Install SDK 36
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Run static safety checks
+        run: bash scripts/audit.sh
+      - name: Compile debug APK
+        run: gradle --no-daemon :app:assembleDebug
+      - name: Inspect manifest permissions
+        run: |
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          AAPT="$ANDROID_HOME/build-tools/36.0.0/aapt"
+          "$AAPT" dump permissions "$APK" | tee /tmp/permissions.txt
+          if grep -E '(android.permission.INTERNET|READ_SMS|READ_CONTACTS|QUERY_ALL_PACKAGES)' /tmp/permissions.txt; then
+            echo 'Unexpected sensitive permission detected' >&2; exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PrivateInboxClassic-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
