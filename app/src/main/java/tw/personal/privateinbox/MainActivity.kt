@@ -63,6 +63,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // FLAG_SECURE blocks screenshots and screen recording. This protection is
+        // unconditional: it is never relaxed, in any build type.
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         window.statusBarColor = BLUE_DARK
         window.navigationBarColor = 0xff172635.toInt()

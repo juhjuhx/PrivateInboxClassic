@@ -11,8 +11,8 @@ android {
         applicationId = "tw.personal.privateinbox"
         minSdk = 28
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0-source-candidate"
+        versionCode = 3
+        versionName = "0.3.0"
     }
 
     compileOptions {
@@ -25,6 +25,17 @@ android {
     testOptions {
         unitTests.isReturnDefaultValues = true
     }
+
+    defaultConfig {
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = false
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+    }
 }
 
 dependencies {
@@ -32,4 +43,10 @@ dependencies {
     // any network, tracking, or UI library. No other runtime dependencies are added.
     implementation("androidx.activity:activity:1.9.2")
     testImplementation("junit:junit:4.13.2")
+
+    // Instrumentation test only. These never ship inside the app APK.
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test:rules:1.6.1")
+    androidTestImplementation("androidx.test:core:1.6.1")
 }

@@ -30,7 +30,9 @@ class InboxDatabase(context: Context) : SQLiteOpenHelper(context, "inbox.db", nu
 
     override fun onConfigure(db: SQLiteDatabase) {
         super.onConfigure(db)
-        db.execSQL("PRAGMA secure_delete=ON")
+        // PRAGMA statements are queries, not updates: execSQL() rejects them with
+        // "Queries can be performed using SQLiteDatabase query or rawQuery methods only".
+        runCatching { db.rawQuery("PRAGMA secure_delete=ON", null).use { it.moveToFirst() } }
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -101,10 +103,16 @@ class InboxDatabase(context: Context) : SQLiteOpenHelper(context, "inbox.db", nu
         }
     }
 
+    /** Truncate the write-ahead log so encrypted sidecars cannot outlive a deletion.
+     *  PRAGMA is a query, so it must go through rawQuery(), not execSQL(). */
+    private fun checkpointWal(db: SQLiteDatabase) {
+        runCatching { db.rawQuery("PRAGMA wal_checkpoint(TRUNCATE)", null).use { it.moveToFirst() } }
+    }
+
     fun clear() {
         val db = writableDatabase
         db.delete("messages", null, null)
-        db.execSQL("PRAGMA wal_checkpoint(TRUNCATE)")
+        checkpointWal(db)
     }
 
     /** Delete a single captured message (its encrypted image blob is removed with the row). */
@@ -124,7 +132,7 @@ class InboxDatabase(context: Context) : SQLiteOpenHelper(context, "inbox.db", nu
         try {
             val csv = ids.joinToString(",")
             db.execSQL("DELETE FROM messages WHERE id IN ($csv)")
-            db.execSQL("PRAGMA wal_checkpoint(TRUNCATE)")
+            checkpointWal(db)
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
@@ -138,7 +146,7 @@ class InboxDatabase(context: Context) : SQLiteOpenHelper(context, "inbox.db", nu
         val cutoff = System.currentTimeMillis() - days.toLong() * 24L * 60L * 60L * 1000L
         val db = writableDatabase
         val removed = db.delete("messages", "received_at < ?", arrayOf(cutoff.toString()))
-        if (removed > 0) db.execSQL("PRAGMA wal_checkpoint(TRUNCATE)")
+        if (removed > 0) checkpointWal(db)
         return removed
     }
 }

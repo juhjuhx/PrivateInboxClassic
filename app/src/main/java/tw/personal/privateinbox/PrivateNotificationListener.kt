@@ -20,9 +20,16 @@ class PrivateNotificationListener : NotificationListenerService() {
     )
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
-        if (sbn == null || !LocalSettings.isRecording(this)) return
+        capture(applicationContext, sbn)
+    }
+
+    /** Core capture routine. Split out from the service callback so it can be
+     *  exercised directly by instrumentation tests without a bound system service.
+     *  [appContext] must be a usable application context. */
+    fun capture(appContext: android.content.Context, sbn: StatusBarNotification?) {
+        if (sbn == null || !LocalSettings.isRecording(appContext)) return
         val pkg = sbn.packageName
-        if (!CapturePolicy.allowed(pkg, LocalSettings.selected(this))) return
+        if (!CapturePolicy.allowed(pkg, LocalSettings.selected(appContext))) return
         if (sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
         val extras = sbn.notification.extras ?: return
         val conversationTitle = CapturePolicy.normalize(
@@ -31,23 +38,23 @@ class PrivateNotificationListener : NotificationListenerService() {
         ) ?: CapturePolicy.nameFor(pkg)
         val previews = previews(extras)
         if (previews.isEmpty()) return
-        val captureImages = LocalSettings.captureImages(this)
+        val captureImages = LocalSettings.captureImages(appContext)
         // Only the raw byte read has to happen inside the callback: the provider may
         // revoke the ephemeral URI grant as soon as the callback returns. Decoding
         // and downscaling are CPU bound and happen on the worker thread below.
-        val pictureBytes = if (captureImages) readPictureBytes(extras) else null
+        val pictureBytes = if (captureImages) readPictureBytes(appContext, extras) else null
         val received = System.currentTimeMillis()
         val window = previews.takeLast(25)
         val items = window.mapIndexed { idx, p ->
             val last = idx == window.lastIndex
             val fromMessage = if (captureImages && p.mediaMime?.startsWith("image/") == true)
-                ImageCapture.readBytes(this, p.mediaUri) else null
+                ImageCapture.readBytes(appContext, p.mediaUri) else null
             p to (fromMessage ?: pictureBytes?.takeIf { last })
         }
         worker.execute {
-            if (!LocalSettings.isRecording(applicationContext)) return@execute
-            if (!CapturePolicy.allowed(pkg, LocalSettings.selected(applicationContext))) return@execute
-            val db = InboxDatabase(applicationContext)
+            if (!LocalSettings.isRecording(appContext)) return@execute
+            if (!CapturePolicy.allowed(pkg, LocalSettings.selected(appContext))) return@execute
+            val db = InboxDatabase(appContext)
             try {
                 for ((p, rawBytes) in items) {
                     // Decoding + JPEG re-encode is CPU bound; keep it off the callback.
@@ -62,7 +69,7 @@ class PrivateNotificationListener : NotificationListenerService() {
     }
 
     /** Read the notification's own picture bytes (BigPictureStyle bitmap or icon). */
-    private fun readPictureBytes(extras: Bundle): ByteArray? {
+    private fun readPictureBytes(ctx: android.content.Context, extras: Bundle): ByteArray? {
         val raw = if (Build.VERSION.SDK_INT >= 33)
             extras.getParcelable(Notification.EXTRA_PICTURE, Bitmap::class.java)
         else @Suppress("DEPRECATION") (extras.getParcelable(Notification.EXTRA_PICTURE) as? Bitmap)
@@ -72,7 +79,7 @@ class PrivateNotificationListener : NotificationListenerService() {
                 extras.getParcelable(Notification.EXTRA_PICTURE_ICON, Icon::class.java)
             else @Suppress("DEPRECATION") (extras.getParcelable(Notification.EXTRA_PICTURE_ICON) as? Icon)
             if (icon != null) {
-                val drawable = runCatching { icon.loadDrawable(this) }.getOrNull()
+                val drawable = runCatching { icon.loadDrawable(ctx) }.getOrNull()
                 if (drawable != null) {
                     val w = drawable.intrinsicWidth.coerceIn(1, 1280)
                     val h = drawable.intrinsicHeight.coerceIn(1, 1280)

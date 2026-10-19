@@ -9,8 +9,11 @@ build/
 *.keystore
 .DS_Store
 
-# Local toolchain / cache outside the project tree
+# Local toolchain / caches that live outside the project tree.
+# NOTE: do NOT ignore "gradle/" wholesale — gradle/wrapper/ must stay tracked.
 gradle_home/
-gradle/
+/gradle/gradle-8.13/
 android-sdk/
+emulator-home/
+.android-home/
 *.log
