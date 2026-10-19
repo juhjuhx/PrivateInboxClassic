@@ -1,10 +1,16 @@
 <resources>
+    <!-- 2014-2016 Material One visual language. Colors follow the spec palette:
+         primary #5682A3, dark status #497799, ink #212121, secondary #757575,
+         divider #E0E0E0. No Material You, no gradients, no glassmorphism. -->
     <style name="ClassicTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:colorPrimary">#5682A3</item>
         <item name="android:colorAccent">#5682A3</item>
         <item name="android:colorControlActivated">#5682A3</item>
-        <item name="android:statusBarColor">#426787</item>
-        <item name="android:navigationBarColor">#172635</item>
+        <item name="android:statusBarColor">#497799</item>
+        <item name="android:navigationBarColor">#20323F</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:fontFamily">sans-serif</item>
+        <item name="android:textColorPrimary">#212121</item>
+        <item name="android:textColorSecondary">#757575</item>
     </style>
 </resources>

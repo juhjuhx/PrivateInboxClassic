@@ -1,0 +1,70 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.13/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Configure project :app
+Unable to initialize metrics, ensure $HOME/.android is writable, details: $HOME/.android/analytics.settings (Operation not permitted)
+
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:checkDebugAarMetadata UP-TO-DATE
+> Task :app:processDebugNavigationResources UP-TO-DATE
+> Task :app:compileDebugNavigationResources UP-TO-DATE
+> Task :app:generateDebugResValues UP-TO-DATE
+> Task :app:mapDebugSourceSetPaths UP-TO-DATE
+> Task :app:generateDebugResources UP-TO-DATE
+> Task :app:mergeDebugResources UP-TO-DATE
+> Task :app:packageDebugResources UP-TO-DATE
+> Task :app:parseDebugLocalResources UP-TO-DATE
+> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksDebug UP-TO-DATE
+> Task :app:processDebugMainManifest UP-TO-DATE
+> Task :app:processDebugManifest UP-TO-DATE
+> Task :app:processDebugManifestForPackage UP-TO-DATE
+> Task :app:processDebugResources FROM-CACHE
+> Task :app:javaPreCompileDebug UP-TO-DATE
+> Task :app:mergeDebugShaders UP-TO-DATE
+> Task :app:compileDebugShaders NO-SOURCE
+> Task :app:generateDebugAssets UP-TO-DATE
+> Task :app:mergeDebugAssets UP-TO-DATE
+> Task :app:compressDebugAssets UP-TO-DATE
+> Task :app:desugarDebugFileDependencies UP-TO-DATE
+> Task :app:checkDebugDuplicateClasses UP-TO-DATE
+> Task :app:mergeExtDexDebug UP-TO-DATE
+> Task :app:mergeLibDexDebug UP-TO-DATE
+> Task :app:mergeDebugJniLibFolders UP-TO-DATE
+> Task :app:mergeDebugNativeLibs NO-SOURCE
+> Task :app:stripDebugDebugSymbols NO-SOURCE
+> Task :app:validateSigningDebug UP-TO-DATE
+> Task :app:writeDebugAppMetadata UP-TO-DATE
+> Task :app:writeDebugSigningConfigVersions UP-TO-DATE
+> Task :app:compileDebugKotlin
+w: file://$HOME/Desktop/%E6%88%91%E7%9A%84%E5%B7%B2%E8%AE%80%E4%B8%8D%E5%9B%9E%E5%8A%A9%E7%90%86/PrivateInboxClassic-v0.2/PrivateInboxClassic/app/src/main/java/tw/personal/privateinbox/MainActivity.kt:67:16 'var statusBarColor: Int' is deprecated. Deprecated in Java.
+w: file://$HOME/Desktop/%E6%88%91%E7%9A%84%E5%B7%B2%E8%AE%80%E4%B8%8D%E5%9B%9E%E5%8A%A9%E7%90%86/PrivateInboxClassic-v0.2/PrivateInboxClassic/app/src/main/java/tw/personal/privateinbox/MainActivity.kt:68:16 'var navigationBarColor: Int' is deprecated. Deprecated in Java.
+w: file://$HOME/Desktop/%E6%88%91%E7%9A%84%E5%B7%B2%E8%AE%80%E4%B8%8D%E5%9B%9E%E5%8A%A9%E7%90%86/PrivateInboxClassic-v0.2/PrivateInboxClassic/app/src/main/java/tw/personal/privateinbox/MainActivity.kt:69:26 'var systemUiVisibility: Int' is deprecated. Deprecated in Java.
+w: file://$HOME/Desktop/%E6%88%91%E7%9A%84%E5%B7%B2%E8%AE%80%E4%B8%8D%E5%9B%9E%E5%8A%A9%E7%90%86/PrivateInboxClassic-v0.2/PrivateInboxClassic/app/src/main/java/tw/personal/privateinbox/MainActivity.kt:74:39 'val systemWindowInsetTop: Int' is deprecated. Deprecated in Java.
+w: file://$HOME/Desktop/%E6%88%91%E7%9A%84%E5%B7%B2%E8%AE%80%E4%B8%8D%E5%9B%9E%E5%8A%A9%E7%90%86/PrivateInboxClassic-v0.2/PrivateInboxClassic/app/src/main/java/tw/personal/privateinbox/MainActivity.kt:74:71 'val systemWindowInsetBottom: Int' is deprecated. Deprecated in Java.
+w: file://$HOME/Desktop/%E6%88%91%E7%9A%84%E5%B7%B2%E8%AE%80%E4%B8%8D%E5%9B%9E%E5%8A%A9%E7%90%86/PrivateInboxClassic-v0.2/PrivateInboxClassic/app/src/main/java/tw/personal/privateinbox/MainActivity.kt:98:15 'fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Unit' is deprecated. This method has been deprecated in favor of using the Activity Result API
+      which brings increased type safety via an {@link ActivityResultContract} and the prebuilt
+      contracts for common intents available in
+      {@link androidx.activity.result.contract.ActivityResultContracts}, provides hooks for
+      testing, and allow receiving results in separate, testable classes independent from your
+      activity. Use
+      {@link #registerForActivityResult(ActivityResultContract, ActivityResultCallback)}
+      with the appropriate {@link ActivityResultContract} and handling the result in the
+      {@link ActivityResultCallback#onActivityResult(Object) callback}.
+
+> Task :app:compileDebugJavaWithJavac NO-SOURCE
+> Task :app:dexBuilderDebug UP-TO-DATE
+> Task :app:mergeDebugGlobalSynthetics UP-TO-DATE
+> Task :app:processDebugJavaRes UP-TO-DATE
+> Task :app:mergeDebugJavaResource UP-TO-DATE
+> Task :app:mergeProjectDexDebug UP-TO-DATE
+> Task :app:packageDebug UP-TO-DATE
+> Task :app:createDebugApkListingFileRedirect UP-TO-DATE
+> Task :app:assembleDebug UP-TO-DATE
+w: Detected multiple Kotlin daemon sessions at 
+
+BUILD SUCCESSFUL in 1m 27s
+35 actionable tasks: 1 executed, 1 from cache, 33 up-to-date

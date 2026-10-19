@@ -1,8 +1,20 @@
 #!/usr/bin/env bash
+# Runs the JVM unit tests for the Android-free policy and image-validation logic.
+# Uses the project's own Gradle wrapper so the same tests run locally and in CI.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-TMPDIR_TEST="$(mktemp -d)"
-trap 'rm -rf "$TMPDIR_TEST"' EXIT
-kotlinc app/src/main/java/tw/personal/privateinbox/CapturePolicy.kt \
-  core-tests/CapturePolicyTest.kt -include-runtime -d "$TMPDIR_TEST/tests.jar"
-java -jar "$TMPDIR_TEST/tests.jar"
+
+./gradlew --no-daemon :app:testDebugUnitTest
+
+echo
+echo "--- test report ---"
+shopt -s nullglob
+for f in app/build/test-results/testDebugUnitTest/*.xml; do
+  python3 - "$f" <<'PY'
+import sys, xml.etree.ElementTree as ET
+root = ET.parse(sys.argv[1]).getroot()
+print(f"{root.get('name')}: tests={root.get('tests')} "
+      f"failures={root.get('failures')} errors={root.get('errors')} "
+      f"skipped={root.get('skipped')}")
+PY
+done

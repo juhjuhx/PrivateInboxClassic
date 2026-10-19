@@ -21,4 +21,15 @@ android {
     }
 
     kotlinOptions { jvmTarget = "17" }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+}
+
+dependencies {
+    // AndroidX back-press dispatcher: predictive-back compatible on Android 13+ without
+    // any network, tracking, or UI library. No other runtime dependencies are added.
+    implementation("androidx.activity:activity:1.9.2")
+    testImplementation("junit:junit:4.13.2")
 }

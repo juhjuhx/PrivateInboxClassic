@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ (API 31): exclude the encrypted vault and every file the app keeps
+     from Auto Backup and device-to-device transfers. Nothing is ever sent off device. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <!-- No cloud backup: encrypted DB, keys, prefs all stay on-device only. -->
+    </cloud-backup>
+    <device-transfer>
+        <!-- No local migration either: a moved database without its Keystore keys is
+             unrecoverable, so block transfers instead of shipping unusable ciphertext. -->
+    </device-transfer>
+</data-extraction-rules>

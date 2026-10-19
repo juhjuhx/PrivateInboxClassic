@@ -9,33 +9,70 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+
       - uses: android-actions/setup-android@v3
+
       - name: Accept SDK licenses
         run: yes | sdkmanager --licenses >/dev/null || true
+
       - name: Install SDK 36
-        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.13'
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'platform-tools'
+
+      - name: Verify Gradle Wrapper
+        run: |
+          test -f gradlew
+          test -f gradle/wrapper/gradle-wrapper.jar
+          ./gradlew --version
+
       - name: Run static safety checks
         run: bash scripts/audit.sh
+
+      - name: Run unit tests
+        run: ./gradlew --no-daemon :app:testDebugUnitTest
+
+      - name: Run Android Lint
+        run: ./gradlew --no-daemon :app:lintDebug
+
       - name: Compile debug APK
-        run: gradle --no-daemon :app:assembleDebug
-      - name: Inspect manifest permissions
+        run: ./gradlew --no-daemon :app:assembleDebug
+
+      - name: Record APK fingerprint
+        run: |
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          test -f "$APK" || { echo "APK was not produced" >&2; exit 1; }
+          echo "APK: $APK"; sha256sum "$APK" | tee apk-sha256.txt; stat -c '%s bytes' "$APK"
+
+      # Inspect the ACTUAL installed APK, not just the source manifest
+      - name: Inspect final APK permissions
         run: |
           APK=app/build/outputs/apk/debug/app-debug.apk
           AAPT="$ANDROID_HOME/build-tools/36.0.0/aapt"
           "$AAPT" dump permissions "$APK" | tee /tmp/permissions.txt
-          if grep -E '(android.permission.INTERNET|READ_SMS|READ_CONTACTS|QUERY_ALL_PACKAGES)' /tmp/permissions.txt; then
-            echo 'Unexpected sensitive permission detected' >&2; exit 1
+          if grep -E '(android.permission.INTERNET|READ_SMS|READ_CONTACTS|QUERY_ALL_PACKAGES|READ_EXTERNAL_STORAGE|FOREGROUND_SERVICE|ACCESS_NETWORK_STATE)' /tmp/permissions.txt; then
+            echo 'Unexpected sensitive permission detected in final APK' >&2; exit 1
           fi
+          echo "PASS: final APK permission gate"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PrivateInboxClassic-test-results
+          path: |
+            app/build/test-results/**
+            app/build/reports/tests/**
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: warn
+          retention-days: 14
+
       - uses: actions/upload-artifact@v4
         with:
           name: PrivateInboxClassic-debug-apk

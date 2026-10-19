@@ -46,11 +46,14 @@ object ImageCapture {
         return null
     }
 
-    /** Provider must already grant the notification listener read permission. */
-    fun fromUri(context: Context, uri: Uri?): ByteArray? {
+    /** Read the raw bytes a notification media URI exposes, without decoding.
+     *  Must run while the provider still grants the listener read access, so it is
+     *  called from the notification callback. Decoding happens later, off the
+     *  callback thread, in [toPreview]. */
+    fun readBytes(context: Context, uri: Uri?): ByteArray? {
         if (uri == null || uri.scheme != "content") return null
         return runCatching {
-            val data = context.contentResolver.openInputStream(uri)?.use { input ->
+            context.contentResolver.openInputStream(uri)?.use { input ->
                 val output = ByteArrayOutputStream()
                 val buffer = ByteArray(8192)
                 var total = 0
@@ -62,7 +65,16 @@ object ImageCapture {
                     output.write(buffer, 0, n)
                 }
                 output.toByteArray()
-            } ?: return@runCatching null
+            }
+        }.getOrNull()
+    }
+
+    /** Decode raw bytes into a bounded JPEG preview. CPU bound: run off the UI thread. */
+    fun toPreview(data: ByteArray?, declaredMime: String? = null): ByteArray? {
+        if (data == null || data.isEmpty()) return null
+        return runCatching {
+            // Reject bytes that are not actually an image before decoding.
+            if (!looksLikeImage(data, declaredMime)) return@runCatching null
             // Decode with downsampling to cap bitmap allocations.
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(data, 0, data.size, bounds)
@@ -90,7 +102,44 @@ object ImageCapture {
         }.getOrNull()
     }
 
-    private fun asPreview(bitmap: Bitmap): ByteArray? {
+    /** Provider must already grant the notification listener read permission.
+     * [mediaType] is the MIME the source notification declared (an image mime type, or null). */
+    fun fromUri(context: Context, uri: Uri?, mediaType: String? = null): ByteArray? {
+        val data = readBytes(context, uri) ?: return null
+        return toPreview(data, mediaType)
+    }
+
+    /** Reject payloads that are not images: magic-byte sniff plus the declared MIME. */
+    internal fun looksLikeImage(data: ByteArray, declaredMime: String?): Boolean {
+        if (data.size < 4) return false
+        val sig = IntArray(4) { data[it].toInt() and 0xff }
+        val magic = when {
+            // JPEG FF D8 FF
+            sig[0] == 0xFF && sig[1] == 0xD8 && sig[2] == 0xFF -> true
+            // PNG 89 50 4E 47
+            sig[0] == 0x89 && sig[1] == 0x50 && sig[2] == 0x4E && sig[3] == 0x47 -> true
+            // GIF47 49 / GIF47 56 (GIF8)
+            sig[0] == 0x47 && sig[1] == 0x49 && sig[2] == 0x46 -> true
+            // WebP 52 49 46 46 ... 57 45 42 50
+            sig[0] == 0x52 && sig[1] == 0x49 && sig[2] == 0x46 && sig[3] == 0x46 ->
+                data.size > 11 && data[8].toInt() and 0xff == 0x57 &&
+                data[9].toInt() and 0xff == 0x45 &&
+                data[10].toInt() and 0xff == 0x42 &&
+                data[11].toInt() and 0xff == 0x50
+            // HEIC/ISOBMFF (ftyp at offset 4)
+            data.size > 11 && data[4].toInt() and 0xff == 0x66 &&
+                data[5].toInt() and 0xff == 0x74 &&
+                data[6].toInt() and 0xff == 0x79 &&
+                data[7].toInt() and 0xff == 0x70 -> true
+            else -> false
+        }
+        if (magic) return true
+        // No recognizable image magic: only accept if the declared MIME explicitly
+        // says image/* (some HEIC/AVIF variants are not sniffed above).
+        return declaredMime?.startsWith("image/", true) == true
+    }
+
+    internal fun asPreview(bitmap: Bitmap): ByteArray? {
         if (bitmap.width <= 0 || bitmap.height <= 0) return null
         val ratio = minOf(1f, MAX_SIDE.toFloat() / maxOf(bitmap.width, bitmap.height))
         val w = (bitmap.width * ratio).toInt().coerceAtLeast(1)

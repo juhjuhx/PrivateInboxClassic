@@ -8,3 +8,9 @@ build/
 *.jks
 *.keystore
 .DS_Store
+
+# Local toolchain / cache outside the project tree
+gradle_home/
+gradle/
+android-sdk/
+*.log
