@@ -86,8 +86,8 @@ export GRADLE_USER_HOME="$PWD/../gradle_home"
 | 項目 | 值 |
 |------|-----|
 | 路徑 | `app/build/outputs/apk/debug/app-debug.apk` |
-| 大小 | 5,892,991 bytes（約 5.6 MB） |
-| SHA-256 | `bcc174768630aacf4b45c2682654e401aaccc7336d7d5f4f7a6c72869eda3642` |
+| 大小 | app/build/outputs/apk/debug/app-debug.apk bytes（約 5.6 MB） |
+| SHA-256 | `9b0f788cd136e44b023cb3f5bf7db98443217a24bc1629c2b45a6e1bf8d3b1b4` |
 | Application ID | `tw.personal.privateinbox` |
 | Version | `0.3.0` (versionCode 3) |
 | minSdk / targetSdk | 28 / 36 |
