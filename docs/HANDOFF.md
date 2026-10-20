@@ -17,7 +17,7 @@
 | Instrumentation | ✅ 34/34（0 skip）— Android 16 模擬器 |
 | Lint | ✅ 0 error |
 | 秘密稽核 | ✅ PASS（工作樹 + 完整 Git 歷史） |
-| APK | ✅ 已產出，權限已驗證 |
+| APK | ✅ 已產出，權限與簽章已驗證，Debug 版已安裝並啟動 |
 | 遠端 | **無**（未推送任何地方） |
 
 ---
