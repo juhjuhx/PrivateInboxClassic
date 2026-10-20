@@ -17,7 +17,7 @@ object LocalSettings {
         ?.toSet() ?: emptySet()
 
     fun updateSources(context: Context, sources: Set<String>) {
-        val accepted = sources.intersect(CapturePolicy.knownApps.map { it.second }.toSet())
+        val accepted = sources.intersect(SourceRegistry.all.map { it.packageName }.toSet())
         context.getSharedPreferences(NAME, Context.MODE_PRIVATE)
             .edit().putStringSet(SOURCES, accepted).apply()
     }

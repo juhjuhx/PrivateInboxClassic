@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Deliberately NO INTERNET, ACCESS_NETWORK_STATE, QUERY_ALL_PACKAGES,
-         READ_SMS, Accessibility, or external storage permissions. -->
+         READ_SMS, Accessibility, or external storage permissions.
+         POST_NOTIFICATIONS (API 33+) is used ONLY to post this app's own
+         self-test notification; it is not required to capture LINE/Messenger. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application
         android:label="Private Inbox Classic"
         android:icon="@drawable/ic_classic"

@@ -2,7 +2,11 @@ package tw.personal.privateinbox
 
 import android.app.AlertDialog
 import android.app.KeyguardManager
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -20,6 +24,7 @@ import android.view.WindowManager
 import android.widget.*
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import java.util.Date
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -28,6 +33,7 @@ import java.util.concurrent.Executors
 class MainActivity : ComponentActivity() {
     private companion object {
         const val AUTH_REQUEST = 101
+        const val POST_NOTIF_REQUEST = 102
         const val BLUE = 0xff5682A3.toInt()
         const val BLUE_DARK = 0xff497799.toInt()
         const val BADGE = 0xff4D8BC4.toInt()
@@ -43,9 +49,23 @@ class MainActivity : ComponentActivity() {
     private var entries: List<InboxDatabase.Entry> = emptyList()
     private var currentThread: String? = null
     private var currentTitle: String? = null
+    /** Currently selected platform filter (package name), or null for "all". */
+    private var selectedPlatform: String? = null
+    /** Active search query, shared by the search screen and the platform filter. */
+    private var searchQuery: String? = null
+    /** Search screen source filter (package name) or null for "all". */
+    private var searchSourceFilter: String? = null
+    /** Search screen lower time bound in epoch millis; 0 means no bound. */
+    private var searchFromEpoch: Long = 0L
     private val io: ExecutorService = Executors.newFixedThreadPool(2)
+    private var selfTestDialog: AlertDialog? = null
     private val colors = intArrayOf(0xff5aa8a1.toInt(), 0xffc28d64.toInt(), 0xff68a4c9.toInt(),
         0xffbc799e.toInt(), 0xff9183bc.toInt(), 0xff78a676.toInt())
+
+    private val postNotificationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            showDiagnostics()
+        }
 
     private fun Int.dp() = (this * resources.displayMetrics.density + .5f).toInt()
 
@@ -240,11 +260,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Stable conversation identity: source package + the conversation title the
-     *  notification reported. Two different contacts that share a display name in
-     *  the same app are indistinguishable at the notification API level, so they
-     *  intentionally share a thread; the source package always separates apps. */
-    private fun threadKey(e: InboxDatabase.Entry): String = "${e.packageName}\u0000${e.title}"
+    /** Stable conversation identity: the platform conversation key when available,
+     *  otherwise the legacy package + display title. The source package always
+     *  separates apps, so the same contact in LINE and Messenger never merges. */
+    private fun threadKey(e: InboxDatabase.Entry): String =
+        e.conversationKey.ifEmpty { InboxDatabase.legacyConversationKey(e.packageName, e.title) }
 
     private fun threads(list: List<InboxDatabase.Entry>) = list.groupBy { threadKey(it) }
         .entries.sortedByDescending { it.value.maxOf { e -> e.receivedAt } }
@@ -296,6 +316,14 @@ class MainActivity : ComponentActivity() {
         details.addView(txt(last.title, 16f, INK, true).apply {
             maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
         })
+        // Source label under the contact name, so the platform is visible at a glance.
+        val sourceLabel = SourceRegistry.displayName(last.packageName)
+        if (sourceLabel.isNotEmpty() && sourceLabel != last.title) {
+            details.addView(txt(sourceLabel, 11f, BLUE).apply {
+                maxLines = 1
+                setPadding(0, 1.dp(), 0, 0)
+            })
+        }
         val preview = (if (last.sender.isNotEmpty()) "${last.sender}: " else "") +
             (if (last.hasImage) "📷 " else "") + last.body
         details.addView(txt(preview, 14f, SECONDARY).apply {
@@ -330,22 +358,32 @@ class MainActivity : ComponentActivity() {
         if (reload) loadEntries()
         val root = column()
         root.addView(toolbar("Private Inbox", { showMenu() }, true))
+        // Platform filter bar: the selected source filters the list below. The
+        // search query and the selected platform are independent.
+        root.addView(platformFilterBar())
+        val visible = filteredEntries()
         val data = column()
         if (reload && entries.isEmpty()) {
             data.addView(txt("正在載入已保存的通知…", 16f, SECONDARY).apply {
                 gravity = Gravity.CENTER
                 setPadding(12.dp(), 82.dp(), 12.dp(), 16.dp())
             })
-        } else if (entries.isEmpty()) {
-            data.addView(txt("目前沒有已保存的通知", 18f, INK, true).apply {
+        } else if (visible.isEmpty()) {
+            val filtered = selectedPlatform != null
+            data.addView(txt(
+                if (filtered) "這個來源還沒有已保存的通知" else "目前沒有已保存的通知",
+                18f, INK, true).apply {
                 gravity = Gravity.CENTER
                 setPadding(12.dp(), 82.dp(), 12.dp(), 16.dp())
             })
-            data.addView(txt("點右下角設定，開啟來源及照片擷取，再到 Android 授予通知存取權限。", 14f, SECONDARY).apply {
+            data.addView(txt(
+                if (filtered) "切換到「全部」可查看其他來源。\n請在設定中開啟來源並授予通知存取權限。"
+                else "點右下角設定，開啟來源及照片擷取，再到 Android 授予通知存取權限。",
+                14f, SECONDARY).apply {
                 gravity = Gravity.CENTER; setPadding(22.dp(), 0, 22.dp(), 0)
             })
         } else {
-            for (thread in threads(entries)) {
+            for (thread in threads(visible)) {
                 val first = thread.value.first()
                 data.addView(threadRow(thread.value) {
                     currentThread = thread.key
@@ -369,6 +407,63 @@ class MainActivity : ComponentActivity() {
         })
         root.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
         show(root)
+    }
+
+    /**
+     * Horizontal platform filter bar. Each entry is a source from [SourceRegistry],
+     * so adding a platform needs no UI change here.
+     */
+    private fun platformFilterBar(): View {
+        val bar = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            setBackgroundColor(Color.WHITE)
+            setPadding(0, 0, 0, 0)
+        }
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(8.dp(), 6.dp(), 8.dp(), 6.dp())
+        }
+        // "All" chip.
+        row.addView(filterChip("全部", selectedPlatform == null) {
+            selectedPlatform = null
+            showInbox(false)
+        })
+        for (source in SourceRegistry.filterableSources) {
+            val count = entries.count { it.packageName == source.packageName }
+            val label = if (count > 0) "${source.shortLabel} $count" else source.shortLabel
+            row.addView(filterChip(label, selectedPlatform == source.packageName) {
+                selectedPlatform = if (selectedPlatform == source.packageName) null
+                                   else source.packageName
+                showInbox(false)
+            })
+        }
+        bar.addView(row)
+        return bar
+    }
+
+    private fun filterChip(label: String, active: Boolean, onClick: () -> Unit): View =
+        txt(label, 13f, if (active) Color.WHITE else SECONDARY, active).apply {
+            gravity = Gravity.CENTER
+            background = rounded(if (active) BLUE else 0xFFF0F2F5.toInt(), 14, LINE)
+            setPadding(14.dp(), 7.dp(), 14.dp(), 7.dp())
+            setOnClickListener { onClick() }
+        }
+
+    /** Entries after applying the platform filter and the active search query. */
+    private fun filteredEntries(): List<InboxDatabase.Entry> {
+        var list = entries
+        val platform = selectedPlatform
+        if (platform != null) list = list.filter { it.packageName == platform }
+        val query = searchQuery?.trim()
+        if (!query.isNullOrEmpty()) {
+            list = list.filter {
+                it.title.contains(query, true) || it.sender.contains(query, true) ||
+                    it.body.contains(query, true) ||
+                    SourceRegistry.displayName(it.packageName).contains(query, true)
+            }
+        }
+        return list
     }
 
     private fun showMenu() {
@@ -537,20 +632,24 @@ class MainActivity : ComponentActivity() {
             textSize = 16f
             setSingleLine(true)
             setPadding(18.dp(), 13.dp(), 18.dp(), 13.dp())
+            setText(searchQuery.orEmpty())
+            setSelection(text.length)
         }
         root.addView(input)
 
-        // Source-app filter row: tap to cycle an optional source restriction.
-        var sourceFilter: String? = null
-        val sourceRow = txt("來源：全部   ·   點一下依來源過濾", 13f, BLUE).apply {
+        // Source-app filter row. The selection lives in activity state so it
+        // survives the dialog re-rendering this screen.
+        val sourceRow = txt(
+            "來源：${searchSourceFilter?.let { SourceRegistry.displayName(it) } ?: "全部"}   ·   點一下依來源過濾",
+            13f, BLUE).apply {
             setPadding(18.dp(), 4.dp(), 18.dp(), 8.dp())
             setBackgroundColor(Color.WHITE)
             setOnClickListener {
-                val sources = (CapturePolicy.knownApps + ("全部" to "")).toMutableList()
+                val sources = SourceRegistry.filterableSources
+                val labels = (listOf("全部") + sources.map { it.displayName }).toTypedArray()
                 AlertDialog.Builder(this@MainActivity).setTitle("依來源 App 過濾")
-                    .setItems(sources.map { it.first }.toTypedArray()) { _, i ->
-                        sourceFilter = if (i == sources.size - 1) null
-                            else CapturePolicy.nameFor(sources[i].second)
+                    .setItems(labels) { _, i ->
+                        searchSourceFilter = if (i == 0) null else sources[i - 1].packageName
                         showSearch()
                     }.show()
             }
@@ -558,7 +657,7 @@ class MainActivity : ComponentActivity() {
         root.addView(sourceRow)
 
         // Date-range filter: from an optional lower bound on the capture time.
-        var fromEpoch: Long = 0L
+        val fromEpoch = searchFromEpoch
         val dateRow = txt("日期範圍：${if (fromEpoch > 0L) "自 " + time(fromEpoch, true) + " 起" else "全部"}   ·   點一下設定", 13f, BLUE).apply {
             setPadding(18.dp(), 4.dp(), 18.dp(), 8.dp())
             setBackgroundColor(Color.WHITE)
@@ -566,13 +665,13 @@ class MainActivity : ComponentActivity() {
                 val cal = java.util.Calendar.getInstance()
                 AlertDialog.Builder(this@MainActivity).setTitle("篩選日期範圍")
                     .setItems(arrayOf("全部時間", "最近 7 天", "最近 30 天", "自今天起")) { _, i ->
-                        when (i) {
-                            0 -> fromEpoch = 0L
-                            1 -> fromEpoch = System.currentTimeMillis() - 7L * 86_400_000
-                            2 -> fromEpoch = System.currentTimeMillis() - 30L * 86_400_000
+                        searchFromEpoch = when (i) {
+                            0 -> 0L
+                            1 -> System.currentTimeMillis() - 7L * 86_400_000
+                            2 -> System.currentTimeMillis() - 30L * 86_400_000
                             else -> {
                                 cal.set(java.util.Calendar.HOUR_OF_DAY, 0); cal.set(java.util.Calendar.MINUTE, 0)
-                                fromEpoch = cal.timeInMillis
+                                cal.timeInMillis
                             }
                         }
                         showSearch()
@@ -585,6 +684,8 @@ class MainActivity : ComponentActivity() {
         root.addView(scroll(results), LinearLayout.LayoutParams(-1, 0, 1f))
         fun search(q: String) {
             results.removeAllViews()
+            searchQuery = q
+            val sourceFilter = searchSourceFilter
             if (q.isBlank() && sourceFilter == null && fromEpoch == 0L) {
                 results.addView(txt("輸入關鍵字，或點上面的列依來源、日期過濾本機紀錄", 14f, SECONDARY).apply {
                     gravity = Gravity.CENTER; setPadding(0, 40.dp(), 0, 0)
@@ -594,9 +695,9 @@ class MainActivity : ComponentActivity() {
             val hits = entries.filter { e ->
                 val matchesText = q.isBlank() ||
                     e.title.contains(q, true) || e.sender.contains(q, true) ||
-                    e.body.contains(q, true) || CapturePolicy.nameFor(e.packageName).contains(q, true)
-                val matchesSource = sourceFilter == null ||
-                    CapturePolicy.nameFor(e.packageName) == sourceFilter
+                    e.body.contains(q, true) ||
+                    SourceRegistry.displayName(e.packageName).contains(q, true)
+                val matchesSource = sourceFilter == null || e.packageName == sourceFilter
                 val matchesDate = e.receivedAt >= fromEpoch
                 matchesText && matchesSource && matchesDate
             }.take(200)
@@ -617,7 +718,7 @@ class MainActivity : ComponentActivity() {
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { search(s.toString()) }
             override fun afterTextChanged(s: Editable?) {}
         })
-        search("")
+        search(searchQuery.orEmpty())
         show(root)
     }
 
@@ -656,18 +757,22 @@ class MainActivity : ComponentActivity() {
         }
         panel.addView(permission, LinearLayout.LayoutParams(-1, 52.dp()))
         panel.addView(txt("選擇訊息來源", 18f, INK, true).apply { setPadding(0, 25.dp(), 0, 8.dp()) })
-        for ((name, pkg) in CapturePolicy.knownApps) {
+        for (source in SourceRegistry.all) {
             panel.addView(CheckBox(this).apply {
-                text = name
+                text = source.displayName
                 buttonTintList = ColorStateList.valueOf(BLUE)
-                isChecked = pkg in LocalSettings.selected(this@MainActivity)
+                isChecked = source.packageName in LocalSettings.selected(this@MainActivity)
                 setOnCheckedChangeListener { _, checked ->
                     val selected = LocalSettings.selected(this@MainActivity).toMutableSet()
-                    if (checked) selected.add(pkg) else selected.remove(pkg)
+                    if (checked) selected.add(source.packageName)
+                    else selected.remove(source.packageName)
                     LocalSettings.updateSources(this@MainActivity, selected)
                 }
             })
         }
+        panel.addView(txt("每個來源可獨立開關。未勾選的來源，其通知不會被保存。", 12f, SECONDARY).apply {
+            setPadding(5.dp(), 0, 5.dp(), 8.dp())
+        })
         panel.addView(txt("資料管理", 18f, INK, true).apply { setPadding(0, 24.dp(), 0, 12.dp()) })
         val delete = Button(this).apply {
             text = "刪除全部通知與照片"
@@ -724,13 +829,196 @@ class MainActivity : ComponentActivity() {
             setLineSpacing(0f, 1.35f)
         })
         panel.addView(txt("版本資訊", 18f, INK, true).apply { setPadding(0, 22.dp(), 0, 10.dp()) })
-        panel.addView(txt("Private Inbox Classic v0.2（內部測試）\n沒有網路權限 · 沒有雲端 · 沒有廣告 · 沒有帳號\n本機離線保存通知文字與通知實際附帶的照片", 12f, SECONDARY).apply {
+        panel.addView(txt("Private Inbox Classic v0.3.1（內部測試）\n沒有網路權限 · 沒有雲端 · 沒有廣告 · 沒有帳號\n本機離線保存通知文字與通知實際附帶的照片", 12f, SECONDARY).apply {
             setLineSpacing(0f, 1.35f)
         })
         panel.addView(txt("沒有 INTERNET 權限、沒有雲端備份，也不提供分享功能。退出畫面後需重新用手機螢幕鎖驗證。", 12f, SECONDARY).apply {
             setPadding(0, 20.dp(), 0, 4.dp())
         })
+        // Notification-listener diagnostics: honest, no fabricated status.
+        panel.addView(txt("通知監聽診斷", 18f, INK, true).apply { setPadding(0, 22.dp(), 0, 10.dp()) })
+        val c = CaptureDiagnostics.counters(this)
+        val status = CaptureDiagnostics.resolveStatus(this)
+        fun diagRow(label: String, value: String): LinearLayout {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, 3.dp(), 0, 0)
+            }
+            row.addView(txt(label, 14f, SECONDARY).apply { layoutParams = LinearLayout.LayoutParams(0, -2, 1.3f) })
+            row.addView(txt(value, 14f, INK).apply {
+                layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
+                gravity = Gravity.END
+            })
+            return row
+        }
+        panel.addView(diagRow("通知存取權限", when {
+            SelfTestNotifier.listenerPermissionGranted(this) -> "已授權"
+            else -> "未授權"
+        }))
+        panel.addView(diagRow("監聽器連線狀態", status))
+        panel.addView(diagRow("訊息記錄開關", if (LocalSettings.isRecording(this)) "開啟" else "關閉"))
+        panel.addView(diagRow("允許來源數量", LocalSettings.selected(this).size.toString()))
+        panel.addView(diagRow("收到通知事件", (c["received"] as Long).toString()))
+        panel.addView(diagRow("解析成功", (c["parse_ok"] as Long).toString()))
+        panel.addView(diagRow("資料庫寫入成功", (c["db_ok"] as Long).toString()))
+        panel.addView(diagRow("失敗事件", (c["failed"] as Long).toString()))
+        panel.addView(diagRow("最後錯誤代碼", "${c["last_code"]} / ${c["last_err"]}"))
+        val lastTs = c["last_ts"] as Long
+        panel.addView(diagRow("最後收到通知", if (lastTs > 0) time(lastTs, true) else "（尚無）"))
+        panel.addView(divider().apply { setPadding(0, 14.dp(), 0, 4.dp()) })
+        val diagActions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 10.dp(), 0, 0)
+        }
+        fun diagButton(label: String, tint: Int, onClick: () -> Unit): Button =
+            Button(this).apply {
+                text = label
+                setTextColor(Color.WHITE)
+                minimumWidth = 0
+                backgroundTintList = ColorStateList.valueOf(tint)
+                setOnClickListener { onClick() }
+            }.also { diagActions.addView(it, LinearLayout.LayoutParams(0, 44.dp(), 1f).apply { marginEnd = 6.dp() }) }
+        diagButton("重新檢查連線", BLUE) {
+            recheckListenerConnection()
+        }
+        diagButton("發送測試通知", BLUE) {
+            sendSelfTest()
+        }
+        diagButton("重新整理訊息", BLUE) {
+            loadEntries()
+            showInbox(false)
+        }
+        panel.addView(diagActions)
+        val diagButtons = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 8.dp(), 0, 0)
+        }
+        diagButtons.addView(Button(this).apply {
+            text = "匯出匿名診斷報告"
+            setTextColor(Color.WHITE)
+            backgroundTintList = ColorStateList.valueOf(0xff3f5a72.toInt())
+            setOnClickListener {
+                val report = CaptureDiagnostics.export(this@MainActivity)
+                val cb = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cb.setPrimaryClip(ClipData.newPlainText("Private Inbox 診斷報告", report))
+                AlertDialog.Builder(this@MainActivity).setTitle("診斷報告已複製")
+                    .setMessage("匿名診斷（不含訊息內容或照片）已複製到剪貼簿。")
+                    .setPositiveButton("好", null).show()
+            }
+        })
+        diagButtons.addView(Button(this).apply {
+            text = "清除診斷紀錄"
+            setTextColor(0xffb53636.toInt())
+            backgroundTintList = ColorStateList.valueOf(0xff555a5f.toInt())
+            setOnClickListener {
+                CaptureDiagnostics.clear(this@MainActivity)
+                showSettings()
+            }
+        })
+        panel.addView(diagButtons)
         root.addView(scroll(panel), LinearLayout.LayoutParams(-1, 0, 1f))
         show(root)
+    }
+
+    private fun recheckListenerConnection() {
+        // Ask the system to (re)bind the listener on user action only. Guarded against
+        // restart loops: this is a single, user-initiated call, never a timer. The
+        // real CONNECTED/DISCONNECTED evidence still comes from the service's own
+        // onListenerConnected / onListenerDisconnected callbacks — a rebind request
+        // that was merely accepted must not be logged as a connection.
+        val requested = CaptureDiagnostics.rebind(this)
+        io.execute {
+            Thread.sleep(800)
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (!requested) {
+                    // rebind() refused (not bound / not granted): record the failure,
+                    // but do not fabricate a connection state.
+                    CaptureDiagnostics.note(this, packageName, "lifecycle",
+                        CaptureDiagnostics.LISTENER_DISCONNECTED, "rebind_refused")
+                }
+                showSettings()
+            }
+        }
+    }
+
+    private fun sendSelfTest() {
+        val ctx = this
+        if (!SelfTestNotifier.listenerPermissionGranted(ctx)) {
+            AlertDialog.Builder(ctx).setTitle("缺少通知存取權限")
+                .setMessage("請先在 Android 設定授予本程式「通知存取」權限，測試通知才會抵達監聽器。")
+                .setPositiveButton("前往授權") { _, _ ->
+                    startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                }
+                .setNegativeButton("取消", null).show()
+            return
+        }
+        // Ensure the self-test source is enabled so the listener stores it.
+        val sel = LocalSettings.selected(ctx).toMutableSet()
+        sel.add(CapturePolicy.SELF_TEST)
+        LocalSettings.updateSources(ctx, sel)
+        LocalSettings.setRecording(ctx, true)
+
+        if (!SelfTestNotifier.canPost(ctx)) {
+            requestPostNotificationPermission()
+            return
+        }
+        val posted = SelfTestNotifier.post(ctx)
+        selfTestDialog = AlertDialog.Builder(ctx).setTitle("發送測試通知")
+            .setMessage(if (posted) "已發送。監聽器應在幾秒內將其存檔。正在檢查…" else
+                "無法發送：本機未允許本程式顯示通知。")
+            .setCancelable(false)
+            .setPositiveButton("完成", null)
+            .show()
+        io.execute {
+            val deadline = System.currentTimeMillis() + 10_000
+            var row: InboxDatabase.Entry? = null
+            while (System.currentTimeMillis() < deadline) {
+                val db = InboxDatabase(ctx)
+                val rows = try { db.recent(50) } finally { db.close() }
+                row = rows.firstOrNull {
+                    it.packageName == CapturePolicy.SELF_TEST && it.body == SelfTestNotifier.BODY
+                }
+                if (row != null) break
+                Thread.sleep(300)
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                val diag = CaptureDiagnostics
+                if (row != null) {
+                    CaptureDiagnostics.note(ctx, CapturePolicy.SELF_TEST, "UI",
+                        CaptureDiagnostics.UI_REFRESH_SUCCESS)
+                    selfTestDialog?.dismiss()
+                    entries = entries + row
+                    currentThread = threadKey(row)
+                    currentTitle = row.title
+                    showChat()
+                    AlertDialog.Builder(ctx).setTitle("系統通知端到端測試通過")
+                        .setMessage("測試通知經 Android 通知系統送達監聽器，已加密入庫並顯示。" +
+                            " LINE／Messenger 真機相容性仍需實體手機驗證。")
+                        .setPositiveButton("好", null).show()
+                } else {
+                    diag.note(ctx, CapturePolicy.SELF_TEST, "UI",
+                        CaptureDiagnostics.UI_REFRESH_FAILED, "self_test_row_missing")
+                    selfTestDialog?.dismiss()
+                    showDiagnostics()
+                }
+            }
+        }
+    }
+
+    private fun requestPostNotificationPermission() {
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            postNotificationPermissionLauncher.launch(
+                android.Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            sendSelfTest()
+        }
+    }
+
+    private fun showDiagnostics() {
+        if (!unlocked) return
+        page = "settings"
+        showSettings()
     }
 }

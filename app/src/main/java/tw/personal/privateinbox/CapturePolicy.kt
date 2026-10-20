@@ -1,21 +1,25 @@
 package tw.personal.privateinbox
 
-/** Has no Android dependencies; test with the standalone Kotlin compiler. */
+/** Has no Android dependencies; test with the standalone Kotlin compiler.
+ *
+ *  The source list itself lives in [SourceRegistry] — this object is the thin
+ *  policy layer on top of it, kept for call sites that only need the allow/deny
+ *  decision. Adding a platform means editing [SourceRegistry] only. */
 object CapturePolicy {
-    // Explicit source allowlist, not a global notification recorder.
-    val knownApps: List<Pair<String, String>> = listOf(
-        "LINE" to "jp.naver.line.android",
-        "Instagram" to "com.instagram.android",
-        "WhatsApp" to "com.whatsapp",
-        "Messenger" to "com.facebook.orca",
-        "Telegram" to "org.telegram.messenger",
-        "Telegram X" to "org.thunderdog.challegram",
-        "Teams" to "com.microsoft.teams",
-        "KakaoTalk" to "com.kakao.talk"
-    )
+    /** Isolated self-test source. When the app posts its own debug notification via
+     *  NotificationManager, the system stamps the StatusBarNotification with our real
+     *  applicationId, so this must equal the app's own package. Declared as a distinct,
+     *  non-messaging source so the E2E self-test can run without widening the real
+     *  messaging allowlist; it is only ever captured when explicitly enabled. */
+    const val SELF_TEST = SourceRegistry.SELF_TEST_PACKAGE
 
+    /** Explicit source allowlist, not a global notification recorder. */
+    val knownApps: List<Pair<String, String>> =
+        SourceRegistry.all.map { it.displayName to it.packageName }
+
+    /** True when the package is a known source AND the user selected it. */
     fun allowed(packageName: String, selected: Set<String>): Boolean =
-        knownApps.any { it.second == packageName } && packageName in selected
+        SourceRegistry.isKnown(packageName) && packageName in selected
 
     fun normalize(value: String?): String? = value
         ?.trim()
@@ -23,6 +27,5 @@ object CapturePolicy {
         ?.take(20_000)
         ?.takeIf { it.isNotBlank() }
 
-    fun nameFor(packageName: String): String =
-        knownApps.firstOrNull { it.second == packageName }?.first ?: packageName
+    fun nameFor(packageName: String): String = SourceRegistry.displayName(packageName)
 }

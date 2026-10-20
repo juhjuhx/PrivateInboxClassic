@@ -19,6 +19,9 @@ object ImageCapture {
     private const val MAX_INPUT_BYTES = 8 * 1024 * 1024
     private const val MAX_SIDE = 1280
     private const val MAX_STORED_BYTES = 700 * 1024
+    // TASK 5: an expensive media-URI read must not hold the notification callback open.
+    // Cap the blocking read; on overrun give up (text still stores).
+    private const val READ_TIMEOUT_MS = 2_000L
 
     @Suppress("DEPRECATION")
     fun fromNotification(context: Context, extras: Bundle): ByteArray? {
@@ -49,15 +52,20 @@ object ImageCapture {
     /** Read the raw bytes a notification media URI exposes, without decoding.
      *  Must run while the provider still grants the listener read access, so it is
      *  called from the notification callback. Decoding happens later, off the
-     *  callback thread, in [toPreview]. */
+     *  callback thread, in [toPreview].
+     *  TASK 5: the read is deadline-bounded ([READ_TIMEOUT_MS]) so a slow/stalled
+     *  content provider can never hold the notification callback open; on overrun
+     *  we give up (return null) and the text row is still stored. */
     fun readBytes(context: Context, uri: Uri?): ByteArray? {
         if (uri == null || uri.scheme != "content") return null
+        val deadline = System.currentTimeMillis() + READ_TIMEOUT_MS
         return runCatching {
             context.contentResolver.openInputStream(uri)?.use { input ->
                 val output = ByteArrayOutputStream()
                 val buffer = ByteArray(8192)
                 var total = 0
                 while (true) {
+                    if (System.currentTimeMillis() > deadline) return@use null
                     val n = input.read(buffer)
                     if (n < 0) break
                     total += n

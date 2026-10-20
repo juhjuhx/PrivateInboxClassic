@@ -19,6 +19,24 @@ class PrivateNotificationListener : NotificationListenerService() {
         val mediaUri: Uri? = null, val mediaMime: String? = null
     )
 
+    override fun onListenerConnected() {
+        // Live in-process connectivity evidence — the only thing that earns CONNECTED.
+        // A system-bound service always has a non-null applicationContext; the catch
+        // exists only so the hooks stay crash-proof when driven from tests on a bare
+        // (unattached) instance. When a context is present, diagnostics are recorded.
+        runCatching {
+            val app = applicationContext ?: return@runCatching
+            CaptureDiagnostics.markConnected(app)
+        }
+    }
+
+    override fun onListenerDisconnected() {
+        runCatching {
+            val app = applicationContext ?: return@runCatching
+            CaptureDiagnostics.markDisconnected(app)
+        }
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         capture(applicationContext, sbn)
     }
@@ -27,21 +45,82 @@ class PrivateNotificationListener : NotificationListenerService() {
      *  exercised directly by instrumentation tests without a bound system service.
      *  [appContext] must be a usable application context. */
     fun capture(appContext: android.content.Context, sbn: StatusBarNotification?) {
-        if (sbn == null || !LocalSettings.isRecording(appContext)) return
+        val startTs = System.currentTimeMillis()
+        if (sbn == null) {
+            CaptureDiagnostics.note(appContext, null, "NOTIFICATION_PARSER",
+                CaptureDiagnostics.EMPTY_NOTIFICATION, "null_sbn", startTs)
+            return
+        }
         val pkg = sbn.packageName
-        if (!CapturePolicy.allowed(pkg, LocalSettings.selected(appContext))) return
-        if (sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
-        val extras = sbn.notification.extras ?: return
+        // One trace id per notification, reused by every pipeline stage so a single
+        // capture attempt can be followed end to end in diagnostics.
+        val trace = CaptureDiagnostics.newTraceId()
+        CaptureDiagnostics.note(appContext, pkg, "SYSTEM_NOTIFICATION",
+            CaptureDiagnostics.NOTIFICATION_RECEIVED, null, startTs, trace)
+        if (!LocalSettings.isRecording(appContext)) {
+            CaptureDiagnostics.note(appContext, pkg, "RECORDING_POLICY",
+                CaptureDiagnostics.RECORDING_DISABLED, null, startTs, trace)
+            return
+        }
+        if (!CapturePolicy.allowed(pkg, LocalSettings.selected(appContext))) {
+            CaptureDiagnostics.note(appContext, pkg, "SOURCE_POLICY",
+                CaptureDiagnostics.SOURCE_NOT_ALLOWED, null, startTs, trace)
+            return
+        }
+        if (sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) {
+            CaptureDiagnostics.note(appContext, pkg, "NOTIFICATION_PARSER",
+                CaptureDiagnostics.GROUP_SUMMARY_SKIPPED, null, startTs, trace)
+            return
+        }
+        val extras = sbn.notification.extras
+        if (extras == null) {
+            CaptureDiagnostics.note(appContext, pkg, "NOTIFICATION_PARSER",
+                CaptureDiagnostics.EMPTY_NOTIFICATION, "null_extras", startTs, trace)
+            return
+        }
         val conversationTitle = CapturePolicy.normalize(
             extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString()
                 ?: extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
         ) ?: CapturePolicy.nameFor(pkg)
+        // The conversation shortcut id is the platform's real conversation
+        // discriminator. It is more reliable than the display title, which two
+        // different contacts can share.
+        val shortcutId = runCatching {
+            sbn.notification.shortcutId?.takeIf { it.isNotBlank() }
+        }.getOrNull()
+        val hasMessageContainer = !extras.getParcelableArray(Notification.EXTRA_MESSAGES).isNullOrEmpty() ||
+            extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES) != null
+        val hasConversationShortcut = shortcutId != null
+        val identity = ConversationIdentity.of(
+            packageName = pkg,
+            title = conversationTitle,
+            shortcutId = shortcutId,
+            isGroup = hasConversationShortcut
+        )
+        val kind = SourceRegistry.classify(
+            packageName = pkg,
+            hasMessageContainer = hasMessageContainer,
+            conversationTitle = conversationTitle,
+            appDisplayName = SourceRegistry.displayName(pkg),
+            category = sbn.notification.category,
+            hasConversationShortcut = hasConversationShortcut
+        )
         val previews = previews(extras)
-        if (previews.isEmpty()) return
+        if (previews.isEmpty()) {
+            CaptureDiagnostics.note(appContext, pkg, "NOTIFICATION_PARSER",
+                CaptureDiagnostics.EMPTY_NOTIFICATION, "no_content", startTs, trace)
+            return
+        }
+        CaptureDiagnostics.note(appContext, pkg, "NOTIFICATION_PARSER",
+            CaptureDiagnostics.PARSE_SUCCESS, null, startTs, trace)
         val captureImages = LocalSettings.captureImages(appContext)
         // Only the raw byte read has to happen inside the callback: the provider may
         // revoke the ephemeral URI grant as soon as the callback returns. Decoding
         // and downscaling are CPU bound and happen on the worker thread below.
+        // TASK 5: when the image feature is off, NO image bytes are read or decoded —
+        // `pictureBytes` and `fromMessage` are both null, so the worker does zero
+        // image work. Raw-byte reads of a media URI happen here only when images are
+        // on and the preview actually carries an image mime.
         val pictureBytes = if (captureImages) readPictureBytes(appContext, extras) else null
         val received = System.currentTimeMillis()
         val window = previews.takeLast(25)
@@ -54,17 +133,57 @@ class PrivateNotificationListener : NotificationListenerService() {
         worker.execute {
             if (!LocalSettings.isRecording(appContext)) return@execute
             if (!CapturePolicy.allowed(pkg, LocalSettings.selected(appContext))) return@execute
-            val db = InboxDatabase(appContext)
+            var db: InboxDatabase? = null
             try {
+                db = InboxDatabase(appContext)
                 for ((p, rawBytes) in items) {
-                    // Decoding + JPEG re-encode is CPU bound; keep it off the callback.
-                    val photo = rawBytes?.let { ImageCapture.toPreview(it, p.mediaMime) }
-                    val body = CapturePolicy.normalize(p.body) ?: if (photo != null) "📷 照片" else continue
-                    db.save(pkg, received, p.time, conversationTitle, p.sender, body, photo)
+                    var photo: ByteArray? = null
+                    var mediaNote: String? = null
+                    if (rawBytes != null) {
+                        // Decoding + JPEG re-encode is CPU bound; keep it off the callback.
+                        photo = runCatching { ImageCapture.toPreview(rawBytes, p.mediaMime) }.getOrNull()
+                        if (photo == null) mediaNote = CaptureDiagnostics.MEDIA_DECODE_FAILED
+                    }
+                    mediaNote?.let {
+                        // An image problem is recorded but never blocks the text row.
+                        CaptureDiagnostics.note(appContext, pkg, "MEDIA", it, null, startTs, trace)
+                    }
+                    // §11 isolation: an image failure never drops the text row.
+                    val body = CapturePolicy.normalize(p.body)
+                        ?: if (photo != null) "📷 照片" else null
+                    if (body == null && photo == null) continue
+                    // runCatching returns Result<SaveResult>: unwrap, THEN classify.
+                    // save() reports insert problems itself as SaveResult.FAILURE, so a
+                    // null value here means the call threw — record that type, never a
+                    // fake success.
+                    val result = runCatching {
+                        db!!.save(pkg, received, p.time, conversationTitle, p.sender,
+                            body ?: "", photo, identity.key, kind.name)
+                    }
+                    when (val outcome = result.getOrNull()) {
+                        InboxDatabase.SaveResult.NEW -> CaptureDiagnostics.note(
+                            appContext, pkg, "DATABASE_COMMIT",
+                            CaptureDiagnostics.DB_INSERT_SUCCESS, null, startTs, trace)
+                        InboxDatabase.SaveResult.DUPLICATE -> CaptureDiagnostics.note(
+                            appContext, pkg, "DATABASE_COMMIT",
+                            CaptureDiagnostics.DB_DUPLICATE, null, startTs, trace)
+                        is InboxDatabase.SaveResult.FAILURE -> CaptureDiagnostics.note(
+                            appContext, pkg, "DATABASE_COMMIT",
+                            CaptureDiagnostics.DB_INSERT_FAILED,
+                            outcome.cause.javaClass.simpleName, startTs, trace)
+                        null -> CaptureDiagnostics.note(
+                            appContext, pkg, "DATABASE_COMMIT",
+                            CaptureDiagnostics.DB_INSERT_FAILED,
+                            result.exceptionOrNull()?.javaClass?.simpleName ?: "insert_exception",
+                            startTs, trace)
+                    }
                 }
-            } catch (_: Exception) {
-                // Do not log messages, photo contents or remote provider paths.
-            } finally { db.close() }
+            } catch (e: Exception) {
+                // No private content is logged; the type name alone is diagnostic.
+                CaptureDiagnostics.note(appContext, pkg, "DATABASE_COMMIT",
+                    CaptureDiagnostics.DB_OPEN_FAILED,
+                    e.javaClass.simpleName, startTs, trace)
+            } finally { db?.close() }
         }
     }
 
