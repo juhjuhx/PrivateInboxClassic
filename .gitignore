@@ -23,3 +23,6 @@ android-sdk/
 emulator-home/
 .android-home/
 *.log
+
+# Agent state (task bookkeeping only, no secrets)
+.agent/
