@@ -44,12 +44,13 @@ class PrivateNotificationListener : NotificationListenerService() {
         // capture path is guarded. The failure is recorded in diagnostics (type
         // name only, never message content).
         //
-        // applicationContext is null when the service instance was created
-        // outside the system (as in a direct unit-style call), so fall back to
-        // the service context, and finally to no context at all.
-        val ctx = applicationContext ?: runCatching { this }.getOrNull()
+        // The service context is NOT usable as a fallback: a Service instance
+        // created outside the system has a null base context, and even
+        // ContextWrapper.getApplicationContext() would throw. Only a real,
+        // attached application context is usable.
+        val ctx = applicationContext
         if (ctx == null) {
-            // No context at all: nothing can be recorded, and nothing can be
+            // No usable context: nothing can be recorded and nothing can be
             // stored. Bail out safely rather than throwing.
             return
         }

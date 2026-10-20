@@ -197,8 +197,11 @@ object CaptureDiagnostics {
         p.putLong(K_DB_OK, prefs(ctx).getLong(K_DB_OK, 0L) +
             if (code == DB_INSERT_SUCCESS || code == DB_DUPLICATE) 1L else 0L)
         p.putLong(K_FAILED, prefs(ctx).getLong(K_FAILED, 0L) + when {
-            code.endsWith("_FAILED") || code == EMPTY_NOTIFICATION ||
-                code == RECORDING_DISABLED || code == SOURCE_NOT_ALLOWED -> 1L
+            // A policy decision is NOT a failure: the user deliberately turned
+            // the source off, or the notification is a group summary. Counting
+            // those as failures would inflate the counter with every
+            // intentionally-skipped notification and make it meaningless.
+            code.endsWith("_FAILED") || code == EMPTY_NOTIFICATION -> 1L
             else -> 0L
         })
         // Bounded cross-restart store: append, apply retention, cap. SharedPreferences

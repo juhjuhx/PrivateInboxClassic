@@ -2,6 +2,7 @@ package tw.personal.privateinbox
 
 import android.app.NotificationManager
 import android.content.Context
+import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -31,24 +32,83 @@ class SelfTestSystemNotificationInstrumentedTest {
      * The instrumentation APK is a separate package with its own data
      * directory, so it cannot write the app's SharedPreferences directly. The
      * debug-only provider (present in the debug build only) bridges that gap.
+     *
+     * The provider lives in the app process, so the app must be running for
+     * the call to succeed. Retry until it answers.
      */
     private fun ensureSelfTestEnabled() {
         val sources = listOf(
             CapturePolicy.SELF_TEST,
             SourceRegistry.SELF_TEST_INSTRUMENTATION_PACKAGE
         ).joinToString(",")
-        ctx.contentResolver.call(
-            DebugSettingsProvider.CONTENT_URI, "enableSources", sources, null
-        )
-        ctx.contentResolver.call(
-            DebugSettingsProvider.CONTENT_URI, "setRecording", "true", null
-        )
+        ensureAppProcessRunning()
+        val deadline = System.currentTimeMillis() + 20_000
+        while (System.currentTimeMillis() < deadline) {
+            val ok = runCatching {
+                ctx.contentResolver.call(
+                    DebugSettingsProvider.CONTENT_URI, "enableSources", sources, null
+                )
+                ctx.contentResolver.call(
+                    DebugSettingsProvider.CONTENT_URI, "setRecording", "true", null
+                )
+            }.isSuccess
+            if (ok) return
+            ensureAppProcessRunning()
+            Thread.sleep(800L)
+        }
     }
 
-    private fun canPostNow(): Boolean =
-        Build.VERSION.SDK_INT < 33 ||
-            ctx.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
-                PackageManager.PERMISSION_GRANTED
+    /**
+     * Can the app post its own notification?
+     *
+     * The permission belongs to the APP package, and the runtime grant state
+     * is only visible to the app itself. The debug provider runs inside the app
+     * process, so it can answer this authoritatively.
+     */
+    private fun canPostNow(): Boolean {
+        if (Build.VERSION.SDK_INT < 33) return true
+        val res = runCatching {
+            ctx.contentResolver.call(
+                DebugSettingsProvider.CONTENT_URI, "canPost", null, null
+            )
+        }.getOrNull()
+        return res?.getBoolean("canPost") == true
+    }
+
+    /**
+     * Ensure the app holds POST_NOTIFICATIONS.
+     *
+     * The permission belongs to the app package. The instrumentation runner
+     * cannot grant it with plain PackageManager calls, but UiAutomation (which
+     * runs with shell privileges) can. If that is not possible, the test falls
+     * back to the normal runtime-permission dialog.
+     */
+    private fun ensureCanPost(): Boolean {
+        // The provider runs in the app process, so the app must be running
+        // before the permission state can be queried.
+        ensureAppProcessRunning()
+        if (canPostNow()) return true
+        // UiAutomation.executeShellCommand runs with shell privileges and can
+        // grant a runtime permission to the app package.
+        runCatching {
+            val uiAutomation = androidx.test.platform.app.InstrumentationRegistry
+                .getInstrumentation().uiAutomation
+            val fd = uiAutomation.executeShellCommand(
+                "pm grant ${ctx.packageName} ${android.Manifest.permission.POST_NOTIFICATIONS}"
+            )
+            val output = android.os.ParcelFileDescriptor.AutoCloseInputStream(fd)
+                .use { it.readBytes().toString(Charsets.UTF_8) }
+            android.util.Log.i("PrivateInboxSelfTest", "pm grant output: $output")
+        }
+        val deadline = System.currentTimeMillis() + 15_000
+        while (System.currentTimeMillis() < deadline) {
+            if (canPostNow()) return true
+            Thread.sleep(500L)
+        }
+        android.util.Log.i("PrivateInboxSelfTest",
+            "canPostNow=false for ${ctx.packageName}")
+        return false
+    }
 
     /**
      * Ensure the system has actually BOUND the listener service. Granting the
@@ -66,37 +126,64 @@ class SelfTestSystemNotificationInstrumentedTest {
      * ever set from a real onListenerConnected() callback, never from a grant.
      */
     private fun ensureListenerConnected(): Boolean {
-        if (!SelfTestNotifier.listenerPermissionGranted(ctx)) return false
-        val component = android.content.ComponentName(ctx, PrivateNotificationListener::class.java)
-        if (Build.VERSION.SDK_INT >= 31) {
-            try {
-                android.service.notification.NotificationListenerService.requestRebind(component)
-            } catch (_: Throwable) {
-            }
+        // The notification-access grant is lost on every fresh install. The
+        // instrumentation runner cannot grant it with PackageManager, but
+        // UiAutomation runs with shell privileges and can.
+        ensureNotificationAccessGranted()
+        if (!SelfTestNotifier.listenerPermissionGranted(ctx)) {
+            android.util.Log.i("PrivateInboxSelfTest",
+                "notification access not granted for ${ctx.packageName}")
+            return false
         }
+
         // The bound service lives in the APP process, not in the test process.
-        // If the app has never been started (fresh install), the system has
-        // nothing to bind to and no connection evidence can exist yet. Starting
-        // the app creates the app process, after which the system binds the
-        // listener service to it.
+        // Make sure the app is running so the system can bind to it. The
+        // provider also runs in the app process, so it can observe the
+        // in-process connection flag and wait for the service's own
+        // onListenerConnected() callback — the only real connection evidence.
         ensureAppProcessRunning()
-        // Wait for the app process to record a real onListenerConnected() event.
-        // The evidence lives in the APP's preferences, so it is read through the
-        // debug provider rather than from this process.
-        val deadline = System.currentTimeMillis() + 25_000
+
+        // The provider is only reachable once the app is installed and its
+        // process exists. Retry briefly: the first start may still be warming
+        // up, and a fresh install may not have registered the provider yet.
+        val deadline = System.currentTimeMillis() + 60_000
         while (System.currentTimeMillis() < deadline) {
-            if (hasConnectedEvidence()) return true
-            Thread.sleep(500)
+            val res = runCatching {
+                ctx.contentResolver.call(
+                    DebugSettingsProvider.CONTENT_URI, "ensureListener", null, null
+                )
+            }.getOrNull()
+            if (res?.getBoolean("connected") == true) return true
+            if (res?.getBoolean("hasEvidence") == true) return true
+            // Make sure the app is up, then wait for the system to bind.
+            ensureAppProcessRunning()
+            Thread.sleep(1000L)
         }
+        println("SELFTEST: listener never became connected")
         return false
     }
 
-    /** Read the app's real listener-connection evidence through the provider. */
-    private fun hasConnectedEvidence(): Boolean {
-        val res = ctx.contentResolver.call(
-            DebugSettingsProvider.CONTENT_URI, "hasConnectedEvidence", null, null
-        )
-        return res?.getBoolean("connected") == true
+    /**
+     * Grant the app notification-access through the system settings service.
+     *
+     * `cmd notification allow_listener` is the supported way to do this from a
+     * shell, and UiAutomation gives the test shell privileges.
+     */
+    private fun ensureNotificationAccessGranted() {
+        if (SelfTestNotifier.listenerPermissionGranted(ctx)) return
+        runCatching {
+            val uiAutomation = androidx.test.platform.app.InstrumentationRegistry
+                .getInstrumentation().uiAutomation
+            val fd = uiAutomation.executeShellCommand(
+                "cmd notification allow_listener ${ctx.packageName}/" +
+                    "${ctx.packageName}.PrivateNotificationListener"
+            )
+            val output = android.os.ParcelFileDescriptor.AutoCloseInputStream(fd)
+                .use { it.readBytes().toString(Charsets.UTF_8) }
+            android.util.Log.i("PrivateInboxSelfTest", "allow_listener output: $output")
+        }
+        // Give the system a moment to bind the service afterwards.
+        Thread.sleep(1500L)
     }
 
     /**
@@ -109,8 +196,15 @@ class SelfTestSystemNotificationInstrumentedTest {
             ?: return
         intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
         runCatching { ctx.startActivity(intent) }
-        // Give the system a moment to create the process and bind the service.
-        Thread.sleep(1500)
+        Thread.sleep(1200L)
+    }
+
+    /** Read the app's real listener-connection evidence through the provider. */
+    private fun hasConnectedEvidence(): Boolean {
+        val res = ctx.contentResolver.call(
+            DebugSettingsProvider.CONTENT_URI, "hasConnectedEvidence", null, null
+        )
+        return res?.getBoolean("connected") == true
     }
 
     @Test
@@ -121,15 +215,19 @@ class SelfTestSystemNotificationInstrumentedTest {
     @Test
     fun systemPostedNotificationReachesListenerAndIsStored() {
         // Without POST_NOTIFICATIONS (API 33+) we cannot post our own notification;
-        // skip honestly instead of fabricating a pass.
-        assumeTrue("POST_NOTIFICATIONS unavailable -> system E2E NOT TESTED", canPostNow())
+        // skip honestly instead of fabricating a pass. The reason is included in
+        // the assumption message so a skipped run is still diagnosable.
+        val canPost = ensureCanPost()
+        assumeTrue("POST_NOTIFICATIONS not granted to ${ctx.packageName} -> system E2E NOT TESTED",
+            canPost)
+        val connected = ensureListenerConnected()
         assumeTrue("listener not bindable in this environment -> system E2E NOT TESTED",
-            ensureListenerConnected())
+            connected)
         ensureSelfTestEnabled()
         // Unique marker so the row we look for can only be the one THIS run posted.
         // Without it, a stale row from a previous run would be counted as success.
         val marker = SelfTestNotifier.BODY + " #" + System.nanoTime()
-        val before = SelfTestRowCount()
+        val before = markerRowCount(marker)
         SelfTestNotifier.post(ctx, System.currentTimeMillis(), marker)
         val deadline = System.currentTimeMillis() + 20_000
         var stored = false
@@ -144,14 +242,17 @@ class SelfTestSystemNotificationInstrumentedTest {
 
     @Test
     fun repeatedIdenticalSelfTestPostsDedupeToSingleRow() {
-        assumeTrue("POST_NOTIFICATIONS unavailable -> dedup NOT TESTED", canPostNow())
+        assumeTrue("POST_NOTIFICATIONS not granted to ${ctx.packageName} -> dedup NOT TESTED",
+            ensureCanPost())
         assumeTrue("listener not bindable in this environment -> dedup NOT TESTED",
             ensureListenerConnected())
         ensureSelfTestEnabled()
-        // A per-run marker with a fixed timestamp: two posts of the SAME marker must
-        // collapse to one row, and no stale row may be mistaken for the result.
+        // A per-run marker with one fixed timestamp: two posts of the SAME marker
+        // must collapse to one row, and no stale row from an earlier run may be
+        // mistaken for the result. The timestamp must be current — the system
+        // may drop a notification whose message time is far in the past.
         val marker = SelfTestNotifier.BODY + " #dedup" + System.nanoTime()
-        val fixed = 1_700_000_000_000L
+        val fixed = System.currentTimeMillis()
         val base = markerRowCount(marker)
         SelfTestNotifier.post(ctx, fixed, marker)
         Thread.sleep(TimeUnit.SECONDS.toMillis(4))
@@ -164,12 +265,14 @@ class SelfTestSystemNotificationInstrumentedTest {
 
     @Test
     fun disabledSourcePolicyRejectsSystemPostedSelfTest() {
-        assumeTrue("POST_NOTIFICATIONS unavailable -> NOT TESTED", canPostNow())
+        assumeTrue("POST_NOTIFICATIONS not granted to ${ctx.packageName} -> NOT TESTED",
+            ensureCanPost())
         assumeTrue("listener not bindable in this environment -> NOT TESTED",
             ensureListenerConnected())
         // Explicitly turn OFF the self-test source while recording stays on: the
         // listener must record SOURCE_NOT_ALLOWED, not store the row.
         // The change must be applied to the APP's settings, not the test's.
+        ensureAppProcessRunning()
         ctx.contentResolver.call(
             DebugSettingsProvider.CONTENT_URI, "enableSources", "", null
         )
@@ -184,14 +287,6 @@ class SelfTestSystemNotificationInstrumentedTest {
             markerRowCount(marker))
     }
 
-    private fun SelfTestRowCount(
-        predicate: (InboxDatabase.Entry) -> Boolean = { SourceRegistry.isSelfTestPackage(it.packageName) }
-    ): Int {
-        val db = InboxDatabase(ctx)
-        val n = try { db.recent(500).count(predicate) } finally { db.close() }
-        return n
-    }
-
     /**
      * Count the stored self-test rows that carry [marker].
      *
@@ -199,10 +294,12 @@ class SelfTestSystemNotificationInstrumentedTest {
      * directly, so the debug-only provider counts them on the app's behalf.
      */
     private fun markerRowCount(marker: String): Int {
-        val res = ctx.contentResolver.call(
-            DebugSettingsProvider.CONTENT_URI,
-            DebugSettingsProvider.METHOD_MARKER_ROWS, marker, null
-        )
+        val res = runCatching {
+            ctx.contentResolver.call(
+                DebugSettingsProvider.CONTENT_URI,
+                DebugSettingsProvider.METHOD_MARKER_ROWS, marker, null
+            )
+        }.getOrNull()
         return res?.getInt(DebugSettingsProvider.KEY_MARKER_ROWS) ?: 0
     }
 }

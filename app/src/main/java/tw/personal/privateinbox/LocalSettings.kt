@@ -34,8 +34,11 @@ object LocalSettings {
 
     fun updateSources(context: Context, sources: Set<String>) {
         val accepted = sources.intersect(SourceRegistry.all.map { it.packageName }.toSet())
+        // putStringSet keeps a reference to the set it is given. Storing the
+        // live instance means a later mutation of the caller's set would
+        // silently change what is persisted, so a defensive copy is stored.
         context.getSharedPreferences(NAME, Context.MODE_PRIVATE)
-            .edit().putStringSet(SOURCES, accepted).apply()
+            .edit().putStringSet(SOURCES, accepted.toSet()).apply()
     }
 
     fun isRecording(context: Context): Boolean = context

@@ -51,30 +51,36 @@ class ListenerRobustnessInstrumentedTest {
 
     @Test
     fun listenerSurvivesAMalformedNotification() {
-        LocalSettings.setRecording(ctx, true)
-        LocalSettings.updateSources(ctx, setOf("org.telegram.messenger"))
+        // Configure the APP's settings through the debug provider: the
+        // instrumentation package has its own data directory.
+        providerEnableSources("org.telegram.messenger")
+        providerSetRecording(true)
 
+        // The capture routine is exercised with a real application context, the
+        // same one the bound service uses.
+        val appCtx = InstrumentationRegistry.getInstrumentation().targetContext
         val listener = PrivateNotificationListener()
+
         // A null StatusBarNotification must be handled without throwing.
-        listener.onNotificationPosted(null)
+        listener.capture(appCtx, null)
 
         // A notification with no extras at all must also be handled.
         val empty = android.app.Notification.Builder(ctx, "test")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .build()
         val sbn = StatusBarNotificationFactory.create(empty, "org.telegram.messenger")
-        listener.onNotificationPosted(sbn)
+        listener.capture(appCtx, sbn)
 
         // The listener must still be usable afterwards.
-        assertTrue("listener must survive malformed input",
-            LocalSettings.isRecording(ctx))
+        assertTrue("listener must survive malformed input", providerIsRecording())
     }
 
     @Test
     fun recordingDisabledIsRecordedAsAStageNotACrash() {
-        LocalSettings.setRecording(ctx, false)
-        LocalSettings.updateSources(ctx, setOf("org.telegram.messenger"))
+        providerEnableSources("org.telegram.messenger")
+        providerSetRecording(false)
 
+        val appCtx = InstrumentationRegistry.getInstrumentation().targetContext
         val empty = android.app.Notification.Builder(ctx, "test")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .build()
@@ -84,12 +90,13 @@ class ListenerRobustnessInstrumentedTest {
         // The counters live in the APP's preferences, so they are read through
         // the debug provider.
         val before = providerLong("received")
-        PrivateNotificationListener().onNotificationPosted(sbn)
+        val failuresBefore = providerLong("failed")
+        PrivateNotificationListener().capture(appCtx, sbn)
         val after = providerLong("received")
 
         assertTrue("the event must be counted as received", after > before)
         assertTrue("recording-disabled must not be counted as a failure",
-            providerLong("failed") == 0L)
+            providerLong("failed") == failuresBefore)
     }
 
     /** Read a diagnostic counter from the app's own preferences. */
@@ -98,5 +105,25 @@ class ListenerRobustnessInstrumentedTest {
             DebugSettingsProvider.CONTENT_URI, "counters", null, null
         ) ?: return 0L
         return res.getLong(key, 0L)
+    }
+
+    private fun providerEnableSources(vararg packages: String) {
+        ctx.contentResolver.call(
+            DebugSettingsProvider.CONTENT_URI, "enableSources",
+            packages.joinToString(","), null
+        )
+    }
+
+    private fun providerSetRecording(enabled: Boolean) {
+        ctx.contentResolver.call(
+            DebugSettingsProvider.CONTENT_URI, "setRecording", enabled.toString(), null
+        )
+    }
+
+    private fun providerIsRecording(): Boolean {
+        val res = ctx.contentResolver.call(
+            DebugSettingsProvider.CONTENT_URI, "counters", null, null
+        ) ?: return false
+        return res.getBoolean("recording", false)
     }
 }

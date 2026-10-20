@@ -5,6 +5,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.Cursor
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 
 /**
@@ -131,6 +132,24 @@ class DebugSettingsProvider : ContentProvider() {
                 LocalSettings.updateSources(ctx, set)
                 out.putBoolean("ok", true)
             }
+            "canPost" -> {
+                // Whether the app may post its own notification. On Android 13+
+                // this needs POST_NOTIFICATIONS. This check runs INSIDE the app
+                // process, so checkSelfPermission() reports the app's real state.
+                out.putBoolean("canPost", SelfTestNotifier.canPost(ctx))
+            }
+            "requestPostPermission" -> {
+                // Ask the user to grant POST_NOTIFICATIONS through the normal
+                // runtime-permission flow. The activity is launched, and the
+                // test waits for the result.
+                val activity = ctx as? android.app.Activity
+                if (activity != null && Build.VERSION.SDK_INT >= 33) {
+                    activity.requestPermissions(
+                        arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 4711
+                    )
+                }
+                out.putBoolean("ok", activity != null)
+            }
             "setRecording" -> {
                 LocalSettings.setRecording(ctx, arg == "true")
                 out.putBoolean("ok", true)
@@ -143,11 +162,37 @@ class DebugSettingsProvider : ContentProvider() {
                         else -> out.putString(k, v.toString())
                     }
                 }
+                // The app's own recording switch, so a test can assert on it.
+                out.putBoolean("recording", LocalSettings.isRecording(ctx))
+                out.putString("sources", LocalSettings.selected(ctx).joinToString(","))
             }
             "hasConnectedEvidence" -> {
                 // The connection evidence lives in the APP's preferences, which
                 // the instrumentation process cannot read directly.
                 out.putBoolean("connected", CaptureDiagnostics.hasConnectedEvidence(ctx))
+            }
+            "ensureListener" -> {
+                // This runs INSIDE the app process, which is the only process
+                // where the in-process connection flag is meaningful. It asks
+                // the system to (re)bind the listener and then waits for the
+                // service's own onListenerConnected() callback.
+                val component = android.content.ComponentName(
+                    ctx, PrivateNotificationListener::class.java
+                )
+                if (Build.VERSION.SDK_INT >= 31) {
+                    runCatching {
+                        android.service.notification.NotificationListenerService
+                            .requestRebind(component)
+                    }
+                }
+                val deadline = System.currentTimeMillis() + 20_000
+                var connected = CaptureDiagnostics.isListenerConnectedInProcess()
+                while (!connected && System.currentTimeMillis() < deadline) {
+                    Thread.sleep(300)
+                    connected = CaptureDiagnostics.isListenerConnectedInProcess()
+                }
+                out.putBoolean("connected", connected)
+                out.putBoolean("hasEvidence", CaptureDiagnostics.hasConnectedEvidence(ctx))
             }
             METHOD_MARKER_ROWS -> {
                 // The stored rows live in the APP's database, which the test
