@@ -38,7 +38,30 @@ class PrivateNotificationListener : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
-        capture(applicationContext, sbn)
+        // A notification listener that throws is killed by the system, which
+        // silently stops ALL capture until the service is rebound. A single
+        // malformed notification must never be able to do that, so the whole
+        // capture path is guarded. The failure is recorded in diagnostics (type
+        // name only, never message content).
+        //
+        // applicationContext is null when the service instance was created
+        // outside the system (as in a direct unit-style call), so fall back to
+        // the service context, and finally to no context at all.
+        val ctx = applicationContext ?: runCatching { this }.getOrNull()
+        if (ctx == null) {
+            // No context at all: nothing can be recorded, and nothing can be
+            // stored. Bail out safely rather than throwing.
+            return
+        }
+        try {
+            capture(ctx, sbn)
+        } catch (e: Throwable) {
+            runCatching {
+                CaptureDiagnostics.note(ctx, sbn?.packageName,
+                    "SYSTEM_NOTIFICATION", CaptureDiagnostics.PARSE_FAILED,
+                    e.javaClass.simpleName)
+            }
+        }
     }
 
     /** Core capture routine. Split out from the service callback so it can be

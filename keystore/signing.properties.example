@@ -1,0 +1,38 @@
+# Signing configuration for Private Inbox Classic.
+#
+# This file is GIT-IGNORED. It holds only paths and passwords, never key material
+# by itself — the .keystore / .jks files are ignored too.
+#
+# Copy this file to keystore/signing.properties and fill in the values.
+# The values can also be supplied on the command line, e.g.
+#   ./gradlew :app:assembleRelease -Prelease.storeFile=... -Prelease.storePassword=...
+#
+# Three identities with different purposes:
+#
+#   debug   - local testing. Must stay STABLE, otherwise Android refuses to
+#             install an update over an existing install (different signature
+#             = different app). A stable debug key is what makes
+#             `adb install -r` work after every rebuild.
+#   release - the shipping app. Keep it private and backed up. Losing it means
+#             you can never update an installed release build.
+#   upload  - the Google Play upload key. May differ from the release key;
+#             only this one has to survive Play App Signing key rotation.
+#
+# Generate a key with:
+#   keytool -genkeypair -v -keystore keystore/release.keystore \
+#           -alias <alias> -keyalg RSA -keysize 4096 -validity 10000
+
+debug.storeFile=keystore/debug.keystore
+debug.storePassword=android
+debug.keyAlias=androiddebugkey
+debug.keyPassword=android
+
+# release.storeFile=keystore/release.keystore
+# release.storePassword=
+# release.keyAlias=
+# release.keyPassword=
+
+# upload.storeFile=keystore/upload.keystore
+# upload.storePassword=
+# upload.keyAlias=
+# upload.keyPassword=

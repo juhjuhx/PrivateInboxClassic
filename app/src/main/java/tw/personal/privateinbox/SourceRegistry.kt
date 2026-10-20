@@ -57,6 +57,18 @@ object SourceRegistry {
      *  notifications this app posts, so it must equal the application id. */
     const val SELF_TEST_PACKAGE = "tw.personal.privateinbox"
 
+    /**
+     * The instrumentation APK is a separate package with its own UID, so a
+     * notification posted from the test process is stamped with THIS package
+     * rather than the app's. It is the same self-test channel and is treated
+     * identically.
+     */
+    const val SELF_TEST_INSTRUMENTATION_PACKAGE = "tw.personal.privateinbox.test"
+
+    /** True when the package is one of the self-test channels. */
+    fun isSelfTestPackage(packageName: String): Boolean =
+        packageName == SELF_TEST_PACKAGE || packageName == SELF_TEST_INSTRUMENTATION_PACKAGE
+
     private val sources = listOf(
         Source("jp.naver.line.android", "LINE", "LINE", 1, isSocial = false),
         Source("com.instagram.android", "Instagram", "IG", 2, isSocial = true),
@@ -68,6 +80,11 @@ object SourceRegistry {
         Source("com.microsoft.teams", "Teams", "MSFT", 8, isSocial = false),
         Source("com.kakao.talk", "KakaoTalk", "KAKAO", 9, isSocial = false),
         Source(SELF_TEST_PACKAGE, "Private Inbox Self Test", "TEST", 99,
+            isSocial = false, isSelfTest = true),
+        // The instrumentation APK is a different package with its own UID, so a
+        // notification posted from the test process carries this package name.
+        // It is the same self-test channel.
+        Source(SELF_TEST_INSTRUMENTATION_PACKAGE, "Private Inbox Self Test (test)", "TEST", 100,
             isSocial = false, isSelfTest = true)
     )
 

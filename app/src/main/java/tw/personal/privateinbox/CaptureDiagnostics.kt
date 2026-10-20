@@ -66,8 +66,12 @@ object CaptureDiagnostics {
     private const val K_LAST_ERR = "last_err_type"
     private const val K_LAST_EVENT_TS = "last_diagnostic_event_at"
     private const val K_LAST_RECEIVED_TS = "last_notification_received_at"
+    private const val K_LAST_SUCCESS_TS = "last_successful_capture_at"
     private const val K_LAST_ID = "last_id"
     private const val K_SEQ = "seq"
+
+    /** Schema version of the exported JSON report. Bump when the shape changes. */
+    const val EXPORT_SCHEMA_VERSION = 2
 
     data class Event(
         val ts: Long,
@@ -183,6 +187,9 @@ object CaptureDiagnostics {
         p.putLong(K_LAST_EVENT_TS, now)
         p.putString(K_LAST_ID, id)
         if (code == NOTIFICATION_RECEIVED) p.putLong(K_LAST_RECEIVED_TS, now)
+        if (code == DB_INSERT_SUCCESS || code == DB_DUPLICATE) {
+            p.putLong(K_LAST_SUCCESS_TS, now)
+        }
         p.putLong(K_RECEIVED, prefs(ctx).getLong(K_RECEIVED, 0L) +
             if (code == NOTIFICATION_RECEIVED) 1L else 0L)
         p.putLong(K_PARSE_OK, prefs(ctx).getLong(K_PARSE_OK, 0L) +
@@ -236,6 +243,7 @@ object CaptureDiagnostics {
         "last_err" to (prefs(ctx).getString(K_LAST_ERR, null) ?: "-"),
         "last_diagnostic_event_at" to prefs(ctx).getLong(K_LAST_EVENT_TS, 0L),
         "last_notification_received_at" to prefs(ctx).getLong(K_LAST_RECEIVED_TS, 0L),
+        "last_successful_capture_at" to prefs(ctx).getLong(K_LAST_SUCCESS_TS, 0L),
         "last_id" to (prefs(ctx).getString(K_LAST_ID, null) ?: "-"),
         "connected_ts" to prefs(ctx).getLong(K_CONNECTED_TS, 0L),
         "disconnected_ts" to prefs(ctx).getLong(K_DISCONNECTED_TS, 0L)
@@ -249,6 +257,7 @@ object CaptureDiagnostics {
             .putLong(K_RECEIVED, 0L).putLong(K_PARSE_OK, 0L).putLong(K_DB_OK, 0L)
             .putLong(K_FAILED, 0L).putString(K_LAST_CODE, null).putString(K_LAST_ERR, null)
             .putLong(K_LAST_EVENT_TS, 0L).putLong(K_LAST_RECEIVED_TS, 0L)
+            .putLong(K_LAST_SUCCESS_TS, 0L)
             .putString(K_LAST_ID, null).putString(K_PERSISTED, null)
             .putLong(K_CONNECTED_TS, 0L).putLong(K_DISCONNECTED_TS, 0L)
             .putBoolean(K_CONNECTED_FLAG, false)
@@ -274,23 +283,26 @@ object CaptureDiagnostics {
                 .put("err", ev.errorType ?: "-"))
         }
         val root = JSONObject()
+            .put("schema_version", EXPORT_SCHEMA_VERSION)
             .put("app", "Private Inbox Classic")
-            .put("version", "0.3.2")
+            .put("version", "0.4.0-alpha")
             .put("diagnostics", JSONObject().apply {
                 put("received", c["received"])
                 put("parse_success", c["parse_ok"])
                 put("db_writes", c["db_ok"])
                 put("failures", c["failed"])
                 put("listener_status", resolveStatus(ctx))
+                put("listener_permission_granted", listenerAccessGranted(ctx))
                 put("last_error", c["last_err"])
                 put("last_code", c["last_code"])
                 put("last_diagnostic_event_at", c["last_diagnostic_event_at"])
                 put("last_notification_received_at", c["last_notification_received_at"])
+                put("last_successful_capture_at", c["last_successful_capture_at"])
             })
             .put("recent_events", events)
         val json = root.toString()
         // Round-trip validation: throw if the string is not itself valid JSON.
-        require(JSONObject(json).length() >= 3) { "diagnostics export failed self-validation" }
+        require(JSONObject(json).length() >= 4) { "diagnostics export failed self-validation" }
         return json
     }
 

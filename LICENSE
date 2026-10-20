@@ -1,0 +1,49 @@
+MIT License
+
+Copyright (c) 2026 Private Inbox Classic contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+## Provenance note (important)
+
+This project is an **independent implementation**. It was *not* derived from,
+forked from, or copied from any GPL-licensed project.
+
+The open-source project **QuietInbox** (<https://gitlab.com/aa22396584/quietinbox>,
+GPL-3.0-or-later) was consulted as a **product reference** only — for the general
+idea of storing encrypted copies of messaging notifications locally, and for the
+use of a source allowlist. No source code, resource, layout, string, or asset
+from QuietInbox (or from any other GPL project) was copied into this codebase.
+
+Concretely:
+
+- The package name is `tw.personal.privateinbox`, not QuietInbox's.
+- The class names, file layout, database schema, UI layout, colour palette,
+  notification parsing logic, diagnostics model and test suite in this repository
+  were written for this project.
+- The only third-party runtime dependency is `androidx.activity` (Apache-2.0);
+  test-only dependencies are `junit` (EPL-1.0) and `androidx.test.*` (Apache-2.0).
+- `grep -rniE "quietinbox|aa22396584|ImL1s"` over `app/` and `scripts/` returns
+  no matches.
+
+Because no GPL code was incorporated, the MIT terms above apply to this codebase
+in full. If GPL-derived code were ever added in the future, this file would
+have to be revisited and the corresponding obligations satisfied.

@@ -25,11 +25,24 @@ import java.util.concurrent.TimeUnit
 class SelfTestSystemNotificationInstrumentedTest {
     private val ctx: Context = InstrumentationRegistry.getInstrumentation().targetContext
 
+    /**
+     * Configure the APP's own settings.
+     *
+     * The instrumentation APK is a separate package with its own data
+     * directory, so it cannot write the app's SharedPreferences directly. The
+     * debug-only provider (present in the debug build only) bridges that gap.
+     */
     private fun ensureSelfTestEnabled() {
-        LocalSettings.setRecording(ctx, true)
-        val sel = LocalSettings.selected(ctx).toMutableSet()
-        sel.add(CapturePolicy.SELF_TEST)
-        LocalSettings.updateSources(ctx, sel)
+        val sources = listOf(
+            CapturePolicy.SELF_TEST,
+            SourceRegistry.SELF_TEST_INSTRUMENTATION_PACKAGE
+        ).joinToString(",")
+        ctx.contentResolver.call(
+            DebugSettingsProvider.CONTENT_URI, "enableSources", sources, null
+        )
+        ctx.contentResolver.call(
+            DebugSettingsProvider.CONTENT_URI, "setRecording", "true", null
+        )
     }
 
     private fun canPostNow(): Boolean =
@@ -61,13 +74,43 @@ class SelfTestSystemNotificationInstrumentedTest {
             } catch (_: Throwable) {
             }
         }
+        // The bound service lives in the APP process, not in the test process.
+        // If the app has never been started (fresh install), the system has
+        // nothing to bind to and no connection evidence can exist yet. Starting
+        // the app creates the app process, after which the system binds the
+        // listener service to it.
+        ensureAppProcessRunning()
         // Wait for the app process to record a real onListenerConnected() event.
-        val deadline = System.currentTimeMillis() + 20_000
+        // The evidence lives in the APP's preferences, so it is read through the
+        // debug provider rather than from this process.
+        val deadline = System.currentTimeMillis() + 25_000
         while (System.currentTimeMillis() < deadline) {
-            if (CaptureDiagnostics.hasConnectedEvidence(ctx)) return true
+            if (hasConnectedEvidence()) return true
             Thread.sleep(500)
         }
         return false
+    }
+
+    /** Read the app's real listener-connection evidence through the provider. */
+    private fun hasConnectedEvidence(): Boolean {
+        val res = ctx.contentResolver.call(
+            DebugSettingsProvider.CONTENT_URI, "hasConnectedEvidence", null, null
+        )
+        return res?.getBoolean("connected") == true
+    }
+
+    /**
+     * Make sure the app process exists, so the system can bind the notification
+     * listener service to it. The listener service is only instantiated in the
+     * app process; the instrumentation test runs in a different package.
+     */
+    private fun ensureAppProcessRunning() {
+        val intent = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)
+            ?: return
+        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { ctx.startActivity(intent) }
+        // Give the system a moment to create the process and bind the service.
+        Thread.sleep(1500)
     }
 
     @Test
@@ -91,13 +134,12 @@ class SelfTestSystemNotificationInstrumentedTest {
         val deadline = System.currentTimeMillis() + 20_000
         var stored = false
         while (System.currentTimeMillis() < deadline) {
-            if (markerRowCount(marker)) { stored = true; break }
+            if (markerRowCount(marker) > 0) { stored = true; break }
             Thread.sleep(500)
         }
         assertTrue("System-posted self-test notification must reach the listener", stored)
         // The listener must have recorded a real connection, not just a grant.
-        assertTrue("listener connection evidence must exist",
-            CaptureDiagnostics.hasConnectedEvidence(ctx))
+        assertTrue("listener connection evidence must exist", hasConnectedEvidence())
     }
 
     @Test
@@ -127,10 +169,13 @@ class SelfTestSystemNotificationInstrumentedTest {
             ensureListenerConnected())
         // Explicitly turn OFF the self-test source while recording stays on: the
         // listener must record SOURCE_NOT_ALLOWED, not store the row.
-        LocalSettings.setRecording(ctx, true)
-        val sel = LocalSettings.selected(ctx).toMutableSet()
-        sel.remove(CapturePolicy.SELF_TEST)
-        LocalSettings.updateSources(ctx, sel)
+        // The change must be applied to the APP's settings, not the test's.
+        ctx.contentResolver.call(
+            DebugSettingsProvider.CONTENT_URI, "enableSources", "", null
+        )
+        ctx.contentResolver.call(
+            DebugSettingsProvider.CONTENT_URI, "setRecording", "true", null
+        )
         val marker = SelfTestNotifier.BODY + " #rejected" + System.nanoTime()
         val before = markerRowCount(marker)
         SelfTestNotifier.post(ctx, System.currentTimeMillis(), marker)
@@ -140,14 +185,24 @@ class SelfTestSystemNotificationInstrumentedTest {
     }
 
     private fun SelfTestRowCount(
-        predicate: (InboxDatabase.Entry) -> Boolean = { it.packageName == CapturePolicy.SELF_TEST }
+        predicate: (InboxDatabase.Entry) -> Boolean = { SourceRegistry.isSelfTestPackage(it.packageName) }
     ): Int {
         val db = InboxDatabase(ctx)
         val n = try { db.recent(500).count(predicate) } finally { db.close() }
         return n
     }
 
-    /** Count only the self-test rows whose body carries [marker]. */
-    private fun markerRowCount(marker: String): Int =
-        SelfTestRowCount(predicate = { it.body.contains(marker) })
+    /**
+     * Count the stored self-test rows that carry [marker].
+     *
+     * The rows live in the APP's database; the test process cannot open it
+     * directly, so the debug-only provider counts them on the app's behalf.
+     */
+    private fun markerRowCount(marker: String): Int {
+        val res = ctx.contentResolver.call(
+            DebugSettingsProvider.CONTENT_URI,
+            DebugSettingsProvider.METHOD_MARKER_ROWS, marker, null
+        )
+        return res?.getInt(DebugSettingsProvider.KEY_MARKER_ROWS) ?: 0
+    }
 }

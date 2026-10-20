@@ -11,10 +11,26 @@ object LocalSettings {
     private const val RETENTION_DAYS = "retention_days"
     private const val SEEN = "thread_last_seen"
 
-    fun selected(context: Context): Set<String> = context
-        .getSharedPreferences(NAME, Context.MODE_PRIVATE)
-        .getStringSet(SOURCES, emptySet())
-        ?.toSet() ?: emptySet()
+    /**
+     * The set of enabled source packages.
+     *
+     * Defensive on purpose: `getStringSet` throws a ClassCastException when the
+     * stored value has the wrong type (for example after a manual edit of the
+     * preferences XML, or a partial write). That would crash the notification
+     * listener service and silently stop all capture, so the read is guarded and
+     * a malformed value degrades to "no sources selected" instead of taking the
+     * app down.
+     */
+    fun selected(context: Context): Set<String> {
+        val raw = context.getSharedPreferences(NAME, Context.MODE_PRIVATE)
+            .all[SOURCES]
+        return when (raw) {
+            is Set<*> -> raw.filterIsInstance<String>().toSet()
+            is String -> raw.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+            null -> emptySet()
+            else -> emptySet()
+        }
+    }
 
     fun updateSources(context: Context, sources: Set<String>) {
         val accepted = sources.intersect(SourceRegistry.all.map { it.packageName }.toSet())

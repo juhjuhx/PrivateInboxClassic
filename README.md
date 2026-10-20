@@ -1,63 +1,100 @@
-# Private Inbox Classic — Android
+# Private Inbox Classic
 
-**版本：0.3.0（可編譯、已產出 Debug APK、已通過 18 項單元測試 + Android 16 模擬器驗證）**
+**一個完全離線、注重隱私的 Android 通知訊息保存工具。**
 
-古早 Telegram Android 2.0 / Material Design 1.0 視覺語言的純離線通知收件匣。
-獨立實作，參考 QuietInbox 的**產品理念**，**不是 QuietInbox 的 fork，也未複製其 GPL 原始碼**。
-本專案與 Telegram / LINE / QuietInbox 均無關聯。
+把 Android 系統交給通知監聽器的訊息，在本機加密保存成副本。
+當原始訊息在 LINE / Telegram / WhatsApp / Instagram / Messenger / Threads
+被撤回時，只要通知在撤回前成功擷取過，你仍能查看當時的副本。
+
+- **沒有 INTERNET 權限** — 技術上無法連線到任何伺服器
+- **沒有帳號登入、沒有廣告、沒有遙測、沒有雲端**
+- **不需要 Root、Accessibility 或任何繞過沙盒的技巧**
+- 介面重現 2014–2016 年 Telegram Android 的 Material Design 1.0 風格
 
 ---
 
-## 這是什麼
+## 目錄
 
-一個**完全離線**、個人使用的 Android 通知訊息保存工具。
-
-它把 Android 系統交給 `NotificationListenerService` 的通知內容，在本機加密保存成副本。
-當原始訊息在 LINE / Telegram / WhatsApp 被撤回時，只要通知在撤回前被成功擷取，
-你仍能查看當時的副本。
-
-它**不是**聊天客戶端，**不能**讀取通訊 App 的歷史記錄，**不需**任何帳號密碼、Root 或 Accessibility。
+- [功能](#功能)
+- [支援的平台](#支援的平台)
+- [安裝](#安裝)
+- [從原始碼建置](#從原始碼建置)
+- [通知擷取的實際限制](#通知擷取的實際限制)
+- [照片保存的實際限制](#照片保存的實際限制)
+- [隱私與安全設計](#隱私與安全設計)
+- [已知問題](#已知問題)
+- [專案架構](#專案架構)
+- [版本](#版本)
+- [授權](#授權)
 
 ---
 
 ## 功能
 
-- **Telegram Classic 介面**：傳統藍灰頂欄（`#5682A3` / 狀態列 `#497799`）、
-  白底圓形頭像列表、緊湊訊息列、聊天室泡泡、日期分隔、單張照片大圖檢視。
-- **通知擷取**：`NotificationListenerService` 擷取使用者明確勾選來源的新通知；
-  支援 `MessagingStyle`、`InboxStyle`、`BigTextStyle` 與一般通知。
-- **照片擷取**：`MessagingStyle.Message.dataUri`（`image/*` MIME）、
-  `BigPictureStyle` 的 `EXTRA_PICTURE` / `EXTRA_PICTURE_ICON`。
-  僅能取得通知系統提供且當下有讀取權限的媒體。
-- **加密**：圖片最多長邊 1280 px、JPEG 壓縮後存為 **Android Keystore AES-256-GCM 加密的 SQLite BLOB**；
-  文字（標題/傳送者/內文）同樣加密；去重指紋用 HMAC-SHA256。
-  不會偷偷讀相簿或檔案庫，每張上限約 700 KiB。
-- **App Lock**：進入必須驗證手機解鎖憑證；`FLAG_SECURE` 防止截圖；離開畫面立即重新鎖定。
-- **零網路**：沒有 `INTERNET` 權限、廣告、遙測、雲端備份、Accessibility、Root、
-  `READ_EXTERNAL_STORAGE`。
-- **預設全關**：通知來源與照片擷取都必須使用者手動開啟，並到系統授予通知存取權限。
-
----
-
-## 已驗證的建置與測試
-
-| 項目 | 狀態 |
+| 功能 | 說明 |
 |------|------|
-| `./gradlew :app:assembleDebug` | **PASS**（BUILD SUCCESSFUL） |
-| 單元測試 | **PASS** 18/18（CapturePolicy 10 + ImageCapture 8） |
-| Android Lint | **PASS**（0 error） |
-| 靜態安全稽核 `scripts/audit.sh` | **PASS** |
-| APK 權限（`aapt dump permissions` 檢查最終 APK） | **PASS** — 無 INTERNET / READ_SMS / READ_CONTACTS / QUERY_ALL_PACKAGES |
-| APK 簽章 | **PASS**（APK Signature Scheme v2） |
-| 安裝於 Android 16 模擬器 | **PASS** |
-| App 啟動 | **PASS**（無崩潰，UI 結構經 uiautomator 驗證） |
-| Instrumentation 測試 | 見 `docs/TEST-REPORT.md` |
-
-完整證據：`docs/TEST-REPORT.md`、`docs/BUILD-LOG.txt`、`docs/INSTRUMENTED-TEST-LOG.txt`。
+| 通知擷取 | `NotificationListenerService`，支援 `MessagingStyle`、`InboxStyle`、`BigTextStyle` 與一般通知 |
+| 來源白名單 | 每個通訊 App 可獨立開關，預設全部關閉 |
+| 平台篩選 | 主畫面水平篩選列：全部 / LINE / IG / MS / TH / WA / TG… |
+| 訊息分類 | 區分私訊、群組、提及、回覆、社交動態與未知 |
+| 對話識別 | 以平台的 conversation shortcut id 為主，跨 App 永不合併 |
+| 加密保存 | 內容與照片以 Android Keystore AES-256-GCM 加密後存入 SQLite |
+| 照片預覽 | 縮圖、雙指縮放、雙擊放大；照片與訊息同步刪除 |
+| 搜尋 | 依聯絡人 / 訊息 / 來源 / 日期範圍搜尋，全部在本機進行 |
+| 診斷 | 逐階段追蹤擷取管線，可匯出匿名 JSON 報告 |
+| 自我測試 | 透過真正的 Android 通知系統驗證擷取管線是否正常 |
+| App Lock | 進入需驗證手機解鎖憑證；`FLAG_SECURE` 防止截圖 |
 
 ---
 
-## 建置 APK
+## 支援的平台
+
+分類依據是**真實的 Android 套件名稱**，不是通知文字猜測。
+
+| 平台 | 套件名稱 |
+|------|----------|
+| LINE | `jp.naver.line.android` |
+| Instagram | `com.instagram.android` |
+| Messenger | `com.facebook.orca` |
+| Threads | `com.instagram.barcelona` |
+| WhatsApp | `com.whatsapp` |
+| Telegram | `org.telegram.messenger` |
+| Telegram X | `org.thunderdog.challegram` |
+| Teams | `com.microsoft.teams` |
+| KakaoTalk | `com.kakao.talk` |
+
+要新增平台，只要在 `SourceRegistry.kt` 加一筆 — 篩選列、來源設定與分類器
+都會自動跟著更新。
+
+---
+
+## 安裝
+
+1. 安裝 APK 後，**先在 Android 設定建立 PIN / 密碼 / 圖形鎖**。
+   本 App 需要裝置身分驗證，沒有螢幕鎖就不會開啟。
+2. 開啟 App，點「使用手機螢幕鎖解鎖」。
+3. 進入右下角 ⚙ 設定 → 勾選要擷取的來源。
+4. 需要照片的話，開啟「保存可存取的通知照片」。
+5. 點「前往 Android 通知存取授權」→ **只授權此應用程式**。
+6. 從另一個帳號發送非敏感測試訊息，確認列表出現該則副本。
+
+### 小米 / MIUI / HyperOS
+
+背景存活需要額外設定，否則通知監聽服務可能被系統回收：
+
+1. 設定 → 應用程式管理 → Private Inbox Classic → 其他權限 →
+   **通知存取權限** 開啟。
+2. 設定 → 應用程式管理 → Private Inbox Classic → 其他設定 →
+   **允許後台活動 / 允許自啟動 / 後台彈出介面** 全部開啟。
+3. 設定 → 其他設定 → 應用程式管理 → Private Inbox Classic → 省電 →
+   **不要自動管理**。
+
+> 即使完成以上設定，部分 MIUI / HyperOS 版本在極端省電情境下仍可能停止
+> 背景監聽。**本專案不對此提供保證。**
+
+---
+
+## 從原始碼建置
 
 需要 **JDK 17**、**Android SDK 36**、**Build Tools 36.0.0**。
 
@@ -66,145 +103,136 @@ export JAVA_HOME=/path/to/jdk-17
 export ANDROID_SDK_ROOT=/path/to/android-sdk
 export ANDROID_HOME="$ANDROID_SDK_ROOT"
 
-./gradlew --no-daemon :app:assembleDebug
+./gradlew :app:assembleDebug               # Debug APK
+./gradlew :app:testDebugUnitTest           # 單元測試
+./gradlew :app:lintDebug                   # Android Lint
+./gradlew :app:connectedDebugAndroidTest   # 儀器測試（需模擬器或實機）
 ```
 
 產出：`app/build/outputs/apk/debug/app-debug.apk`
 
-若在沙盒／受限環境中，`~/.gradle` 與 `~/Library/Application Support` 可能不可寫，
-請設定：
-
-```bash
-export GRADLE_USER_HOME="$PWD/../gradle_home"
-```
-
-並在 `gradle.properties` 保留 `kotlin.compiler.execution.strategy=in-process`
-（避免 Kotlin daemon 需要寫入 home 目錄）。
-
-### 本次交付的 APK
-
-| 項目 | 值 |
-|------|-----|
-| 路徑 | `app/build/outputs/apk/debug/app-debug.apk` |
-| 大小 | app/build/outputs/apk/debug/app-debug.apk bytes（約 5.6 MB） |
-| SHA-256 | `9b0f788cd136e44b023cb3f5bf7db98443217a24bc1629c2b45a6e1bf8d3b1b4` |
-| Application ID | `tw.personal.privateinbox` |
-| Version | `0.3.0` (versionCode 3) |
-| minSdk / targetSdk | 28 / 36 |
-| 簽章 | Android Debug key（**測試版**） |
-
-> **這是 Debug 測試版 APK**，由 Gradle 自動產生的 debug key 簽署。
-> 正式使用請自備 release keystore 簽章；且不同機器產生的 debug key 不同，
-> 會導致無法覆蓋更新既有安裝。
+簽章設定見 [docs/SIGNING.md](docs/SIGNING.md)。
+建置教學見 [docs/BUILDING.md](docs/BUILDING.md)。
 
 ---
 
-## 安裝與使用
+## 通知擷取的實際限制
 
-1. 在 Android 9–16 裝置安裝 APK，**先設定 PIN / 密碼 / 圖形鎖**（本 App 需要裝置身分驗證）。
-2. 開啟 App，點「使用手機螢幕鎖解鎖」。
-3. 進入右下角 ⚙ 設定 → 勾選要擷取的來源（LINE / Instagram / WhatsApp / Messenger / Telegram…）。
-4. 開啟「保存可存取的通知照片」（若要存照片）。
-5. 點「前往 Android 通知存取授權」→ **只授權此應用程式**。
-6. 小米 / MIUI / HyperOS 裝置請另做背景與省電設定，見 `docs/ANDROID-COMPATIBILITY.md` §3。
-7. 從**另一個帳號**發送非敏感測試訊息，確認本 App 出現該則副本。
-8. 撤回原訊息，確認副本**仍然存在**。
+**本 App 不會讀取通訊 App 的聊天資料庫。** 它只拿 Android 系統實際投递到
+通知列的內容。因此：
+
+- 已撤回的訊息，只有在**撤回前**已成功擷取才留有副本。
+- 使用者在原始 App 裡打開對話，該對話仍會被標記已讀 — 本 App 無法也不會介入。
+  反過來說，**本 App 自己不會讓你的對話變成已讀**。
+- 應用程式在推播前就被讀取的訊息，本 App 永遠看不到。
+- 通知存取權限是**全域廣泛權限**。授予後系統層面可見所有通知；
+  本專案用程式內白名單限制實際擷取範圍，但這是程式自律而非系統隔離。
 
 ---
 
-## 專案結構
+## 照片保存的實際限制
+
+**本 App 不能還原被撤回的照片。** 只能保存「通知裡真的附帶、而且當下真的
+讀得到」的影像位元組。
+
+- 通知只有文字「傳送了一張照片」而沒有附帶影像 → **只保存文字，不產生假圖片**。
+- 保存的是壓縮預覽：最長邊 1280 px、JPEG、≤ 700 KiB、**不保留 EXIF**、
+  不保留動態照片或 GIF 動畫。
+- 不會讀取你的相簿。沒有 `READ_MEDIA_IMAGES` 權限。
+- 圖片只存在 App 私有儲存空間並加密，**不在相簿或任何外部儲存空間留下明文**。
+
+---
+
+## 隱私與安全設計
+
+| 措施 | 狀態 |
+|------|------|
+| 無 INTERNET 權限（最終 APK 實測） | ✅ |
+| 無第三方追蹤 / 廣告 / 遙測 SDK | ✅ |
+| 內容與照片 AES-256-GCM 加密 | ✅ |
+| 金鑰在 Android Keystore，程式碼內無明文金鑰 | ✅ |
+| 匯出元件最小化 | ✅ |
+| 自動備份與裝置轉移關閉 | ✅ |
+| Logcat 無聊天內容 | ✅ |
+| App Lock + `FLAG_SECURE` | ✅ |
+| 資料庫**未**整體 SQLCipher 加密 | ⚠️ metadata 仍為明文，見 [docs/SECURITY.md](docs/SECURITY.md) |
+
+**明確聲明**：即使沒有 INTERNET 權限，也不能說本 App「絕對安全」。
+已 Root 或具系統級權限的程式仍可讀取本 App 的資料；
+`FLAG_SECURE` 只擋「畫面被複製」，不防外部攝影。
+
+完整審查報告見 [docs/SECURITY.md](docs/SECURITY.md)。
+
+---
+
+## 已知問題
+
+1. **資料庫不是整體加密**：來源套件名、時間戳、訊息筆數仍為明文 metadata。
+2. **Keystore 金鑰失效**（例如變更鎖定畫面）會使既有密文永久不可讀，
+   目前只做到「不 Crash、略過無法解密的列」。
+3. **搜尋僅涵蓋最近 1500 筆**，並會暫時把資料解密到記憶體比對。
+4. **同名聯絡人**：沒有 shortcut id 時，同一 App 內兩個同名聯絡人無法區分。
+5. **解除安裝或清除 App 資料後，資料永久無法復原**（無備份／匯出功能，刻意設計）。
+6. **真實 LINE / Messenger / Threads 尚未在實體手機上驗證** — 見
+   [docs/REAL-DEVICE-TEST-PLAN.md](docs/REAL-DEVICE-TEST-PLAN.md)。
+7. 沒有完整分頁；聊天列表一次載入 1500 筆並全數解密。
+
+---
+
+## 專案架構
 
 ```
 app/src/main/java/tw/personal/privateinbox/
-├── MainActivity.kt                 全部 UI（鎖定 / 列表 / 聊天室 / 照片 / 搜尋 / 設定）
-├── PrivateNotificationListener.kt  通知監聽服務
-├── CapturePolicy.kt                純 Kotlin 來源白名單與文字正規化
+├── MainActivity.kt                 全部 UI（鎖定 / 列表 / 聊天室 / 照片 / 搜尋 / 診斷 / 設定）
+├── PrivateNotificationListener.kt  通知監聽服務與擷取管線
+├── CapturePolicy.kt                來源允許政策（委派給 SourceRegistry）
+├── SourceRegistry.kt               平台來源、分類規則的唯一來源
+├── ConversationIdentity.kt         穩定的對話識別
+├── CaptureDiagnostics.kt           逐階段診斷與 JSON 匯出
+├── SelfTestNotifier.kt             透過真實系統通知的自我測試
 ├── CryptoStore.kt                  Keystore AES-256-GCM + HMAC
 ├── ImageCapture.kt                 影像驗證 / 降級 / 壓縮
-├── InboxDatabase.kt                SQLite schema v3 + 遷移
+├── InboxDatabase.kt                SQLite schema v4 + 遷移
 ├── LocalSettings.kt                設定、保留期限、已讀標記
-└── PhotoZoomView.kt                純框架縮放照片檢視器
-
-app/src/test/          JVM 單元測試（18 項）
-app/src/androidTest/   Instrumentation 測試
+└── PhotoZoomView.kt               純框架縮放照片檢視器
 ```
 
-詳細架構見 `docs/ARCHITECTURE.md`。
+更完整的說明見 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
 ---
 
-## 安全驗收指令
+## 版本
 
-```bash
-bash scripts/audit.sh
-
-# 針對最終 APK（不是原始碼）
-aapt dump permissions app/build/outputs/apk/debug/app-debug.apk
-aapt dump badging     app/build/outputs/apk/debug/app-debug.apk
-apksigner verify --print-certs app/build/outputs/apk/debug/app-debug.apk
-```
-
-完整資安審查報告見 `docs/SECURITY.md`。
-
----
-
-## 已知限制
-
-1. **不能讀取通訊 App 的原始聊天資料庫。**
-   只有在通知內容成功保存後，撤回的訊息才可能留有副本。
-   開啟本 App **不會**讓原始聊天室標記已讀；反之，使用者在原始 App 開啟對話仍會標記已讀。
-2. **照片只保存通知「實際提供」的那一份，且必須當下可讀。**
-   若通知只有文字「傳送了一張照片」而沒有附帶影像資料，本 App **只保存文字**，
-   不會用假圖片代替。**不能還原所有已撤回的照片。**
-3. **保存的是壓縮預覽**，不是原始照片：最長邊 1280 px、JPEG、≤ 700 KiB、
-   不保留 EXIF、不保留動態照片或 GIF 動畫。
-4. **資料庫不是整體 SQLCipher 加密。**
-   內容（標題/傳送者/內文/照片）已加密；
-   但來源套件名、時間戳、訊息筆數仍為明文 metadata。詳見 `docs/SECURITY.md` §2.2。
-5. **解除安裝、重設 Keystore 或清除 App 資料後，資料可能永久無法復原。**
-   沒有備份或匯出功能（刻意設計，避免敏感資料外流）。
-6. **Android Keystore 金鑰失效**（例如變更鎖定畫面）會使既有密文永久不可讀。
-   目前只做到「不 Crash、略過無法解密的列」，**尚未實作明確的錯誤提示與資料清理流程**——
-   這是最優先的待辦項目。
-7. **部分 Android / OEM 可能不保證背景監聽、短暫 URI 權限或通知完整性。**
-   本專案**不依賴 Root**，也**不嘗試**繞過 Android 沙盒。
-8. **同名聯絡人無法區分**：通知 API 只提供顯示名稱，同一 App 內兩個同名聯絡人會被合併。
-9. **搜尋僅涵蓋最近 1500 筆**，且會暫時將資料解密到記憶體比對。
-10. **沒有 Instrumentation / UI 自動化測試的完整覆蓋**（本次僅部分補上）。
-
----
-
-## 文件
-
-| 文件 | 內容 |
+| 版本 | 說明 |
 |------|------|
-| `docs/ARCHITECTURE.md` | 實際架構、資料流、資料模型、加密設計、執行緒模型 |
-| `docs/SECURITY.md` | 資安審查：已驗證 / 未驗證 / 平台限制 三分法 |
-| `docs/NOTIFICATION-CAPTURE.md` | 通知擷取、去重策略、已知限制 |
-| `docs/IMAGE-CAPTURE.md` | 影像擷取流程、安全措施、誠實邊界 |
-| `docs/ANDROID-COMPATIBILITY.md` | 各版本重點、小米/MIUI 適配指引 |
-| `docs/TEST-REPORT.md` | 測試結果（PASS / FAIL / NOT TESTED） |
-| `docs/HANDOFF.md` | 交接文件：已完成 / 阻塞 / 下一步 |
-| `docs/UI_SPEC.md` | 視覺規格 |
-| `docs/BUILD-LOG.txt` | 完整編譯日誌 |
-| `docs/INSTRUMENTED-TEST-LOG.txt` | Instrumentation 測試日誌 |
+| 0.4.0-alpha | 平台分類、Threads、診斷強化、可重現簽章 |
+| 0.3.1 | 通知診斷、自我測試、SaveResult |
+| 0.3.0 | 建置復原、Gradle Wrapper、真實 APK、instrumentation 測試 |
+
+詳細變更見 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
 ## 授權
 
-本專案原始碼為獨立實作。未複製或改作任何 GPL 專案原始碼。
-唯一的第三方 runtime 依賴為 `androidx.activity`（Apache-2.0）。
-測試依賴 `androidx.test.*` 與 `junit` 僅用於測試，不會進入 APK。
+[MIT License](LICENSE)。
+
+本專案為**獨立實作**，未複製任何 GPL 專案的原始碼。
+QuietInbox（GPL-3.0-or-later）僅作為**產品理念參考**。
+詳見 LICENSE 檔案中的 provenance 說明。
 
 ---
 
-## 參考
+## 相關文件
 
-- <https://gitlab.com/aa22396584/quietinbox>（產品理念參考）
-- <https://telegram.org/blog/android-2-0>（視覺語言參考）
-- <https://developer.android.com/reference/android/service/notification/NotificationListenerService>
-- <https://developer.android.com/reference/android/app/Notification.MessagingStyle.Message>
-
-**清單右側的藍色數字是「自你上次查看該對話後新擷取的通知筆數」，
-不是 LINE / Telegram 真正的未讀數量**（那個數字本 App 無法觀測）。
+| 文件 | 內容 |
+|------|------|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 架構、資料流、資料模型 |
+| [docs/BUILDING.md](docs/BUILDING.md) | 建置教學 |
+| [docs/NOTIFICATION-PIPELINE.md](docs/NOTIFICATION-PIPELINE.md) | 通知擷取管線與診斷 |
+| [docs/PLATFORM-COMPATIBILITY.md](docs/PLATFORM-COMPATIBILITY.md) | 各平台相容性矩陣 |
+| [docs/SECURITY.md](docs/SECURITY.md) | 資安審查 |
+| [docs/SIGNING.md](docs/SIGNING.md) | 簽章與發布 |
+| [docs/TEST-REPORT.md](docs/TEST-REPORT.md) | 測試結果 |
+| [docs/HANDOFF.md](docs/HANDOFF.md) | 交接文件 |
+| [docs/REAL-DEVICE-TEST-PLAN.md](docs/REAL-DEVICE-TEST-PLAN.md) | 實機測試計畫 |

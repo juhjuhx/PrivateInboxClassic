@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug-only manifest overlay. Nothing in this file exists in a release build. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Lets the instrumentation suite configure the app's settings.
+             The instrumentation APK is a separate package with its own data
+             directory and cannot write the app's SharedPreferences directly. -->
+        <provider
+            android:name=".DebugSettingsProvider"
+            android:authorities="tw.personal.privateinbox.debugsettings"
+            android:exported="true"
+            android:grantUriPermissions="false" />
+    </application>
+</manifest>

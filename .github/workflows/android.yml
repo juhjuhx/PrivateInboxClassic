@@ -1,0 +1,92 @@
+name: Android CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build, test and audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept SDK licenses
+        run: yes | sdkmanager --licenses > /dev/null || true
+
+      - name: Install SDK 36
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'platform-tools'
+
+      - name: Verify the Gradle wrapper
+        run: |
+          test -x ./gradlew
+          test -f gradle/wrapper/gradle-wrapper.jar
+          ./gradlew --version
+
+      - name: Static safety audit (manifest + privacy policy)
+        run: bash scripts/audit.sh
+
+      - name: Secret audit (tree and full Git history)
+        run: bash scripts/audit-secrets.sh
+
+      - name: Unit tests
+        run: ./gradlew --no-daemon :app:testDebugUnitTest
+
+      - name: Android Lint
+        run: ./gradlew --no-daemon :app:lintDebug
+
+      - name: Assemble debug APK
+        run: ./gradlew --no-daemon :app:assembleDebug
+
+      - name: Audit the built APK permissions
+        run: |
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          AAPT="$ANDROID_HOME/build-tools/36.0.0/aapt"
+          "$AAPT" dump permissions "$APK" | tee permissions.txt
+          echo "--- forbidden permissions ---"
+          if grep -E '(android\.permission\.(INTERNET|READ_SMS|READ_CONTACTS|QUERY_ALL_PACKAGES|READ_EXTERNAL_STORAGE|ACCESS_NETWORK_STATE))' permissions.txt; then
+            echo '::error::Unexpected sensitive permission in the built APK'
+            exit 1
+          fi
+          echo "OK: no sensitive permission present"
+
+      - name: Verify the APK signature
+        run: |
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify \
+            --print-certs app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            app/build/reports/tests/**
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: PrivateInboxClassic-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

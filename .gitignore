@@ -7,7 +7,13 @@ build/
 *.aab
 *.jks
 *.keystore
+*.p12
+*.pem
 .DS_Store
+
+# Signing material. The example properties file is the only thing tracked.
+keystore/*
+!keystore/signing.properties.example
 
 # Local toolchain / caches that live outside the project tree.
 # NOTE: do NOT ignore "gradle/" wholesale — gradle/wrapper/ must stay tracked.

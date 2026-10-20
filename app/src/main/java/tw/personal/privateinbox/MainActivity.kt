@@ -69,8 +69,22 @@ class MainActivity : ComponentActivity() {
 
     private fun Int.dp() = (this * resources.displayMetrics.density + .5f).toInt()
 
-    private fun formatBytes(bytes: Long): String = when {
-        bytes < 1024 -> "$bytes B"
+    /**
+     * Read a diagnostic counter as a display string.
+     *
+     * The counters map holds mixed types (Long counts, String labels). An
+     * unchecked cast here previously crashed the whole settings screen when a
+     * key was missing, so the read is type-safe by construction.
+     */
+    private fun diagCount(counters: Map<String, Any>, key: String): String =
+        when (val v = counters[key]) {
+            null -> "0"
+            is Long -> v.toString()
+            is Number -> v.toString()
+            else -> v.toString()
+        }
+
+    private fun formatBytes(bytes: Long): String = when {        bytes < 1024 -> "$bytes B"
         bytes < 1024 * 1024L -> String.format(java.util.Locale.getDefault(), "%.1f KB", bytes / 1024.0)
         else -> String.format(java.util.Locale.getDefault(), "%.2f MB", bytes / (1024.0 * 1024.0))
     }
@@ -858,13 +872,17 @@ class MainActivity : ComponentActivity() {
         panel.addView(diagRow("監聽器連線狀態", status))
         panel.addView(diagRow("訊息記錄開關", if (LocalSettings.isRecording(this)) "開啟" else "關閉"))
         panel.addView(diagRow("允許來源數量", LocalSettings.selected(this).size.toString()))
-        panel.addView(diagRow("收到通知事件", (c["received"] as Long).toString()))
-        panel.addView(diagRow("解析成功", (c["parse_ok"] as Long).toString()))
-        panel.addView(diagRow("資料庫寫入成功", (c["db_ok"] as Long).toString()))
-        panel.addView(diagRow("失敗事件", (c["failed"] as Long).toString()))
+        panel.addView(diagRow("收到通知事件", diagCount(c, "received")))
+        panel.addView(diagRow("解析成功", diagCount(c, "parse_ok")))
+        panel.addView(diagRow("資料庫寫入成功", diagCount(c, "db_ok")))
+        panel.addView(diagRow("失敗事件", diagCount(c, "failed")))
         panel.addView(diagRow("最後錯誤代碼", "${c["last_code"]} / ${c["last_err"]}"))
-        val lastTs = c["last_ts"] as Long
-        panel.addView(diagRow("最後收到通知", if (lastTs > 0) time(lastTs, true) else "（尚無）"))
+        val lastReceived = diagCount(c, "last_notification_received_at").toLongOrNull() ?: 0L
+        val lastEvent = diagCount(c, "last_diagnostic_event_at").toLongOrNull() ?: 0L
+        val lastSuccess = diagCount(c, "last_successful_capture_at").toLongOrNull() ?: 0L
+        panel.addView(diagRow("最後收到通知", if (lastReceived > 0) time(lastReceived, true) else "（尚無）"))
+        panel.addView(diagRow("最後成功保存", if (lastSuccess > 0) time(lastSuccess, true) else "（尚無）"))
+        panel.addView(diagRow("最後診斷事件", if (lastEvent > 0) time(lastEvent, true) else "（尚無）"))
         panel.addView(divider().apply { setPadding(0, 14.dp(), 0, 4.dp()) })
         val diagActions = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
