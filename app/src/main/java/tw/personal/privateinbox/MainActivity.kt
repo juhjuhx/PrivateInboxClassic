@@ -57,6 +57,12 @@ class MainActivity : ComponentActivity() {
     private var searchSourceFilter: String? = null
     /** Search screen lower time bound in epoch millis; 0 means no bound. */
     private var searchFromEpoch: Long = 0L
+    /** The state of the encryption key as observed during the last read. */
+    private var keyState: CryptoStore.KeyState = CryptoStore.KeyState.KEY_AVAILABLE
+    /** Number of rows that could not be decrypted during the last read. */
+    private var unreadableRows: Int = 0
+    /** Guard so the recovery dialog is not shown repeatedly. */
+    private var keyRecoveryShown = false
     private val io: ExecutorService = Executors.newFixedThreadPool(2)
     private var selfTestDialog: AlertDialog? = null
     private val colors = intArrayOf(0xff5aa8a1.toInt(), 0xffc28d64.toInt(), 0xff68a4c9.toInt(),
@@ -255,8 +261,13 @@ class MainActivity : ComponentActivity() {
         io.execute {
             val db = InboxDatabase(this)
             var loaded: List<InboxDatabase.Entry>
+            var readState = CryptoStore.KeyState.KEY_AVAILABLE
+            var unreadable = 0
             try {
-                loaded = db.recent(1500)
+                val res = db.recentWithState(1500)
+                loaded = res.entries
+                readState = res.keyState
+                unreadable = res.unreadableRows
                 val days = LocalSettings.retentionDays(this)
                 if (days > 0) runCatching { db.pruneOlderThanDays(days) }
             } catch (_: Exception) {
@@ -265,13 +276,56 @@ class MainActivity : ComponentActivity() {
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 entries = loaded
+                keyState = readState
+                unreadableRows = unreadable
                 when (page) {
                     "inbox" -> showInbox(false)
                     "chat" -> showChat()
                     else -> Unit
                 }
+                offerKeyRecovery()
             }
         }
+    }
+
+    /**
+     * Offer the user an explicit choice when the encryption key is gone.
+     *
+     * The rows are NOT deleted automatically: an invalidated key is permanent,
+     * but a temporarily unavailable key (the device has not been unlocked yet)
+     * must never destroy anything. The user is told exactly what happened and
+     * must confirm before anything is removed.
+     */
+    private fun offerKeyRecovery() {
+        if (keyState != CryptoStore.KeyState.RECOVERY_REQUIRED) return
+        if (keyRecoveryShown) return
+        keyRecoveryShown = true
+        val message = buildString {
+            append("加密金鑰已失效（例如變更螢幕鎖或重新註冊生物辨識）。\n\n")
+            append("受影響的 $unreadableRows 則訊息已永久無法解密。")
+            append("金鑰無法復原 —— 重新設定螢幕鎖也不會讓舊資料回來。\n\n")
+            append("這些資料仍留在本機。你可以先保留它們，或明確清除它們並重新開始。")
+        }
+        AlertDialog.Builder(this@MainActivity)
+            .setTitle("需要處理：加密金鑰已失效")
+            .setMessage(message)
+            .setNegativeButton("保留資料") { _, _ -> keyRecoveryShown = false }
+            .setPositiveButton("清除無法解密的資料") { _, _ ->
+                keyRecoveryShown = false
+                io.execute {
+                    val db = InboxDatabase(this@MainActivity)
+                    val removed = runCatching { db.purgeUndecryptableRows() }.getOrDefault(0)
+                    db.close()
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
+                        Toast.makeText(this@MainActivity,
+                            "已清除 $removed 則無法解密的資料", Toast.LENGTH_LONG).show()
+                        loadEntries()
+                    }
+                }
+            }
+            .setOnCancelListener { keyRecoveryShown = false }
+            .show()
     }
 
     /** Stable conversation identity: the platform conversation key when available,
@@ -384,15 +438,26 @@ class MainActivity : ComponentActivity() {
             })
         } else if (visible.isEmpty()) {
             val filtered = selectedPlatform != null
+            val recoveryNeeded =
+                keyState == CryptoStore.KeyState.RECOVERY_REQUIRED && !filtered
             data.addView(txt(
-                if (filtered) "這個來源還沒有已保存的通知" else "目前沒有已保存的通知",
+                when {
+                    recoveryNeeded -> "加密金鑰已失效"
+                    filtered -> "這個來源還沒有已保存的通知"
+                    else -> "目前沒有已保存的通知"
+                },
                 18f, INK, true).apply {
                 gravity = Gravity.CENTER
                 setPadding(12.dp(), 82.dp(), 12.dp(), 16.dp())
             })
             data.addView(txt(
-                if (filtered) "切換到「全部」可查看其他來源。\n請在設定中開啟來源並授予通知存取權限。"
-                else "點右下角設定，開啟來源及照片擷取，再到 Android 授予通知存取權限。",
+                when {
+                    recoveryNeeded ->
+                        "$unreadableRows 則已保存的訊息已永久無法解密。\n" +
+                            "金鑰無法復原，但資料仍留在本機 — 可在設定中選擇保留或清除。"
+                    filtered -> "切換到「全部」可查看其他來源。\n請在設定中開啟來源並授予通知存取權限。"
+                    else -> "點右下角設定，開啟來源及照片擷取，再到 Android 授予通知存取權限。"
+                },
                 14f, SECONDARY).apply {
                 gravity = Gravity.CENTER; setPadding(22.dp(), 0, 22.dp(), 0)
             })

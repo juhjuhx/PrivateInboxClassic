@@ -2,6 +2,7 @@ package tw.personal.privateinbox
 
 import android.content.Context
 import android.content.pm.PackageManager
+import android.content.pm.PermissionInfo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
@@ -40,10 +41,11 @@ class DebugProviderAccessControlInstrumentedTest {
             "the debug settings permission must be declared by the app",
             declared
         )
+        val perm = requireNotNull(declared)
         assertEquals(
             "the debug settings permission must be signature-protected",
-            PackageManager.PERMISSION_PROTECTION_SIGNATURE,
-            declared.protectionLevel and PackageManager.PERMISSION_PROTECTION_MASK_BASE
+            PermissionInfo.PROTECTION_SIGNATURE,
+            perm.protectionLevel and PermissionInfo.PROTECTION_MASK_BASE
         )
     }
 
@@ -54,14 +56,10 @@ class DebugProviderAccessControlInstrumentedTest {
             0
         )
         assertNotNull("the debug provider must exist in the debug build", info)
-        assertNotNull(
-            "the debug provider must require the signature permission",
-            info.permission
-        )
         assertEquals(
-            "the debug provider must require the signature permission",
+            "the debug provider must require the signature permission on reads",
             "tw.personal.privateinbox.permission.DEBUG_SETTINGS",
-            info.permission
+            info.readPermission
         )
     }
 
@@ -74,18 +72,21 @@ class DebugProviderAccessControlInstrumentedTest {
         // that a caller without it cannot obtain it.
         val pm = ctx.packageManager
         val testPkg = "tw.personal.privateinbox.test"
-        val testPerms = pm.getPackageInfo(testPkg, PackageManager.GET_PERMISSIONS)
-            .permissions ?: emptyArray()
-        val held = testPerms.firstOrNull {
-            it.name == "tw.personal.privateinbox.permission.DEBUG_SETTINGS"
-        }
-        assertNotNull(
-            "the instrumentation package must hold the permission", held
+        // The instrumentation APK REQUESTS the permission; it does not declare
+        // it, so it shows up in requestedPermissions, not in permissions.
+        val testInfo = pm.getPackageInfo(testPkg, PackageManager.GET_PERMISSIONS)
+        val requested = testInfo.requestedPermissions ?: emptyArray()
+        assertTrue(
+            "the instrumentation package must request the debug settings permission",
+            "tw.personal.privateinbox.permission.DEBUG_SETTINGS" in requested
+        )
+        // And it must actually hold the grant.
+        val granted = pm.checkPermission(
+            "tw.personal.privateinbox.permission.DEBUG_SETTINGS", testPkg
         )
         assertEquals(
-            "the instrumentation package must hold it at the same level",
-            PackageManager.PERMISSION_PROTECTION_SIGNATURE,
-            held.protectionLevel and PackageManager.PERMISSION_PROTECTION_MASK_BASE
+            "the instrumentation package must hold the grant",
+            PackageManager.PERMISSION_GRANTED, granted
         )
     }
 
@@ -120,9 +121,10 @@ class DebugProviderAccessControlInstrumentedTest {
             0
         )
         assertNotNull("the debug provider must exist in the debug build", info)
-        assertTrue(
+        assertEquals(
             "the debug provider must be guarded",
-            info.permission == "tw.personal.privateinbox.permission.DEBUG_SETTINGS"
+            "tw.personal.privateinbox.permission.DEBUG_SETTINGS",
+            info.readPermission
         )
     }
 }

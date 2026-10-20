@@ -121,8 +121,29 @@ class InboxDatabase(context: Context) : SQLiteOpenHelper(context, "inbox.db", nu
         }
     }
 
-    fun recent(limit: Int = 1000): List<Entry> {
+    /**
+     * Read the most recent messages, decrypting each sealed payload.
+     *
+     * The key state is reported so the caller can distinguish "this row is
+     * corrupt" from "the encryption key is gone". When the key is invalidated
+     * the rows are NOT silently dropped: the caller is told that recovery is
+     * required, and the unreadable rows stay in the database until the user
+     * explicitly chooses to remove them.
+     */
+    fun recent(limit: Int = 1000): List<Entry> = recentWithState(limit).entries
+
+    /** The outcome of a read: the decrypted rows plus the worst key state seen. */
+    data class ReadResult(
+        val entries: List<Entry>,
+        val keyState: CryptoStore.KeyState,
+        /** Number of rows that could not be decrypted. */
+        val unreadableRows: Int
+    )
+
+    fun recentWithState(limit: Int = 1000): ReadResult {
         val output = ArrayList<Entry>()
+        var worst = CryptoStore.KeyState.KEY_AVAILABLE
+        var unreadable = 0
         readableDatabase.query("messages",
             arrayOf("id", "package_name", "received_at", "source_ts", "sealed_content",
                 "sealed_image", "conversation_key", "message_kind"),
@@ -130,8 +151,15 @@ class InboxDatabase(context: Context) : SQLiteOpenHelper(context, "inbox.db", nu
         ).use { c ->
             while (c.moveToNext()) {
                 val pkg = c.getString(1)
+                val res = CryptoStore.openWithState(pkg, c.getBlob(4))
+                if (res.plaintext == null) {
+                    unreadable++
+                    if (res.state.isUnrecoverable) worst = res.state
+                    else if (worst == CryptoStore.KeyState.KEY_AVAILABLE) worst = res.state
+                    continue
+                }
                 try {
-                    val decoded = JSONObject(String(CryptoStore.open(pkg, c.getBlob(4)), Charsets.UTF_8))
+                    val decoded = JSONObject(String(res.plaintext, Charsets.UTF_8))
                     val title = decoded.optString("title")
                     // Rows captured before schema v4 have an empty conversation_key.
                     // Fall back to the legacy package+title key so old data keeps
@@ -142,10 +170,18 @@ class InboxDatabase(context: Context) : SQLiteOpenHelper(context, "inbox.db", nu
                         title, decoded.optString("sender"),
                         decoded.optString("body"), !c.isNull(5),
                         key, c.getString(7) ?: SourceRegistry.MessageKind.UNKNOWN.name)
-                } catch (_: Exception) { /* Ignore corrupt rows without logging content. */ }
+                } catch (_: Exception) {
+                    // A corrupt row is skipped; its content is never logged.
+                    unreadable++
+                    if (worst == CryptoStore.KeyState.KEY_AVAILABLE) {
+                        worst = CryptoStore.KeyState.DECRYPT_FAILED
+                    }
+                }
             }
         }
-        return output
+        val finalState = if (worst.isUnrecoverable) CryptoStore.KeyState.RECOVERY_REQUIRED
+                         else worst
+        return ReadResult(output, finalState, unreadable)
     }
 
     companion object {
@@ -163,6 +199,36 @@ class InboxDatabase(context: Context) : SQLiteOpenHelper(context, "inbox.db", nu
             if (!c.moveToFirst() || c.isNull(1)) return null
             return CryptoStore.open("${c.getString(0)}:image", c.getBlob(1))
         }
+    }
+
+    /**
+     * Delete the rows that can no longer be decrypted.
+     *
+     * This is deliberately NOT called automatically. It is invoked only from an
+     * explicit, confirmed user action after the UI has explained that the
+     * encryption key is gone and the affected messages are permanently
+     * unreadable. The rows stay on disk until then, so a temporarily
+     * unavailable key (device locked) never destroys anything.
+     *
+     * Returns the number of rows removed.
+     */
+    fun purgeUndecryptableRows(): Int {
+        val db = writableDatabase
+        var removed = 0
+        db.query("messages", arrayOf("id", "package_name", "sealed_content"),
+            null, null, null, null, null).use { c ->
+            val doomed = ArrayList<Long>()
+            while (c.moveToNext()) {
+                val pkg = c.getString(1)
+                val res = CryptoStore.openWithState(pkg, c.getBlob(2))
+                if (res.plaintext == null) doomed += c.getLong(0)
+            }
+            for (id in doomed) {
+                removed += db.delete("messages", "id=?", arrayOf(id.toString()))
+            }
+        }
+        if (removed > 0) checkpointWal(db)
+        return removed
     }
 
     /** Truncate the write-ahead log so encrypted sidecars cannot outlive a deletion.
