@@ -46,6 +46,9 @@ jobs:
       - name: Secret audit (tree and full Git history)
         run: bash scripts/audit-secrets.sh
 
+      - name: DHC connector tests (python)
+        run: python3 integrations/dhc/tests/test_connector.py
+
       - name: Unit tests
         run: ./gradlew --no-daemon :app:testDebugUnitTest
 
@@ -54,6 +57,13 @@ jobs:
 
       - name: Assemble debug APK
         run: ./gradlew --no-daemon :app:assembleDebug
+
+      - name: Assemble release APK (unsigned until a release key is configured)
+        run: ./gradlew --no-daemon :app:assembleRelease
+        continue-on-error: true
+
+      - name: Audit the built artifacts
+        run: bash scripts/audit-release.sh
 
       - name: Audit the built APK permissions
         run: |

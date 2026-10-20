@@ -213,17 +213,20 @@ app/src/main/java/tw/personal/privateinbox/
 
 ---
 
-## 交付產物
+## 交付產物（v0.4.1）
 
 | 檔案 | 大小 | SHA-256 | 狀態 |
 |------|------|---------|------|
-| `PrivateInboxClassic-v0.4.0-alpha-debug.apk` | 5,840,503 B | `9f7851a72a53efb3530d57cf753d63d552f6f4d0670567f084718f79abfa5c8a` | Debug 測試版，已安裝驗證 |
-| `PrivateInboxClassic-v0.4.0-alpha-release-unsigned.apk` | 4,902,955 B | `bf481496e26ac6f99b5bfcf44b4b8cd7e040e404f87ded13f52ef3464aa4b34b` | **未簽署**，需正式金鑰 |
-| `PrivateInboxClassic-v0.4.0-alpha.aab` | 1,713,950 B | `bc8b471f6ac436be6051ea53a431feac3211ae94ad3ee1cc7a4bf2f27feab7d1` | 未以 upload 金鑰簽署 |
+| `PrivateInboxClassic-v0.4.1-debug.apk` | 5,870,733 B | `8303816dc06c9022b36e56b0745e6047c1395cd72d5e5597d83ff57b850a0e66` | Debug 測試版，已安裝並啟動驗證 |
+| `PrivateInboxClassic-v0.4.1-release-unsigned.apk` | 4,917,603 B | `036bd3c1c1cb79fda8dcac35a44d9b0e46a0f7249898aa97939ed92a718d4123` | **未簽署**，需正式金鑰 |
+| `PrivateInboxClassic-v0.4.1.aab` | 1,713,950 B | `bc8b471f6ac436be6051ea53a431feac3211ae94ad3ee1cc7a4bf2f27feab7d1` | 未以 upload 金鑰簽署 |
 
 Debug APK 的簽章憑證 SHA-256：
 `c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4`
 （與既有安裝相容，因此 `adb install -r` 可覆蓋更新）。
+
+**Release 產物是未簽署的**，因為正式金鑰必須由擁有者保管。
+見 `docs/SIGNING.md`。
 
 ---
 

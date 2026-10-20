@@ -3,80 +3,150 @@ Daemon will be stopped at the end of the build
 
 > Configure project :app
 Unable to initialize metrics, ensure $HOME/.android is writable, details: $HOME/.android/analytics.settings (Operation not permitted)
-SIGNING: no release keystore configured. The release build will be signed with the DEBUG key and is NOT distributable. See docs/SIGNING.md.
+SIGNING: no release keystore configured. The release build will be UNSIGNED and is NOT distributable. See docs/SIGNING.md.
 Warning: SDK processing. This version only understands SDK XML versions up to 3 but an SDK XML file of version 4 was encountered. This can happen if you use versions of Android Studio and the command-line tools that were released at different times.
 
-> Task :app:clean
 > Task :app:preBuild UP-TO-DATE
 > Task :app:preDebugBuild UP-TO-DATE
 > Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
 > Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
-> Task :app:checkDebugAarMetadata
-> Task :app:processDebugNavigationResources FROM-CACHE
-> Task :app:compileDebugNavigationResources FROM-CACHE
-> Task :app:generateDebugResValues FROM-CACHE
-> Task :app:mapDebugSourceSetPaths
-> Task :app:generateDebugResources FROM-CACHE
-> Task :app:mergeDebugResources FROM-CACHE
-> Task :app:packageDebugResources FROM-CACHE
-> Task :app:parseDebugLocalResources FROM-CACHE
-> Task :app:createDebugCompatibleScreenManifests
-> Task :app:extractDeepLinksDebug FROM-CACHE
-> Task :app:processDebugMainManifest FROM-CACHE
-> Task :app:processDebugManifest FROM-CACHE
-> Task :app:processDebugManifestForPackage FROM-CACHE
-> Task :app:processDebugResources FROM-CACHE
-> Task :app:compileDebugKotlin FROM-CACHE
-> Task :app:javaPreCompileDebug FROM-CACHE
+> Task :app:checkDebugAarMetadata UP-TO-DATE
+> Task :app:processDebugNavigationResources UP-TO-DATE
+> Task :app:compileDebugNavigationResources UP-TO-DATE
+> Task :app:generateDebugResValues UP-TO-DATE
+> Task :app:mapDebugSourceSetPaths UP-TO-DATE
+> Task :app:generateDebugResources UP-TO-DATE
+> Task :app:mergeDebugResources UP-TO-DATE
+> Task :app:packageDebugResources UP-TO-DATE
+> Task :app:parseDebugLocalResources UP-TO-DATE
+> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksDebug UP-TO-DATE
+> Task :app:processDebugMainManifest UP-TO-DATE
+> Task :app:processDebugManifest UP-TO-DATE
+> Task :app:processDebugManifestForPackage UP-TO-DATE
+> Task :app:processDebugResources UP-TO-DATE
+> Task :app:compileDebugKotlin UP-TO-DATE
+> Task :app:javaPreCompileDebug UP-TO-DATE
 > Task :app:compileDebugJavaWithJavac NO-SOURCE
-> Task :app:mergeDebugShaders
+> Task :app:mergeDebugShaders UP-TO-DATE
 > Task :app:compileDebugShaders NO-SOURCE
 > Task :app:generateDebugAssets UP-TO-DATE
-> Task :app:mergeDebugAssets
-> Task :app:compressDebugAssets FROM-CACHE
-> Task :app:desugarDebugFileDependencies FROM-CACHE
-> Task :app:dexBuilderDebug FROM-CACHE
-> Task :app:mergeDebugGlobalSynthetics FROM-CACHE
-> Task :app:processDebugJavaRes
-> Task :app:mergeDebugJniLibFolders
-> Task :app:checkDebugDuplicateClasses
+> Task :app:mergeDebugAssets UP-TO-DATE
+> Task :app:compressDebugAssets UP-TO-DATE
+> Task :app:desugarDebugFileDependencies UP-TO-DATE
+> Task :app:dexBuilderDebug UP-TO-DATE
+> Task :app:mergeDebugGlobalSynthetics UP-TO-DATE
+> Task :app:processDebugJavaRes UP-TO-DATE
+> Task :app:mergeDebugJavaResource UP-TO-DATE
+> Task :app:checkDebugDuplicateClasses UP-TO-DATE
+> Task :app:mergeExtDexDebug UP-TO-DATE
+> Task :app:mergeLibDexDebug UP-TO-DATE
+> Task :app:mergeProjectDexDebug UP-TO-DATE
+> Task :app:mergeDebugJniLibFolders UP-TO-DATE
 > Task :app:mergeDebugNativeLibs NO-SOURCE
-> Task :app:mergeExtDexDebug FROM-CACHE
-> Task :app:mergeLibDexDebug FROM-CACHE
-> Task :app:mergeProjectDexDebug FROM-CACHE
 > Task :app:stripDebugDebugSymbols NO-SOURCE
-> Task :app:validateSigningDebug
-> Task :app:writeDebugAppMetadata
-> Task :app:writeDebugSigningConfigVersions
-> Task :app:preDebugUnitTestBuild UP-TO-DATE
-> Task :app:javaPreCompileDebugUnitTest FROM-CACHE
-> Task :app:preDebugAndroidTestBuild SKIPPED
-> Task :app:generateDebugAndroidTestResValues FROM-CACHE
-> Task :app:extractProguardFiles
-> Task :app:bundleDebugClassesToCompileJar
+> Task :app:validateSigningDebug UP-TO-DATE
+> Task :app:writeDebugAppMetadata UP-TO-DATE
+> Task :app:writeDebugSigningConfigVersions UP-TO-DATE
+> Task :app:packageDebug UP-TO-DATE
+> Task :app:createDebugApkListingFileRedirect UP-TO-DATE
+> Task :app:assembleDebug UP-TO-DATE
+> Task :app:preReleaseBuild UP-TO-DATE
+> Task :app:mergeReleaseJniLibFolders UP-TO-DATE
+> Task :app:mergeReleaseNativeLibs NO-SOURCE
+> Task :app:stripReleaseDebugSymbols NO-SOURCE
+> Task :app:extractReleaseNativeSymbolTables NO-SOURCE
+> Task :app:mergeReleaseNativeDebugMetadata NO-SOURCE
+> Task :app:checkReleaseDuplicateClasses UP-TO-DATE
+> Task :app:buildKotlinToolingMetadata UP-TO-DATE
+> Task :app:checkReleaseAarMetadata UP-TO-DATE
+> Task :app:processReleaseNavigationResources UP-TO-DATE
+> Task :app:compileReleaseNavigationResources UP-TO-DATE
+> Task :app:generateReleaseResValues UP-TO-DATE
+> Task :app:mapReleaseSourceSetPaths UP-TO-DATE
+> Task :app:generateReleaseResources UP-TO-DATE
+> Task :app:mergeReleaseResources UP-TO-DATE
+> Task :app:packageReleaseResources UP-TO-DATE
+> Task :app:parseReleaseLocalResources UP-TO-DATE
+> Task :app:createReleaseCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksRelease UP-TO-DATE
+> Task :app:processReleaseMainManifest UP-TO-DATE
+> Task :app:processReleaseManifest UP-TO-DATE
+> Task :app:processReleaseManifestForPackage UP-TO-DATE
+> Task :app:processReleaseResources UP-TO-DATE
+> Task :app:javaPreCompileRelease UP-TO-DATE
+> Task :app:desugarReleaseFileDependencies UP-TO-DATE
+> Task :app:mergeReleaseStartupProfile UP-TO-DATE
+> Task :app:mergeExtDexRelease UP-TO-DATE
+> Task :app:mergeReleaseArtProfile UP-TO-DATE
+> Task :app:mergeReleaseShaders UP-TO-DATE
+> Task :app:compileReleaseShaders NO-SOURCE
+> Task :app:generateReleaseAssets UP-TO-DATE
+> Task :app:mergeReleaseAssets UP-TO-DATE
+> Task :app:compressReleaseAssets UP-TO-DATE
+> Task :app:extractReleaseVersionControlInfo UP-TO-DATE
+> Task :app:extractProguardFiles UP-TO-DATE
+> Task :app:optimizeReleaseResources UP-TO-DATE
+> Task :app:collectReleaseDependencies UP-TO-DATE
+> Task :app:sdkReleaseDependencyData UP-TO-DATE
+> Task :app:writeReleaseAppMetadata UP-TO-DATE
+> Task :app:writeReleaseSigningConfigVersions UP-TO-DATE
+> Task :app:bundleDebugClassesToCompileJar UP-TO-DATE
 > Task :app:bundleDebugClassesToRuntimeJar
-> Task :app:mergeDebugJavaResource
-> Task :app:generateDebugLintReportModel
-> Task :app:packageDebug
-> Task :app:createDebugApkListingFileRedirect
-> Task :app:assembleDebug
+> Task :app:preDebugUnitTestBuild UP-TO-DATE
+> Task :app:javaPreCompileDebugUnitTest UP-TO-DATE
+> Task :app:preDebugAndroidTestBuild SKIPPED
+> Task :app:generateDebugAndroidTestResValues UP-TO-DATE
 > Task :app:generateDebugAndroidTestLintModel
+> Task :app:generateDebugLintReportModel
 > Task :app:generateDebugUnitTestLintModel
 > Task :app:compileDebugUnitTestKotlin
-> Task :app:lintAnalyzeDebug
-> Task :app:lintAnalyzeDebugAndroidTest
-> Task :app:lintAnalyzeDebugUnitTest
 > Task :app:compileDebugUnitTestJavaWithJavac NO-SOURCE
-> Task :app:processDebugUnitTestJavaRes
+> Task :app:processDebugUnitTestJavaRes UP-TO-DATE
 > Task :app:testDebugUnitTest
 
 > Task :app:lintAnalyzeDebugUnitTest
 Warning: Unable to initialize metrics, ensure $HOME/.android is writable, details: $HOME/.android/analytics.settings (Operation not permitted)
+
+> Task :app:lintAnalyzeDebugAndroidTest
+
+> Task :app:compileReleaseKotlin
+w: file://$HOME/Desktop/%E6%88%91%E7%9A%84%E5%B7%B2%E8%AE%80%E4%B8%8D%E5%9B%9E%E5%8A%A9%E7%90%86/PrivateInboxClassic-v0.2/PrivateInboxClassic-v0.4-wt/app/src/main/java/tw/personal/privateinbox/MainActivity.kt:109:16 'var statusBarColor: Int' is deprecated. Deprecated in Java.
+w: file://$HOME/Desktop/%E6%88%91%E7%9A%84%E5%B7%B2%E8%AE%80%E4%B8%8D%E5%9B%9E%E5%8A%A9%E7%90%86/PrivateInboxClassic-v0.2/PrivateInboxClassic-v0.4-wt/app/src/main/java/tw/personal/privateinbox/MainActivity.kt:110:16 'var navigationBarColor: Int' is deprecated. Deprecated in Java.
+w: file://$HOME/Desktop/%E6%88%91%E7%9A%84%E5%B7%B2%E8%AE%80%E4%B8%8D%E5%9B%9E%E5%8A%A9%E7%90%86/PrivateInboxClassic-v0.2/PrivateInboxClassic-v0.4-wt/app/src/main/java/tw/personal/privateinbox/MainActivity.kt:111:26 'var systemUiVisibility: Int' is deprecated. Deprecated in Java.
+w: file://$HOME/Desktop/%E6%88%91%E7%9A%84%E5%B7%B2%E8%AE%80%E4%B8%8D%E5%9B%9E%E5%8A%A9%E7%90%86/PrivateInboxClassic-v0.2/PrivateInboxClassic-v0.4-wt/app/src/main/java/tw/personal/privateinbox/MainActivity.kt:116:39 'val systemWindowInsetTop: Int' is deprecated. Deprecated in Java.
+w: file://$HOME/Desktop/%E6%88%91%E7%9A%84%E5%B7%B2%E8%AE%80%E4%B8%8D%E5%9B%9E%E5%8A%A9%E7%90%86/PrivateInboxClassic-v0.2/PrivateInboxClassic-v0.4-wt/app/src/main/java/tw/personal/privateinbox/MainActivity.kt:116:71 'val systemWindowInsetBottom: Int' is deprecated. Deprecated in Java.
+w: file://$HOME/Desktop/%E6%88%91%E7%9A%84%E5%B7%B2%E8%AE%80%E4%B8%8D%E5%9B%9E%E5%8A%A9%E7%90%86/PrivateInboxClassic-v0.2/PrivateInboxClassic-v0.4-wt/app/src/main/java/tw/personal/privateinbox/MainActivity.kt:140:15 'fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Unit' is deprecated. This method has been deprecated in favor of using the Activity Result API
+      which brings increased type safety via an {@link ActivityResultContract} and the prebuilt
+      contracts for common intents available in
+      {@link androidx.activity.result.contract.ActivityResultContracts}, provides hooks for
+      testing, and allow receiving results in separate, testable classes independent from your
+      activity. Use
+      {@link #registerForActivityResult(ActivityResultContract, ActivityResultCallback)}
+      with the appropriate {@link ActivityResultContract} and handling the result in the
+      {@link ActivityResultCallback#onActivityResult(Object) callback}.
+w: file://$HOME/Desktop/%E6%88%91%E7%9A%84%E5%B7%B2%E8%AE%80%E4%B8%8D%E5%9B%9E%E5%8A%A9%E7%90%86/PrivateInboxClassic-v0.2/PrivateInboxClassic-v0.4-wt/app/src/main/java/tw/personal/privateinbox/PrivateNotificationListener.kt:115:43 'fun getParcelableArray(p0: String?): Array<(out) Parcelable!>?' is deprecated. Deprecated in Java.
+
+> Task :app:compileReleaseJavaWithJavac NO-SOURCE
+> Task :app:dexBuilderRelease
+> Task :app:mergeReleaseGlobalSynthetics UP-TO-DATE
+> Task :app:generateReleaseLintVitalReportModel
+> Task :app:processReleaseJavaRes
+> Task :app:mergeReleaseJavaResource
+> Task :app:mergeDexRelease
+> Task :app:compileReleaseArtProfile
+> Task :app:lintVitalAnalyzeRelease
+> Task :app:lintVitalReportRelease
+> Task :app:lintVitalRelease
+> Task :app:lintAnalyzeDebug
+> Task :app:packageRelease
+> Task :app:createReleaseApkListingFileRedirect UP-TO-DATE
+> Task :app:assembleRelease
 
 > Task :app:lintReportDebug
 Wrote HTML report to file://$HOME/PrivateInboxClassic-v0.2/PrivateInboxClassic-v0.4-wt/app/build/reports/lint-results-debug.html
 
 > Task :app:lintDebug
 
-BUILD SUCCESSFUL in 3m 58s
-52 actionable tasks: 29 executed, 23 from cache
+BUILD SUCCESSFUL in 25s
+96 actionable tasks: 22 executed, 74 up-to-date

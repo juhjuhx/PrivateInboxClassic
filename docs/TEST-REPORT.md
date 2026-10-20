@@ -19,8 +19,10 @@ AGP 8.13.2｜Kotlin 2.2.20｜Android SDK 36｜Build Tools 36.0.0
 | Debug Build | **PASS** |
 | Release Build + AAB | **PASS**（未以正式金鑰簽署） |
 | JVM 單元測試 | **PASS**（42/42） |
-| Instrumentation 測試 | **PASS**（34/34，**0 skip**） |
+| Instrumentation 測試 | **PASS**（53/53，**0 skip**） |
 | Android Lint | **PASS**（0 error） |
+| Python DHC 連接器測試 | **PASS**（23/23） |
+| 封裝產物資安稽核 | **PASS**（scripts/audit-release.sh） |
 | 靜態安全稽核 | **PASS** |
 | 秘密稽核（工作樹 + 完整 Git 歷史） | **PASS** |
 | APK 權限檢查（最終 APK） | **PASS**（無 INTERNET 等敏感權限） |
