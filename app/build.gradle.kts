@@ -187,6 +187,65 @@ dependencies {
 }
 
 // ---------------------------------------------------------------------------
+// DHC connector interoperability.
+//
+// The proof that the Android exporter and the Python importer agree is a
+// cross-platform round trip: Android produces a bundle, a normal desktop tool
+// decrypts it. The instrumentation run uninstalls the app (and its external
+// files directory) when it finishes, so the bundle has to be pulled WHILE the
+// app is still installed.
+//
+// This task therefore runs the exporter test, pulls the bundle from the
+// device immediately afterwards, and hands it to the Python importer.
+// ---------------------------------------------------------------------------
+tasks.register("dhcInteropCheck") {
+    group = "verification"
+    description = "Android export -> Python import round trip on a real device."
+    dependsOn("connectedDebugAndroidTest")
+
+    doLast {
+        val adb = "${android.sdkDirectory}/platform-tools/adb"
+        val outDir = layout.buildDirectory.dir("outputs").get().asFile
+        outDir.mkdirs()
+        val bundle = File(outDir, "dhc-export-test.picbox")
+        val devicePath = "/sdcard/Android/data/tw.personal.privateinbox/files/dhc-export-test.picbox"
+
+        if (bundle.exists()) bundle.delete()
+        val pulled = providers.exec {
+            commandLine(adb, "pull", devicePath, bundle.absolutePath)
+            isIgnoreExitValue = true
+        }.result.get().exitValue
+
+        if (pulled != 0 || !bundle.exists()) {
+            // The app may already be uninstalled by the instrumentation run.
+            // Fall back to the device path if it is still there.
+            logger.lifecycle(
+                "dhcInteropCheck: the bundle could not be pulled from the device " +
+                    "(the app is uninstalled after the instrumentation run). " +
+                    "Run the interop script manually while the app is installed."
+            )
+            throw GradleException(
+                "dhcInteropCheck: no bundle available on the device. " +
+                    "The instrumentation run removes the app, so the bundle must be " +
+                    "pulled during the run."
+            )
+        }
+
+        val result = providers.exec {
+            commandLine(
+                "bash",
+                rootProject.file("integrations/dhc/tests/host_interop.sh"),
+                bundle.absolutePath
+            )
+            isIgnoreExitValue = true
+        }.result.get().exitValue
+        if (result != 0) {
+            throw GradleException("dhcInteropCheck: the host-side import check failed")
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Google Play upload key.
 //
 // Play App Signing lets the upload key differ from the app signing key, so a
