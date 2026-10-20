@@ -64,7 +64,7 @@
 
 ---
 
-## 3. Instrumentation 測試（53 項）
+## 3. Instrumentation 測試（60 項）
 
 ### 3.1 通知擷取管線（13 項）
 
@@ -137,6 +137,8 @@ AES-GCM 成本、資料庫成長、記憶體佔用、Activity 啟動。
 全部使用**合成資料**。
 
 ### 3.7 DHC 匯出（7 項）
+
+### 3.8 DHC 匯出（7 項）
 
 訊息 id 穩定性、bundle 結構、容器 magic 與 header、每次匯出新 salt/nonce、
 **Android 產生的封包可被主機端 Python 匯入器讀取**、

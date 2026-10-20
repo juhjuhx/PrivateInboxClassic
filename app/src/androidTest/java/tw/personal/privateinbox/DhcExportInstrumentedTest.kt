@@ -132,28 +132,20 @@ class DhcExportInstrumentedTest {
         // Write the bundle where the HOST can pull it: the app's external
         // files directory. The host-side python check (run by the Gradle
         // interop task) reads it from there.
-        // Write to a location that survives the instrumentation run's uninstall:
-        // the app's external files directory is removed with the app, so the
-        // bundle is ALSO written to shared storage, which the host can read.
+        // The bundle is written to the app's external files directory. The
+        // host-side check pulls it with adb while the app is still installed.
+        //
+        // Shared storage (the Download folder) is NOT used: on Android 11+
+        // an app cannot write there without a media permission, and the
+        // external files directory is reachable by adb anyway.
         val external = ctx.getExternalFilesDir(null)
-        if (external != null) {
-            File(external, "dhc-export-test.picbox").writeBytes(container)
-        }
-        val shared = ctx.getExternalFilesDir(null)
-        // DIRECTORY_DOWNLOAD was removed from the public API; the literal path
-        // is what the platform still uses.
-        val publicDir = android.os.Environment.getExternalStorageDirectory()
-            ?.resolve("Download")
-        if (publicDir != null) {
-            publicDir.mkdirs()
-            val public = File(publicDir, "dhc-export-test.picbox")
-            public.writeBytes(container)
-            assertTrue(
-                "the bundle must be written to shared storage for the host check",
-                public.length() == container.size.toLong()
-            )
-        }
-        assertTrue("the bundle must be produced", container.isNotEmpty())
+        assertNotNull("the external files directory must be available", external)
+        val out = File(external, "dhc-export-test.picbox")
+        out.writeBytes(container)
+        assertTrue(
+            "the bundle must be written for the host check",
+            out.length() == container.size.toLong()
+        )
     }
 
     @Test
@@ -161,13 +153,14 @@ class DhcExportInstrumentedTest {
         val container = buildContainer("the real passphrase")
         // DIRECTORY_DOWNLOAD was removed from the public API; the literal path
         // is what the platform still uses.
-        val publicDir = android.os.Environment.getExternalStorageDirectory()
-            ?.resolve("Download")
-        if (publicDir != null) {
-            publicDir.mkdirs()
-            File(publicDir, "dhc-export-wrongpass.picbox").writeBytes(container)
-        }
-        assertTrue("the bundle must be produced", container.isNotEmpty())
+        val external = ctx.getExternalFilesDir(null)
+        assertNotNull("the external files directory must be available", external)
+        val out = File(external, "dhc-export-wrongpass.picbox")
+        out.writeBytes(container)
+        assertTrue(
+            "the bundle must be written for the host check",
+            out.length() == container.size.toLong()
+        )
     }
 
     /**

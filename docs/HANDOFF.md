@@ -14,7 +14,8 @@
 | 版本 | 0.4.0-alpha (versionCode 6) |
 | Build | ✅ BUILD SUCCESSFUL |
 | 單元測試 | ✅ 42/42 PASS |
-| Instrumentation | ✅ 34/34（0 skip）— Android 16 模擬器 |
+| Python DHC 連接器 | ✅ 23/23 PASS |
+| Instrumentation | ✅ 60/60（0 skip）— Android 16 模擬器 |
 | Lint | ✅ 0 error |
 | 秘密稽核 | ✅ PASS（工作樹 + 完整 Git 歷史） |
 | APK | ✅ 已產出，權限與簽章已驗證，Debug 版已安裝並啟動 |

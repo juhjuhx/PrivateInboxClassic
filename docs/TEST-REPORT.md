@@ -19,7 +19,7 @@ AGP 8.13.2｜Kotlin 2.2.20｜Android SDK 36｜Build Tools 36.0.0
 | Debug Build | **PASS** |
 | Release Build + AAB | **PASS**（未以正式金鑰簽署） |
 | JVM 單元測試 | **PASS**（42/42） |
-| Instrumentation 測試 | **PASS**（53/53，**0 skip**） |
+| Instrumentation 測試 | **PASS**（60/60，**0 skip**） |
 | Android Lint | **PASS**（0 error） |
 | Python DHC 連接器測試 | **PASS**（23/23） |
 | 封裝產物資安稽核 | **PASS**（scripts/audit-release.sh） |
@@ -53,7 +53,7 @@ tw.personal.privateinbox.SourceRegistryTest:       tests=20 failures=0
 
 ---
 
-## 3. Instrumentation 測試（34/34 PASS，0 skip）
+## 3. Instrumentation 測試（60/60 PASS，0 skip）
 
 Android 16 模擬器。日誌：`docs/INSTRUMENTED-TEST-LOG.txt`
 
