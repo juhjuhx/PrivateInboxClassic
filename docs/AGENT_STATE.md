@@ -11,8 +11,8 @@
 | CURRENT_BRANCH | `integration/dsh-v040` |
 | CURRENT_HEAD | `6ccb69f` 之後的整合提交（見 `git log`） |
 | BASELINE | `6ccb69f`（本輪接手時的 HEAD） |
-| CURRENT_PHASE | R6 — GitHub 私人倉庫與文件收尾 |
-| CURRENT_TASK | 建立私人 GitHub 倉庫並推送整合分支 |
+| CURRENT_PHASE | R6 完成 — 私人 GitHub 倉庫已建立、CI 全綠 |
+| CURRENT_TASK | 已完成（倉庫：juhjuhx/PrivateInboxClassic，PRIVATE） |
 | LAST_SUCCESS | 60 項 instrumentation 0 失敗 0 skip；42 項 unit；23 項 python；Lint 0 error；三個稽核腳本 PASS |
 | LAST_COMMAND | `./gradlew --no-daemon :app:connectedDebugAndroidTest` |
 | LAST_EXIT_CODE | 0 |
@@ -34,7 +34,7 @@
 | R3 | DHC Connector v0.1（跨平台往返已證明） | ✅ |
 | R4 | 通知鏡像規格（設計文件，未實作） | ✅ |
 | R5 | Rust 遷移研究與 PoC 計畫（未實作） | ✅ |
-| R6 | GitHub 私人倉庫 + 文件 | 🔄 進行中 |
+| R6 | GitHub 私人倉庫 + 文件 + CI | ✅ 完成（CI 綠） |
 
 ### 修正的三個真實缺陷
 

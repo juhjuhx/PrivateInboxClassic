@@ -19,7 +19,9 @@
 | Lint | ✅ 0 error |
 | 秘密稽核 | ✅ PASS（工作樹 + 完整 Git 歷史） |
 | APK | ✅ 已產出，權限與簽章已驗證，Debug 版已安裝並啟動 |
-| 遠端 | **無**（未推送任何地方） |
+| 遠端 | `https://github.com/juhjuhx/PrivateInboxClassic`（**PRIVATE**） |
+| 推送分支 | `integration/dsh-v040` |
+| CI | ✅ **GREEN** — run 39450024722，全部步驟成功，含 APK 與測試報告 artifact |
 
 ---
 
