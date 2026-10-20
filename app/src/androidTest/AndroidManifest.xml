@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The instrumentation APK needs the app's signature-level debug-settings
+  permission, otherwise the DebugSettingsProvider would reject its calls.
+
+  Both APKs are signed with the same debug key, so the signature-level
+  permission is satisfied. The permission itself is declared by the app's
+  debug manifest overlay; it is referenced here (not re-declared) so that the
+  protection level stays under the app's control.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="tw.personal.privateinbox.permission.DEBUG_SETTINGS" />
+</manifest>

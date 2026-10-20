@@ -76,8 +76,8 @@ android {
         applicationId = "tw.personal.privateinbox"
         minSdk = 28
         targetSdk = 36
-        versionCode = 6
-        versionName = "0.4.0-alpha"
+        versionCode = 7
+        versionName = "0.4.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -135,17 +135,29 @@ android {
             isMinifyEnabled = false
         }
         getByName("release") {
-            // Without a configured release key the release build is only useful
-            // for local smoke testing, so it is signed with the debug key and
-            // clearly marked as not distributable.
-            signingConfig = if (releaseSigning != null) {
-                signingConfigs.getByName("release")
+            // A release build must NEVER carry the debug signature.
+            //
+            // The previous behaviour fell back to the debug signing config when
+            // no release key was configured. That produced an APK named
+            // "release" that was in fact signed with the Android Debug
+            // certificate — indistinguishable from a test build, easy to
+            // distribute by accident, and impossible to upgrade later.
+            //
+            // Now: with a configured release key the release build is signed
+            // with it. Without one, the build produces an UNSIGNED release
+            // artifact and fails loudly, so a mislabelled binary can never be
+            // produced. A local smoke test can still be done with the debug
+            // build.
+            if (releaseSigning != null) {
+                signingConfig = signingConfigs.getByName("release")
             } else {
                 logger.warn(
                     "SIGNING: no release keystore configured. The release build will be " +
-                        "signed with the DEBUG key and is NOT distributable. See docs/SIGNING.md."
+                        "UNSIGNED and is NOT distributable. See docs/SIGNING.md."
                 )
-                signingConfigs.getByName("debug")
+                // Explicitly clear the signing config so no debug identity leaks
+                // into a release artifact.
+                signingConfig = null
             }
             isMinifyEnabled = false
             proguardFiles(

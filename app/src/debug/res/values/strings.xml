@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Label for the debug-only signature-level permission that guards the
+         instrumentation settings bridge. Debug builds only. -->
+    <string name="debug_settings_permission_label">Private Inbox 測試設定橋接（僅限相同簽章的測試套件）</string>
+</resources>

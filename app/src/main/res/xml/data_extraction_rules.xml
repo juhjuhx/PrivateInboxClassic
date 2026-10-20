@@ -1,12 +1,46 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Android 12+ (API 31): exclude the encrypted vault and every file the app keeps
-     from Auto Backup and device-to-device transfers. Nothing is ever sent off device. -->
+<!--
+  Android 12+ (API 31) backup and device-transfer rules.
+
+  Defence in depth. The primary gate is android:allowBackup="false" in the
+  manifest, which stops the platform from registering this package with the
+  backup manager at all (verified with `dumpsys backup`: the package does not
+  appear in the backup manager's package list).
+
+  This file makes the intent explicit as well, so the rules stay correct even if
+  allowBackup is ever changed, and so a reviewer can see at a glance what would
+  be transferred.
+
+  Rationale for excluding everything: the encrypted database, the
+  Keystore-backed content and the shared preferences are all device-local. The
+  Keystore key is never backed up, so a transferred database would be
+  ciphertext that cannot be decrypted — unrecoverable, and a copy of the
+  user's private message metadata leaving the device for no benefit.
+-->
 <data-extraction-rules>
     <cloud-backup>
-        <!-- No cloud backup: encrypted DB, keys, prefs all stay on-device only. -->
+        <!-- Nothing is uploaded to the cloud. -->
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="external" path="." />
+        <exclude domain="device_root" path="." />
+        <exclude domain="device_file" path="." />
+        <exclude domain="device_database" path="." />
+        <exclude domain="device_sharedpref" path="." />
     </cloud-backup>
     <device-transfer>
-        <!-- No local migration either: a moved database without its Keystore keys is
-             unrecoverable, so block transfers instead of shipping unusable ciphertext. -->
+        <!-- Nothing is transferred to the new device either: a moved database
+             without its Keystore key is unrecoverable. -->
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="external" path="." />
+        <exclude domain="device_root" path="." />
+        <exclude domain="device_file" path="." />
+        <exclude domain="device_database" path="." />
+        <exclude domain="device_sharedpref" path="." />
     </device-transfer>
 </data-extraction-rules>

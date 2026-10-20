@@ -3,6 +3,7 @@ package tw.personal.privateinbox
 import android.content.ContentProvider
 import android.content.ContentValues
 import android.content.Context
+import android.content.pm.PackageManager
 import android.database.Cursor
 import android.net.Uri
 import android.os.Build
@@ -29,6 +30,9 @@ class DebugSettingsProvider : ContentProvider() {
         const val AUTHORITY = "tw.personal.privateinbox.debugsettings"
         val CONTENT_URI: Uri = Uri.parse("content://$AUTHORITY")
 
+        /** The instrumentation APK's package name. */
+        const val INSTRUMENTATION_PACKAGE = "tw.personal.privateinbox.test"
+
         const val KEY_SOURCES = "sources"
         const val KEY_RECORDING = "recording"
         const val KEY_COUNTERS = "counters"
@@ -42,28 +46,67 @@ class DebugSettingsProvider : ContentProvider() {
     /**
      * Guard the provider.
      *
-     * The provider only exists in the debug build, and it exposes nothing
-     * sensitive: it can toggle which capture sources are enabled and read
-     * diagnostic counters. It never exposes message content.
+     * The provider is declared with a signature-level permission
+     * (tw.personal.privateinbox.permission.DEBUG_SETTINGS), so the system
+     * already rejects any caller that is not signed with the same certificate.
+     * This check is a second, independent layer: it verifies the caller's
+     * *signing certificate* against the app's own, and verifies that the caller
+     * is the app itself or the instrumentation APK.
      *
-     * A caller is accepted when it runs under the app's own UID or under the
-     * instrumentation package's UID (the two debug-signed packages).
+     * Note: the previous version compared `Process.myUid()` (the PROVIDER's
+     * uid, which is always the app's) against a package uid. That check could
+     * never fail for an in-process call and did not identify the caller at all.
      */
     private fun callerAllowed(): Boolean {
         val ctx = context ?: return false
-        val uid = android.os.Process.myUid()
-        val appUid = try {
-            ctx.packageManager.getApplicationInfo(ctx.packageName, 0).uid
-        } catch (_: Exception) {
-            return false
-        }
-        if (uid == appUid) return true
+        val callerUid = binderCallingUid()
+        if (callerUid == android.os.Process.myUid()) return true
         // The instrumentation APK is signed with the same debug key and runs
-        // with its own UID; accept it explicitly.
+        // with its own UID.
+        val allowedUids = setOf(
+            uidOf(ctx, ctx.packageName),
+            uidOf(ctx, INSTRUMENTATION_PACKAGE)
+        ).filter { it != null }.mapNotNull { it }.toSet()
+        if (callerUid !in allowedUids) return false
+        // Same signing certificate as the app.
+        return sameSigner(ctx, ctx.packageName, packageForUid(ctx, callerUid))
+    }
+
+    private fun uidOf(ctx: Context, pkg: String): Int? = try {
+        ctx.packageManager.getApplicationInfo(pkg, 0).uid
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun packageForUid(ctx: Context, uid: Int): String? = try {
+        ctx.packageManager.getPackagesForUid(uid)?.firstOrNull()
+    } catch (_: Exception) {
+        null
+    }
+
+    /** The UID of the process that called into this provider, if known. */
+    private fun binderCallingUid(): Int {
+        val uid = android.os.Binder.getCallingUid()
+        // A negative UID means the call did not come through the binder (an
+        // in-process call). Treat that as the app itself.
+        return if (uid < 0) android.os.Process.myUid() else uid
+    }
+
+    /** True when [callerPackage] is signed with the same certificate as [appPackage]. */
+    private fun sameSigner(ctx: Context, appPackage: String, callerPackage: String?): Boolean {
+        if (callerPackage == null) return false
+        if (callerPackage == appPackage) return true
         return try {
-            ctx.packageManager.getApplicationInfo(
-                "tw.personal.privateinbox.test", 0
-            ).uid == uid
+            val pm = ctx.packageManager
+            val appSignatures = pm.getPackageInfo(
+                appPackage, PackageManager.GET_SIGNING_CERTIFICATES
+            ).signingInfo
+            val callerSignatures = pm.getPackageInfo(
+                callerPackage, PackageManager.GET_SIGNING_CERTIFICATES
+            ).signingInfo
+            val appCerts = appSignatures?.apkContentsSigners?.toSet() ?: emptySet()
+            val callerCerts = callerSignatures?.apkContentsSigners?.toSet() ?: emptySet()
+            appCerts.isNotEmpty() && appCerts.intersect(callerCerts).isNotEmpty()
         } catch (_: Exception) {
             false
         }

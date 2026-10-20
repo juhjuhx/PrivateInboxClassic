@@ -1,14 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Debug-only manifest overlay. Nothing in this file exists in a release build. -->
+<!--
+  Debug-only manifest overlay. Nothing in this file exists in a release build.
+
+  The DebugSettingsProvider is a test bridge: the instrumentation APK is a
+  separate package with its own UID, so it cannot write the app's
+  SharedPreferences. The provider lets it ask the app to do that.
+
+  SECURITY: the provider is protected by a signature-level permission, so only
+  an APK signed with the SAME certificate as this app can call it. Without
+  that, any app on the device could read the app's capture diagnostics and
+  toggle the recording switch — which is a real control surface, not a
+  read-only one.
+-->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <permission
+        android:name="tw.personal.privateinbox.permission.DEBUG_SETTINGS"
+        android:protectionLevel="signature"
+        android:label="@string/debug_settings_permission_label" />
+
     <application>
-        <!-- Lets the instrumentation suite configure the app's settings.
-             The instrumentation APK is a separate package with its own data
-             directory and cannot write the app's SharedPreferences directly. -->
         <provider
             android:name=".DebugSettingsProvider"
             android:authorities="tw.personal.privateinbox.debugsettings"
             android:exported="true"
+            android:permission="tw.personal.privateinbox.permission.DEBUG_SETTINGS"
             android:grantUriPermissions="false" />
     </application>
 </manifest>
