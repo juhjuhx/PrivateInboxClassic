@@ -25,8 +25,20 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Set up the Android command-line tools
+        # The official command-line tools are installed directly rather than
+        # through a third-party action: fewer moving parts, and the exact
+        # version is pinned instead of tracking someone else's release cadence.
+        run: |
+          set -euo pipefail
+          ANDROID_TOOLS_VERSION="11076708"
+          ANDROID_TOOLS_URL="https://dl.google.com/android/repository/commandlinetools-mac-${ANDROID_TOOLS_VERSION}_latest.zip"
+          curl -fsSL -o /tmp/cmdline-tools.zip "$ANDROID_TOOLS_URL"
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+          unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tools-extract
+          rm -rf "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+          mv /tmp/cmdline-tools-extract/cmdline-tools "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
 
       - name: Accept SDK licenses
         run: yes | sdkmanager --licenses > /dev/null || true
