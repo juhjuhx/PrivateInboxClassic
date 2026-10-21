@@ -26,3 +26,6 @@ emulator-home/
 
 # Agent state (task bookkeeping only, no secrets)
 .agent/
+
+# The commit-message scratch files are temporary.
+.commit-msg-*.txt
