@@ -9,9 +9,9 @@
 
 | 層級 | 指令 | 需要裝置 |
 |------|------|----------|
-| JVM 單元測試 | `./gradlew :app:testDebugUnitTest` | 否 |
-| Android Lint | `./gradlew :app:lintDebug` | 否 |
-| Instrumentation | `./gradlew :app:connectedDebugAndroidTest` | **是** |
+| JVM 單元測試 | `./gradlew :app:testProdDebugUnitTest` | 否 |
+| Android Lint | `./gradlew :app:lintProdDebug` | 否 |
+| Instrumentation | `./gradlew :app:connectedDevtestDebugAndroidTest` | **是** |
 | Python 連接器 | `python3 integrations/dhc/tests/test_connector.py` | 否 |
 | 封裝產物稽核 | `bash scripts/audit-release.sh` | 否 |
 | 秘密稽核 | `bash scripts/audit-secrets.sh` | 否 |

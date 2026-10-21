@@ -61,18 +61,20 @@ run_verify() {
   export PATH="$JAVA_HOME/bin:$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/build-tools/36.0.0:$PATH"
 
   echo "=== unit tests ==="
-  ./gradlew --no-daemon :app:testDebugUnitTest || return 1
+  ./gradlew --no-daemon :app:testProdDebugUnitTest || return 1
+  echo "=== test isolation audit ==="
+  python3 scripts/audit-test-isolation.py || return 1
   echo "=== lint ==="
-  ./gradlew --no-daemon :app:lintDebug || return 1
+  ./gradlew --no-daemon :app:lintProdDebug || return 1
   echo "=== build ==="
-  ./gradlew --no-daemon :app:assembleDebug || return 1
+  ./gradlew --no-daemon :app:assembleProdDebug || return 1
   echo "=== static audits ==="
   bash scripts/audit.sh || return 1
   bash scripts/audit-secrets.sh || return 1
   if [ -f app/build/outputs/apk/release/app-release-unsigned.apk ]; then
     bash scripts/audit-release.sh || return 1
   else
-    echo "  (release APK not built; run :app:assembleRelease first)"
+    echo "  (release APK not built; run :app:assembleProdRelease first)"
   fi
   echo "=== python connector tests ==="
   python3 integrations/dhc/tests/test_connector.py || return 1
