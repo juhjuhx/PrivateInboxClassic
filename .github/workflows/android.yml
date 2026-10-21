@@ -94,16 +94,16 @@ jobs:
           PY
 
       - name: Unit tests
-        run: ./gradlew --no-daemon :app:testDebugUnitTest
+        run: ./gradlew --no-daemon :app:testProdDebugUnitTest
 
       - name: Android Lint
-        run: ./gradlew --no-daemon :app:lintDebug
+        run: ./gradlew --no-daemon :app:lintProdDebug
 
       - name: Assemble debug APK
-        run: ./gradlew --no-daemon :app:assembleDebug
+        run: ./gradlew --no-daemon :app:assembleProdDebug
 
       - name: Assemble release APK (unsigned until a release key is configured)
-        run: ./gradlew --no-daemon :app:assembleRelease
+        run: ./gradlew --no-daemon :app:assembleProdRelease
         continue-on-error: true
 
       - name: Audit the built artifacts
@@ -111,7 +111,7 @@ jobs:
 
       - name: Audit the built APK permissions
         run: |
-          APK=app/build/outputs/apk/debug/app-debug.apk
+          APK=app/build/outputs/apk/prod/debug/app-prod-debug.apk
           AAPT="$ANDROID_HOME/build-tools/36.0.0/aapt"
           "$AAPT" dump permissions "$APK" | tee permissions.txt
           echo "--- forbidden permissions ---"
@@ -124,7 +124,15 @@ jobs:
       - name: Verify the APK signature
         run: |
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify \
-            --print-certs app/build/outputs/apk/debug/app-debug.apk
+            --print-certs app/build/outputs/apk/prod/debug/app-prod-debug.apk
+
+      - name: Instrumentation on the ISOLATED devtest variant
+        # The destructive tests (the ones that clear the database) run against
+        # the devtest variant, whose application id has its own data directory.
+        # They physically cannot reach the production app's database, which is
+        # what makes running them on a device safe.
+        run: ./gradlew --no-daemon :app:connectedDevtestDebugAndroidTest
+        continue-on-error: true
 
       - name: Upload test reports
         if: always()
@@ -141,6 +149,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: PrivateInboxClassic-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/prod/debug/app-prod-debug.apk
           if-no-files-found: error
           retention-days: 14

@@ -121,7 +121,7 @@ class ProcessDeathExperimentInstrumentedTest {
         // to drain. The drain time IS the loss window.
         val counter = StateCounter()
         val db = InboxDatabase(ctx)
-        db.clear()
+        TestDataIsolation.clearDatabase(ctx)
 
         // A slow writer, so the queue builds up.
         val pool = Executors.newFixedThreadPool(1)
@@ -187,7 +187,7 @@ class ProcessDeathExperimentInstrumentedTest {
         // moment the process would be killed.
         val counter = StateCounter()
         val db = InboxDatabase(ctx)
-        db.clear()
+        TestDataIsolation.clearDatabase(ctx)
         val pool = Executors.newSingleThreadExecutor()
         val start = CountDownLatch(1)
         val release = CountDownLatch(1)
