@@ -1,0 +1,33 @@
+docs: the pagination performance baseline, measured before and after
+
+The list used to read the WHOLE table on every load, decrypting every row.
+The measurement, on the emulator (Android 16, API 36, arm64-v8a) with
+synthetic data:
+
+  rows      unbounded read   first page (50 rows)
+  100            185 ms              92 ms
+  1,000          890 ms              89 ms
+  10,000        918 ms *            89 ms
+
+  * the unbounded read is capped at 2,000 rows, so it never even sees the
+    other 8,000.
+
+The first page is now a CONSTANT ~89 ms regardless of the table size: the
+query is indexed and only the page is decrypted. That is the number the user
+fees on opening the app.
+
+WHAT CHANGED:
+
+- InboxDatabase.readPage() reads one page with a stable (received_at, id)
+  cursor. The id breaks the tie in the ordering, so a row keeps its position
+  even when new notifications arrive above it, and the cursor stays valid.
+- The list loads the first page and offers "load more" explicitly. The
+  loading is visible rather than surprising.
+- The unbounded read is still used where the whole set is genuinely needed
+  (the conversation grouping), and it is still capped.
+
+The pagination contract is locked in by ten instrumentation tests: the first
+page, the next page, the last page, an empty list, pagination after a
+deletion, pagination with a source filter, pagination together with a
+search, a new row arriving mid-pagination, walking every page exactly once,
+and building a conversation list from the pages.

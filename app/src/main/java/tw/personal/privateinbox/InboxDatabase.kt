@@ -15,7 +15,8 @@ import org.json.JSONObject
  *
  *  Migration is additive: existing rows keep their data and get a neutral
  *  conversation_key derived from their package + title, so no user data is lost. */
-class InboxDatabase(context: Context) : SQLiteOpenHelper(context, "inbox.db", null, 4) {
+class InboxDatabase(private val appContext: Context) :
+    SQLiteOpenHelper(appContext, "inbox.db", null, 4) {
     data class Entry(
         val id: Long, val packageName: String, val receivedAt: Long,
         val sourceTimestamp: Long,
@@ -191,17 +192,83 @@ class InboxDatabase(context: Context) : SQLiteOpenHelper(context, "inbox.db", nu
         val entries: List<Entry>,
         val keyState: CryptoStore.KeyState,
         /** Number of rows that could not be decrypted. */
-        val unreadableRows: Int
-    )
+        val unreadableRows: Int,
+        /** True when another page follows this one. */
+        val hasMore: Boolean = false
+    ) {
+        /**
+         * The cursor for the NEXT page.
+         *
+         * It is the (received_at, id) pair of the last row, which is stable
+         * even when new rows arrive, because the id breaks the tie in the
+         * ordering.
+         */
+        fun nextCursor(): Pair<Long, Long>? {
+            val last = entries.lastOrNull() ?: return null
+            return last.receivedAt to last.id
+        }
+    }
 
-    fun recentWithState(limit: Int = 1000): ReadResult {
+    fun recentWithState(limit: Int = 1000): ReadResult =
+        readPage(limit = limit, beforeReceivedAt = null, beforeId = null, conversationKey = null)
+
+    /**
+     * Read ONE page of messages.
+     *
+     * The unbounded read decrypts every row in the table, which is why the
+     * first screen took seconds with a few thousand messages. A page reads
+     * only what is shown.
+     *
+     * The cursor is the (received_at, id) pair of the LAST row of the
+     * previous page. It is stable: rows are ordered by received_at DESC,
+     * id DESC, and the id breaks the tie, so a row keeps its position even
+     * when new rows arrive above it.
+     *
+     * @param limit the maximum number of rows to return
+     * @param beforeReceivedAt the received_at of the cursor, or null for the
+     *        first page
+     * @param beforeId the id of the cursor, or null for the first page
+     * @param conversationKey when set, only this conversation is returned
+     */
+    fun readPage(
+        limit: Int = 50,
+        beforeReceivedAt: Long? = null,
+        beforeId: Long? = null,
+        conversationKey: String? = null
+    ): ReadResult {
         val output = ArrayList<Entry>()
         var worst = CryptoStore.KeyState.KEY_AVAILABLE
         var unreadable = 0
+        val bounded = limit.coerceIn(1, 500)
+        // One extra row is fetched so the caller can tell that there IS
+        // another page, without a second COUNT query.
+        val fetch = bounded + 1
+        val selection = buildString {
+            if (beforeReceivedAt != null && beforeId != null) {
+                append("(received_at < ? OR (received_at = ? AND id < ?))")
+            }
+            if (conversationKey != null) {
+                if (isNotEmpty()) append(" AND ")
+                append("conversation_key = ?")
+            }
+        }
+        // The selection arguments are strings: SQLite's query API only binds
+        // strings, and the values are numbers and a text key, so they are
+        // formatted rather than bound. The values are internal, never user
+        // input, and the key is a database column value.
+        val args = mutableListOf<String>()
+        if (beforeReceivedAt != null && beforeId != null) {
+            args += beforeReceivedAt.toString()
+            args += beforeReceivedAt.toString()
+            args += beforeId.toString()
+        }
+        if (conversationKey != null) args += conversationKey
         readableDatabase.query("messages",
             arrayOf("id", "package_name", "received_at", "source_ts", "sealed_content",
                 "sealed_image", "conversation_key", "message_kind"),
-            null, null, null, null, "received_at DESC, id DESC", limit.coerceIn(1, 2000).toString()
+            selection.ifEmpty { null },
+            args.takeIf { it.isNotEmpty() }?.toTypedArray(),
+            null, null, "received_at DESC, id DESC", fetch.toString()
         ).use { c ->
             while (c.moveToNext()) {
                 val pkg = c.getString(1)
@@ -235,7 +302,10 @@ class InboxDatabase(context: Context) : SQLiteOpenHelper(context, "inbox.db", nu
         }
         val finalState = if (worst.isUnrecoverable) CryptoStore.KeyState.RECOVERY_REQUIRED
                          else worst
-        return ReadResult(output, finalState, unreadable)
+        // The extra row is dropped and reported as "there is more".
+        val hasMore = output.size > bounded
+        if (hasMore) output.removeAt(output.size - 1)
+        return ReadResult(output, finalState, unreadable, hasMore)
     }
 
     companion object {
@@ -290,6 +360,38 @@ class InboxDatabase(context: Context) : SQLiteOpenHelper(context, "inbox.db", nu
     private fun checkpointWal(db: SQLiteDatabase) {
         runCatching { db.rawQuery("PRAGMA wal_checkpoint(TRUNCATE)", null).use { it.moveToFirst() } }
     }
+
+    /**
+     * Delete a single row by its id.
+     *
+     * @return true when a row was removed
+     */
+    fun deleteById(id: Long): Boolean = runCatching {
+        writableDatabase.delete("messages", "id = ?", arrayOf(id.toString())) > 0
+    }.getOrDefault(false)
+
+    /**
+     * The number of rows in the table.
+     *
+     * The read path is capped, so the row count has to come from the database
+     * itself when a test needs the real number.
+     */
+    fun countRows(): Int = runCatching {
+        readableDatabase.rawQuery("SELECT COUNT(*) FROM messages", null).use { c ->
+            if (c.moveToFirst()) c.getInt(0) else 0
+        }
+    }.getOrDefault(0)
+
+    /**
+     * The size of the database file on disk, in bytes.
+     *
+     * Used by the performance baseline to show how the storage grows with the
+     * number of messages.
+     */
+    fun databaseSizeBytes(): Long = runCatching {
+        val file = appContext.getDatabasePath("inbox.db")
+        file.length()
+    }.getOrDefault(0L)
 
     fun clear() {
         val db = writableDatabase
