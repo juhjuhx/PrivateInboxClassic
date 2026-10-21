@@ -10,8 +10,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * A synthetic notification sender, used to drive the capture pipeline under burst
- * conditions.
+ * A synthetic notification sender for the burst regression suite.
  *
  * The notifications are posted through the platform's [NotificationManager], so
  * the system routes them to the bound NotificationListenerService exactly as a
@@ -58,6 +57,8 @@ class BurstNotifier {
      * @param notificationId the notification id (one per conversation)
      * @param postTime the message timestamp. Passing the SAME value for repeated
      *        posts models a source that does not provide a per-message timestamp.
+     * @param distinctBodies when false, every message carries the SAME text.
+     *        This models a source that sends the same message twice.
      */
     fun postGroupUpdate(
         notificationId: Int,
@@ -66,16 +67,24 @@ class BurstNotifier {
         firstIndex: Int = 0,
         postTime: Long = 0L,
         asSummary: Boolean = false,
+        distinctBodies: Boolean = true,
         groupKey: String? = null
     ): List<String> {
         ensureChannel()
         val style = Notification.MessagingStyle(
             Person.Builder().setName(SENDER).setKey("synthetic-sender").build()
         )
+        // The conversation title is set on the STYLE as well as on the
+        // builder. A MessagingStyle carries its own conversation title, and
+        // when it is absent the platform falls back to a default one, so two
+        // different conversations would be indistinguishable. Real messaging
+        // apps set it on the style.
+        style.conversationTitle = conversationTitle
         val bodies = ArrayList<String>()
         for (i in 0 until messageCount) {
             val index = firstIndex + i
-            val body = "synthetic-burst-message #$index"
+            val body = if (distinctBodies) "synthetic-burst-message #$index"
+            else "synthetic-burst-message #same"
             bodies += body
             val timestamp = if (postTime > 0) postTime else 1_700_000_000_000L + index
             style.addMessage(
@@ -84,12 +93,6 @@ class BurstNotifier {
                 )
             )
         }
-        // The conversation title is set on the STYLE as well as on the
-        // builder. A MessagingStyle carries its own conversation title, and
-        // when it is absent the platform falls back to a default one, so two
-        // different conversations would be indistinguishable. Real messaging
-        // apps set it on the style.
-        style.conversationTitle = conversationTitle
         val builder = Notification.Builder(ctx, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(conversationTitle)

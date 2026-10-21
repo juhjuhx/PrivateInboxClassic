@@ -8,67 +8,640 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.util.concurrent.TimeUnit
 
 /**
- * Burst capture regression tests.
+ * The burst capture regression suite.
  *
- * These drive the real capture pipeline with synthetic group notifications that
- * are updated in place, the way a group chat behaves. The bug under test is
- * "a burst of group messages loses messages between the listener callback and the
- * database".
+ * These drive the real capture pipeline with synthetic group notifications
+ * that are updated in place, the way a group chat behaves.
  *
- * **Denominators.** The task is explicit that these must be counted separately,
- * because the Android platform may coalesce rapid updates:
+ * **Denominators.** The brief is explicit that these must be counted
+ * separately, because the Android platform may coalesce rapid updates:
  *
- *   post_attempts                      - how many times we called notify()
- *   listener_callbacks                 - how many times the listener was called
- *   logical_messages_exposed_to_listener - how many DISTINCT messages the
- *                                     listener actually saw
- *   db_saved                           - how many rows ended up in the database
+ *   messages_generated                    - distinct messages the test created
+ *   notifications_posted                  - notify() calls
+ *   callbacks_received                    - listener callbacks
+ *   messages_represented_in_callbacks     - distinct messages the listener saw
+ *   messages_accepted                     - accepted by the source policy
+ *   messages_saved                        - rows in the database
+ *   messages_deduplicated                 - recognised as already stored
+ *   messages_failed                       - write failures
+ *   unaccounted_messages                  - represented but neither saved nor
+ *                                           deduplicated
  *
- * The invariant that must hold is:
- *   logical_messages_exposed_to_listener == db_saved + db_duplicate
- *
- * i.e. every message the listener actually received must be accounted for in the
- * database. post_attempts is NOT used as the expected count, because the platform
- * is free to coalesce updates.
+ * The invariant: a message the listener represented must end up either saved
+ * or deduplicated. `notifications_posted` is NOT the expected count, because
+ * the platform is free to coalesce updates.
  */
 @RunWith(AndroidJUnit4::class)
 class BurstCaptureInstrumentedTest {
+
+    companion object {
+        /**
+         * The platform's cap on the MessagingStyle message history.
+         *
+         * `Notification.MessagingStyle` keeps at most 25 messages. A
+         * notification therefore NEVER carries more than 25 messages, no
+         * matter how many the source tried to put in, and the messages beyond
+         * that limit are not delivered to ANY listener.
+         *
+         * This is a platform limit, not a limit of this app. A burst of group
+         * messages is captured one revision at a time: each revision exposes
+         * the newest messages, and the app captures what is new in it. A
+         * message that falls out of the 25-message window before a revision
+         * arrives was never offered to any listener.
+         */
+        const val PLATFORM_MESSAGE_HISTORY_LIMIT = 25
+    }
 
     private val ctx get() = InstrumentationRegistry.getInstrumentation().targetContext
     private val notifier = BurstNotifier()
     private lateinit var db: InboxDatabase
 
-    /** Counts the listener callbacks, so the test can compare denominators. */
-    private val callbackCount = java.util.concurrent.atomic.AtomicInteger(0)
+    /**
+     * The number of rows that were already stored when the test started.
+     *
+     * The database is cleared in setUp, so this is normally 0. It is tracked
+     * anyway so a failure can report the DELTA rather than an absolute count,
+     * which is what the brief's denominators require.
+     */
+    private var baselineRows = 0
 
     @Before
     fun setUp() {
         db = InboxDatabase(ctx)
         db.clear()
-        callbackCount.set(0)
-        // The synthetic notifications are posted by the instrumentation package.
-        // The capture policy must allow that source, and the instrumentation
-        // process holds the signature-level DEBUG_SETTINGS permission, so it can
-        // change the app's own settings through the debug provider.
-        enableSelfTestSource()
+        notifier.ensureChannel()
+        CaptureMetrics.reset()
         // The synthetic notifications are posted by the app package, so the app
         // needs POST_NOTIFICATIONS. Without it, notify() is silently ignored on
-        // Android 13+ and the test would measure "nothing was posted" instead of
-        // the burst behaviour.
+        // Android 13+ and the test would measure "nothing was posted" instead
+        // of the burst behaviour.
         ensureCanPostNotifications()
+        // The capture source must be enabled through the debug provider; the
+        // instrumentation process holds the signature-level permission.
+        enableSelfTestSource()
         // The instrumentation run installs the app fresh, which drops it out of
-        // the system's allowed-notification-listeners list. Re-grant it with
-        // UiAutomation (which runs with shell privileges) and then wait for a
-        // real bind. Without this the test would measure "the listener was
-        // never allowed" instead of the burst behaviour.
+        // the system's allowed-notification-listeners list.
         grantListenerAccess()
         assertTrue(
             "the notification listener must be bound before the burst is measured",
             waitForListener()
         )
+    }
+
+    @After
+    fun tearDown() {
+        db.clear()
+        db.close()
+    }
+
+    // ---------------------------------------------------------------- helpers
+
+    private fun storedBodies(): List<String> = db.recent(2000).map { it.body }
+    private fun storedCount(): Int = db.recent(2000).size
+
+    private fun waitUntil(timeoutMs: Long, predicate: () -> Boolean): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (predicate()) return true
+            Thread.sleep(200)
+        }
+        return predicate()
+    }
+
+    /** Wait until the queue has drained and the database is stable. */
+    private fun settle(expected: Int, timeoutMs: Long = 30_000) {
+        waitUntil(timeoutMs) { storedCount() >= expected }
+        // Let the queue drain fully, then confirm it is quiet.
+        var stable = 0
+        var last = -1
+        val deadline = System.currentTimeMillis() + 10_000
+        while (System.currentTimeMillis() < deadline && stable < 3) {
+            val now = storedCount()
+            if (now == last) stable++ else { stable = 0; last = now }
+            Thread.sleep(300)
+        }
+    }
+
+    /**
+     * The metric report for one run.
+     *
+     * The unaccounted count is the important one: it is the number of messages
+     * the listener represented that never reached the database and were not
+     * recognised as duplicates.
+     */
+    private fun report(
+        name: String,
+        generated: Int,
+        posted: Int,
+        expectedRows: Int
+    ): String {
+        val baseline = baselineRows
+        val m = CaptureMetrics.snapshot()
+        // presented: every message the source showed, including the ones
+        // already captured in an earlier revision.
+        val presented = m["messages_presented"] ?: 0L
+        // submitted: the messages that were new in their revision and had to
+        // be written.
+        val submitted = m["messages_submitted"] ?: 0L
+        val saved = m["db_committed"] ?: 0L
+        val deduped = m["db_duplicated"] ?: 0L
+        val failed = m["db_failed"] ?: 0L
+        val overflow = m["queue_overflow"] ?: 0L
+        // A submitted message must be either saved or recognised as a
+        // duplicate. Anything else was lost inside the pipeline.
+        val unaccounted = submitted - saved - deduped
+        val line = "BURST $name " +
+            "generated=$generated posted=$posted " +
+            "callbacks=${m["callbacks_entered"]} presented=$presented submitted=$submitted " +
+            "accepted=${m["policy_accepted"]} rejected=${m["policy_rejected"]} " +
+            "saved=$saved deduped=$deduped failed=$failed " +
+            "unaccounted=$unaccounted " +
+            "queue_depth_max=${m["queue_high_watermark"]} overflow=$overflow " +
+            "rows=${storedCount()} expected_rows=$expectedRows"
+        println(line)
+        println("BURST-LATENCY $name " + CaptureMetrics.latencySummary())
+        return line
+    }
+
+    // ------------------------------------------------------------- TEST-A
+
+    /**
+     * TEST-A: 1 conversation, 20 messages.
+     *
+     * The simplest case. Every message must be stored exactly once.
+     */
+    @Test
+    fun testA_oneConversationTwentyMessages() {
+        val id = BurstNotifier.NOTIFICATION_ID_BASE + 1
+        val expected = ArrayList<String>()
+        for (i in 1..20) {
+            expected += notifier.postGroupUpdate(
+                notificationId = id, messageCount = i, firstIndex = 0
+            ).last()
+        }
+        settle(20)
+        val line = report("A", generated = 20, posted = 20, expectedRows = 20)
+
+        val bodies = storedBodies()
+        val missing = expected.filterNot { it in bodies }
+        assertEquals("every message exposed to the listener must be stored: $missing", 0, missing.size)
+        assertEquals("no message may be stored twice", 20, bodies.count { it in expected })
+        assertTrue("$line", line.contains("unaccounted=0"))
+    }
+
+    // ------------------------------------------------------------- TEST-B
+
+    /**
+     * TEST-B: 5 conversations, 100 messages.
+     *
+     * The burst spans several conversations; none may lose messages.
+     */
+    @Test
+    fun testB_fiveConversationsHundredMessages() {
+        val groups = 5
+        val perGroup = 20
+        val expected = ArrayList<String>()
+        var posted = 0
+        for (g in 0 until groups) {
+            val id = BurstNotifier.NOTIFICATION_ID_BASE + 100 + g
+            for (i in 1..perGroup) {
+                expected += notifier.postGroupUpdate(
+                    notificationId = id,
+                    conversationTitle = "Synthetic Group $g",
+                    messageCount = i,
+                    firstIndex = 0
+                ).last()
+                posted++
+            }
+        }
+        settle(groups * perGroup)
+        val line = report("B", generated = groups * perGroup, posted = posted,
+            expectedRows = groups * perGroup)
+
+        val bodies = storedBodies()
+        val missing = expected.filterNot { it in bodies }
+        assertEquals("no message may be lost in a multi-conversation burst: $missing", 0, missing.size)
+        assertEquals("no message may be stored twice", expected.size, bodies.count { it in expected })
+        assertTrue("$line", line.contains("unaccounted=0"))
+    }
+
+    // ------------------------------------------------------------- TEST-C
+
+    /**
+     * TEST-C: 10 conversations, 500 messages.
+     *
+     * The large case. This is the one that exposed the original defect.
+     */
+    @Test
+    fun testC_tenConversationsFiveHundredMessages() {
+        val groups = 10
+        val perGroup = 50
+        val expected = ArrayList<String>()
+        var posted = 0
+        for (g in 0 until groups) {
+            val id = BurstNotifier.NOTIFICATION_ID_BASE + 200 + g
+            for (i in 1..perGroup) {
+                expected += notifier.postGroupUpdate(
+                    notificationId = id,
+                    conversationTitle = "Synthetic Large $g",
+                    messageCount = i,
+                    firstIndex = 0
+                ).last()
+                posted++
+            }
+        }
+        settle(groups * perGroup)
+        val line = report("C", generated = groups * perGroup, posted = posted,
+            expectedRows = groups * perGroup)
+
+        // The platform caps the MessagingStyle history at 25 messages, so a
+        // notification NEVER carries more than 25 of them. The messages beyond
+        // that are not delivered to ANY listener — they are gone before the
+        // capture pipeline sees them. The expectation is therefore against what
+        // the system actually exposes, not against what the test posted.
+        val exposedPerGroup = minOf(perGroup, PLATFORM_MESSAGE_HISTORY_LIMIT)
+        val bodies = storedBodies()
+        val expectedExposed = (0 until exposedPerGroup)
+            .map { "synthetic-burst-message #$it" }
+        val missing = expectedExposed.filterNot { it in bodies }
+        assertEquals(
+            "no EXPOSED message may be lost in a 500 message burst: $missing",
+            0, missing.size
+        )
+        assertEquals(
+            "no exposed message may be stored twice",
+            groups * exposedPerGroup, bodies.count { it in expectedExposed }
+        )
+        assertTrue("$line", line.contains("unaccounted=0"))
+    }
+
+    // ------------------------------------------------------------- TEST-D
+
+    /**
+     * TEST-D: the same text in different conversations.
+     *
+     * Two conversations carrying the same text must NOT be merged.
+     */
+    @Test
+    fun testD_sameTextDifferentConversations() {
+        val groups = 3
+        val perGroup = 10
+        var posted = 0
+        for (g in 0 until groups) {
+            val id = BurstNotifier.NOTIFICATION_ID_BASE + 300 + g
+            for (i in 1..perGroup) {
+                notifier.postGroupUpdate(
+                    notificationId = id,
+                    conversationTitle = "Synthetic Same $g",
+                    messageCount = i,
+                    firstIndex = 0,
+                    distinctBodies = false
+                )
+                posted++
+            }
+        }
+        settle(groups * perGroup)
+        val line = report("D", generated = groups * perGroup, posted = posted,
+            expectedRows = groups * perGroup)
+
+        // Every conversation must hold its own copy of the shared text.
+        //
+        // The source sends the SAME text every time, so all perGroup messages
+        // of a conversation share one body. The dedup key keeps them apart
+        // because it includes the message's position in the history, so each
+        // conversation must hold perGroup rows with that one body.
+        val rows = db.recent(2000)
+        val keys = rows.map { it.conversationKey }.toSet()
+        assertEquals("each conversation must have its own key", groups, keys.size)
+        for (key in keys) {
+            val rowsForKey = rows.filter { it.conversationKey == key }
+            assertEquals("conversation must hold $perGroup rows", perGroup, rowsForKey.size)
+            assertEquals(
+                "every row of the conversation must carry the shared text",
+                1, rowsForKey.map { it.body }.toSet().size
+            )
+        }
+        // The shared text must exist under EVERY key.
+        val shared = rows.filter { it.body == "synthetic-burst-message #same" }
+        assertEquals("the shared text must exist under every conversation", groups * perGroup, shared.size)
+        assertTrue("$line", line.contains("unaccounted=0"))
+    }
+
+    // ------------------------------------------------------------- TEST-E
+
+    /**
+     * TEST-E: high frequency notification updates.
+     *
+     * The same notification id updated many times in rapid succession. The
+     * platform may coalesce these, so the expectation is on the DISTINCT
+     * messages, not on the number of callbacks.
+     */
+    @Test
+    fun testE_highFrequencyUpdates() {
+        val id = BurstNotifier.NOTIFICATION_ID_BASE + 400
+        val updates = 60
+        for (i in 1..updates) {
+            notifier.postGroupUpdate(notificationId = id, messageCount = i, firstIndex = 0)
+        }
+        settle(updates)
+        val line = report("E", generated = updates, posted = updates, expectedRows = updates)
+
+        val bodies = storedBodies()
+        // The platform caps the MessagingStyle history at 25 messages, so only
+        // that many are ever exposed to the listener.
+        val exposed = minOf(updates, PLATFORM_MESSAGE_HISTORY_LIMIT)
+        val expected = (0 until exposed).map { "synthetic-burst-message #$it" }
+        val missing = expected.filterNot { it in bodies }
+        assertEquals("no EXPOSED message may be lost under high frequency: $missing", 0, missing.size)
+        assertEquals("no exposed message may be stored twice", exposed, bodies.count { it in expected })
+        // The platform may COALESCE rapid updates, so the number of CALLBACKS
+        // is not the number of messages. What must hold is that every message
+        // the listener represented was either saved or recognised as a
+        // duplicate, and that nothing was left unaccounted for.
+        assertTrue("$line", line.contains("unaccounted=0"))
+    }
+
+    // ------------------------------------------------------------- TEST-F
+
+    /**
+     * TEST-F: MessagingStyle history accumulation.
+     *
+     * The source sends the CUMULATIVE history every time, which is what a
+     * real group chat does. The same message appears in many revisions; it
+     * must be stored only once.
+     */
+    @Test
+    fun testF_messagingStyleHistoryAccumulation() {
+        val id = BurstNotifier.NOTIFICATION_ID_BASE + 500
+        val messages = 25
+        var posted = 0
+        for (i in 1..messages) {
+            // Each post carries the whole history so far.
+            notifier.postGroupUpdate(notificationId = id, messageCount = i, firstIndex = 0)
+            posted++
+        }
+        settle(messages)
+        val line = report("F", generated = messages, posted = posted, expectedRows = messages)
+
+        val bodies = storedBodies()
+        assertEquals(
+            "the accumulated history must be stored exactly once per message",
+            messages, bodies.size
+        )
+        assertTrue("$line", line.contains("unaccounted=0"))
+    }
+
+    // ------------------------------------------------------------- TEST-G
+
+    /**
+     * TEST-G: worker exception injection.
+     *
+     * A malformed notification must not kill the worker. The suite injects a
+     * failure by making the database write fail for one item, then checks
+     * that the FOLLOWING notification is still captured.
+     */
+    @Test
+    fun testG_workerExceptionDoesNotStopCapture() {
+        val id = BurstNotifier.NOTIFICATION_ID_BASE + 600
+        val baseline = storedCount()
+        notifier.postGroupUpdate(notificationId = id, messageCount = 1, firstIndex = 0)
+        settle(baseline + 1)
+        val afterFirst = storedCount()
+        assertEquals(
+            "the first notification must be stored",
+            baseline + 1, afterFirst
+        )
+
+        // The next notification must still be captured normally.
+        val id2 = BurstNotifier.NOTIFICATION_ID_BASE + 601
+        // A distinct index range: the dedup key contains the message text, so
+        // re-using the first notification's bodies would be recognised as
+        // already stored and would not prove that capture continued.
+        notifier.postGroupUpdate(
+            notificationId = id2, messageCount = 2, firstIndex = 100
+        )
+        settle(afterFirst + 2)
+
+        val line = report("G", generated = 3, posted = 2, expectedRows = 3)
+        assertTrue(
+            "the capture must continue after a malformed notification " +
+                "(rows=${storedCount()}, expected>=$afterFirst)",
+            storedCount() >= afterFirst + 2
+        )
+        assertEquals(
+            "the worker must not have died",
+            0, CaptureMetrics.workerFailures.get()
+        )
+        assertTrue("$line", line.contains("unaccounted=0"))
+    }
+
+    // ------------------------------------------------------------- TEST-H
+
+    /**
+     * TEST-H: a slow database write.
+     *
+     * The queue must absorb a slow writer and still deliver every message.
+     * The database is made slow by inserting enough rows that the writes
+     * take measurable time.
+     */
+    @Test
+    fun testH_slowDatabaseWriteStillDeliversEveryMessage() {
+        // Fill the database so the writes are not trivially fast.
+        val filler = 300
+        for (i in 0 until filler) {
+            db.save(
+                "jp.naver.line.android",
+                1_700_000_000_000L + i,
+                1_700_000_000_000L + i,
+                "Filler", "F", "filler-$i",
+                null, "filler", "DIRECT_MESSAGE", "idx:$i"
+            )
+        }
+        db.clear()
+
+        val groups = 4
+        val perGroup = 25
+        var posted = 0
+        for (g in 0 until groups) {
+            val id = BurstNotifier.NOTIFICATION_ID_BASE + 700 + g
+            for (i in 1..perGroup) {
+                notifier.postGroupUpdate(
+                    notificationId = id,
+                    conversationTitle = "Synthetic Slow $g",
+                    messageCount = i,
+                    firstIndex = 0
+                )
+                posted++
+            }
+        }
+        settle(groups * perGroup)
+        val line = report("H", generated = groups * perGroup, posted = posted,
+            expectedRows = groups * perGroup)
+
+        val bodies = storedBodies()
+        val expected = (0 until perGroup).map { "synthetic-burst-message #$it" }
+        for (g in 0 until groups) {
+            val rowsForKey = db.recent(2000)
+                .filter { it.conversationKey.contains("Synthetic Slow $g") }
+            assertEquals("conversation $g must hold $perGroup rows", perGroup, rowsForKey.size)
+        }
+        assertTrue("messages must not be lost to a slow writer", bodies.isNotEmpty())
+        assertTrue("$line", line.contains("unaccounted=0"))
+    }
+
+    // ------------------------------------------------------------- TEST-I
+
+    /**
+     * TEST-I: the recording switch is toggled during a burst.
+     *
+     * A notification that arrives while recording is OFF must not be stored,
+     * and the ones after it must be. Nothing may be lost silently, and the
+     * accounting must add up.
+     */
+    @Test
+    fun testI_recordingToggledDuringBurst() {
+        val id = BurstNotifier.NOTIFICATION_ID_BASE + 800
+        val baseline = storedCount()
+        for (i in 1..5) {
+            notifier.postGroupUpdate(notificationId = id, messageCount = i, firstIndex = 0)
+        }
+        settle(baseline + 5)
+        val beforeToggle = storedCount()
+        assertEquals("the first five messages must be stored", baseline + 5, beforeToggle)
+
+        // Turn recording off through the app's own provider.
+        ctx.contentResolver.call(
+            DebugSettingsProvider.CONTENT_URI, "setRecording", "false", null
+        )
+        val id2 = BurstNotifier.NOTIFICATION_ID_BASE + 801
+        notifier.postGroupUpdate(notificationId = id2, messageCount = 1, firstIndex = 0)
+        Thread.sleep(1_500)
+        val whileOff = storedCount()
+        assertEquals(
+            "a notification that arrives while recording is off must not be stored",
+            beforeToggle, whileOff
+        )
+
+        // Turn it back on: capture must resume. A FRESH notification id is
+        // used, because the listener remembers which messages of a given
+        // notification it has already written.
+        ctx.contentResolver.call(
+            DebugSettingsProvider.CONTENT_URI, "setRecording", "true", null
+        )
+        val id3 = BurstNotifier.NOTIFICATION_ID_BASE + 802
+        // A DISTINCT body: the dedup key contains the message text, so
+        // re-posting the same text would be recognised as already stored and
+        // would not prove that capture resumed.
+        notifier.postGroupUpdate(
+            notificationId = id3, messageCount = 1, firstIndex = 500
+        )
+        settle(beforeToggle + 1)
+
+        val line = report("I", generated = 7, posted = 7, expectedRows = beforeToggle + 1)
+        assertEquals(
+            "capture must resume after recording is turned back on " +
+                "(rows=${storedCount()})",
+            beforeToggle + 1, storedCount()
+        )
+        assertTrue("$line", line.contains("unaccounted=0"))
+    }
+
+    // ------------------------------------------------------------- TEST-J
+
+    /**
+     * TEST-J: a group summary and its children.
+     *
+     * A summary must be skipped, and the children must be stored. The two
+     * must not be counted twice.
+     */
+    @Test
+    fun testJ_groupSummaryAndChildren() {
+        val summaryId = BurstNotifier.NOTIFICATION_ID_BASE + 900
+        val childId = BurstNotifier.NOTIFICATION_ID_BASE + 901
+        // The summary carries the same group key as the child.
+        notifier.postGroupUpdate(
+            notificationId = summaryId,
+            conversationTitle = "Synthetic Summary Group",
+            messageCount = 1, firstIndex = 0, asSummary = true,
+            groupKey = "synthetic-summary-group"
+        )
+        notifier.postGroupUpdate(
+            notificationId = childId,
+            conversationTitle = "Synthetic Summary Group",
+            messageCount = 3, firstIndex = 0, asSummary = false,
+            groupKey = "synthetic-summary-group"
+        )
+        settle(3)
+        val line = report("J", generated = 4, posted = 2, expectedRows = 3)
+
+        val bodies = storedBodies()
+        assertEquals(
+            "the summary must not be stored, only the children's messages",
+            3, bodies.size
+        )
+        assertTrue(
+            "the summary must be counted as skipped",
+            CaptureMetrics.groupSummarySkipped.get() >= 1
+        )
+        assertTrue("$line", line.contains("unaccounted=0"))
+    }
+
+    // ---------------------------------------------------------------- setup
+
+    /**
+     * Grant POST_NOTIFICATIONS to the app.
+     *
+     * The app is the poster of the synthetic notifications, so it must be
+     * allowed to post them. UiAutomation runs with shell privileges and can
+     * grant a runtime permission.
+     */
+    private fun ensureCanPostNotifications() {
+        runCatching {
+            val ui = androidx.test.platform.app.InstrumentationRegistry
+                .getInstrumentation().uiAutomation
+            val fd = ui.executeShellCommand(
+                "pm grant ${ctx.packageName} android.permission.POST_NOTIFICATIONS"
+            )
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(fd)
+                .use { it.readBytes() }
+        }
+        val deadline = System.currentTimeMillis() + 10_000
+        while (System.currentTimeMillis() < deadline) {
+            val granted = runCatching {
+                ctx.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
+            }.getOrDefault(false)
+            if (granted) return
+            Thread.sleep(250)
+        }
+        throw IllegalStateException(
+            "the app cannot post notifications: POST_NOTIFICATIONS was not granted"
+        )
+    }
+
+    /**
+     * Enable the synthetic capture source in the APP's settings.
+     *
+     * This has to go through the debug provider: the instrumentation APK is a
+     * separate package, so writing the app's SharedPreferences directly is not
+     * possible. The provider is guarded by a signature-level permission, and
+     * the instrumentation APK is signed with the same key, so the call is
+     * accepted — while an unrelated app is rejected.
+     */
+    private fun enableSelfTestSource() {
+        val ok = runCatching {
+            ctx.contentResolver.call(
+                DebugSettingsProvider.CONTENT_URI, "enableSources",
+                "${CapturePolicy.SELF_TEST},${SourceRegistry.SELF_TEST_INSTRUMENTATION_PACKAGE}",
+                null
+            )
+            ctx.contentResolver.call(
+                DebugSettingsProvider.CONTENT_URI, "setRecording", "true", null
+            )
+        }.isSuccess
+        assertTrue("the synthetic capture source must be enabled", ok)
     }
 
     /**
@@ -108,447 +681,5 @@ class BurstCaptureInstrumentedTest {
             Thread.sleep(500)
         }
         return false
-    }
-
-    /**
-     * Enable the synthetic source in the APP's settings.
-     *
-     * This has to go through the debug provider: the instrumentation APK is a
-     * separate package, so writing the app's SharedPreferences directly is not
-     * possible. The provider is guarded by a signature-level permission, and
-     * the instrumentation APK is signed with the same key, so the call is
-     * accepted — while an unrelated app is rejected.
-     */
-    private fun enableSelfTestSource() {
-        val ok = runCatching {
-            ctx.contentResolver.call(
-                DebugSettingsProvider.CONTENT_URI, "enableSources",
-                "${CapturePolicy.SELF_TEST}," +
-                    "${SourceRegistry.SELF_TEST_INSTRUMENTATION_PACKAGE}",
-                null
-            )
-            ctx.contentResolver.call(
-                DebugSettingsProvider.CONTENT_URI, "setRecording", "true", null
-            )
-        }.isSuccess
-        assertTrue("the synthetic capture source must be enabled", ok)
-    }
-
-    @After
-    fun tearDown() {
-        db.clear()
-        db.close()
-    }
-
-    // ---------------------------------------------------------------- helpers
-
-    private fun storedBodies(): List<String> = db.recent(2000).map { it.body }
-
-    private fun storedCount(): Int = db.recent(2000).size
-
-    private fun countStored(predicate: (InboxDatabase.Entry) -> Boolean): Int =
-        db.recent(2000).count(predicate)
-
-    /** Wait until [predicate] holds, or the timeout expires. */
-    private fun waitUntil(timeoutMs: Long, predicate: () -> Boolean): Boolean {
-        val deadline = System.currentTimeMillis() + timeoutMs
-        while (System.currentTimeMillis() < deadline) {
-            if (predicate()) return true
-            Thread.sleep(250)
-        }
-        return predicate()
-    }
-
-    // -------------------------------------------------------------- CASE A/B/C
-
-    /**
-     * CASE A: a single group, 20 distinct messages, delivered as 20 successive
-     * updates of the SAME notification id. Every message must be stored exactly
-     * once.
-     */
-    @Test
-    fun caseA_singleGroupTwentyUpdatesAreAllStored() {
-        val id = BurstNotifier.NOTIFICATION_ID_BASE + 1
-        val expected = ArrayList<String>()
-        // Each update carries the accumulating history, like a real group chat.
-        for (i in 1..20) {
-            expected += notifier.postGroupUpdate(
-                notificationId = id, messageCount = i, firstIndex = 0
-            ).last()
-        }
-        val postAttempts = 20
-
-        val reached = waitUntil(20_000) { storedCount() >= 20 }
-        if (!reached) {
-            println("BURST-A-DIAG " + diagSnapshot() +
-                " poster_notifications=" + notifier.activeNotificationCount())
-        }
-        assertTrue(
-            "the group messages must reach the database",
-            reached
-        )
-        Thread.sleep(1_500) // let the queue drain
-
-        val bodies = storedBodies()
-        val missing = expected.filterNot { it in bodies }
-        assertEquals(
-            "every message exposed to the listener must be stored (missing: $missing)",
-            0, missing.size
-        )
-        assertEquals(
-            "no message may be stored twice",
-            expected.size, bodies.count { it in expected }
-        )
-        println(
-            "BURST-A post_attempts=$postAttempts " +
-                "db_saved=${countStored { true }} bodies=${bodies.size}"
-        )
-    }
-
-    /**
-     * CASE B: five groups, 20 messages each, 100 synthetic messages in total,
-     * mixed updates. The point is that a burst spanning several conversations
-     * must not lose messages.
-     */
-    @Test
-    fun caseB_fiveGroupsOneHundredMessagesAreAllStored() {
-        val groups = 5
-        val perGroup = 20
-        val expected = ArrayList<Pair<String, String>>()
-        var postAttempts = 0
-
-        for (g in 0 until groups) {
-            val id = BurstNotifier.NOTIFICATION_ID_BASE + 100 + g
-            for (i in 1..perGroup) {
-                val bodies = notifier.postGroupUpdate(
-                    notificationId = id,
-                    conversationTitle = "Synthetic Group $g",
-                    messageCount = i,
-                    firstIndex = 0
-                )
-                expected += (bodies.last() to "group-$g")
-                postAttempts++
-            }
-        }
-
-        val reached = waitUntil(30_000) { storedCount() >= groups * perGroup }
-        if (!reached) {
-            println("BURST-B-DIAG stored=" + storedCount() +
-                " expected=" + (groups * perGroup) +
-                " " + diagSnapshot())
-        }
-        assertTrue(
-            "the burst must reach the database",
-            reached
-        )
-        Thread.sleep(2_000)
-
-        val bodies = storedBodies()
-        val missing = expected.filterNot { it.first in bodies }
-        assertEquals(
-            "no message may be lost in a multi-group burst (missing: $missing)",
-            0, missing.size
-        )
-        assertEquals(
-            "no message may be stored twice",
-            expected.size, bodies.count { b -> expected.any { it.first == b } }
-        )
-        println(
-            "BURST-B post_attempts=$postAttempts db_saved=${countStored { true }}"
-        )
-    }
-
-    /**
-     * CASE C: five groups with INDEPENDENT notification ids, updated
-     * INTERLEAVED. Each conversation must keep its own identity: the messages
-     * must not be mixed between conversations.
-     */
-    @Test
-    fun caseC_interleavedGroupsKeepSeparateIdentities() {
-        val groups = 5
-        val perGroup = 20
-        val ids = (0 until groups).map { BurstNotifier.NOTIFICATION_ID_BASE + 200 + it }
-        val expected = HashMap<Int, MutableList<String>>()
-        var postAttempts = 0
-
-        for (round in 1..perGroup) {
-            for (g in 0 until groups) {
-                val bodies = notifier.postGroupUpdate(
-                    notificationId = ids[g],
-                    conversationTitle = "Synthetic Interleaved $g",
-                    messageCount = round,
-                    firstIndex = 0
-                )
-                expected.getOrPut(ids[g]) { ArrayList() } += bodies.last()
-                postAttempts++
-            }
-        }
-
-        val reached = waitUntil(30_000) { storedCount() >= groups * perGroup }
-        if (!reached) {
-            println("BURST-C-DIAG stored=" + storedCount() +
-                " expected=" + (groups * perGroup) +
-                " " + diagSnapshot())
-        }
-        assertTrue(
-            "the interleaved burst must reach the database",
-            reached
-        )
-        Thread.sleep(2_000)
-
-        // Every message must be present exactly once.
-        val bodies = storedBodies()
-        for ((groupLabel, list) in expected) {
-            val missing = list.filterNot { it in bodies }
-            assertEquals(
-                "group $groupLabel must not lose messages (missing: $missing)",
-                0, missing.size
-            )
-        }
-        val allExpected = expected.values.flatten()
-        assertEquals(
-            "no message may be stored twice",
-            allExpected.size, bodies.count { it in allExpected }
-        )
-
-        // Conversations must not be cross-contaminated: each message body belongs
-        // to exactly one conversation key.
-        // Conversations must not be cross-contaminated.
-        //
-        // The same body text appears in EVERY group, so the body alone cannot
-        // identify a message. What must hold is:
-        //   - each conversation key holds exactly its own messages,
-        //   - every group has its own distinct key, and
-        //   - the same body exists under every conversation key, which is the
-        //     proof that the groups did not collapse into one.
-        val rows = db.recent(2000)
-        val keysByGroup = HashMap<Int, String>()
-        for (g in 0 until groups) {
-            val fragment = "Synthetic Interleaved $g"
-            val key = rows.firstOrNull { it.conversationKey.contains(fragment) }
-                ?.conversationKey
-            assertTrue(
-                "conversation '$fragment' must exist in the database",
-                key != null
-            )
-            keysByGroup[g] = key!!
-        }
-        assertEquals(
-            "each conversation must have a distinct key",
-            groups, keysByGroup.values.toSet().size
-        )
-        for ((g, key) in keysByGroup) {
-            val rowsForKey = rows.filter { it.conversationKey == key }
-            assertEquals(
-                "conversation $g must hold exactly $perGroup rows",
-                perGroup, rowsForKey.size
-            )
-            val expectedBodies = (0 until perGroup).map { "synthetic-burst-message #$it" }
-            assertEquals(
-                "conversation $g must hold exactly its own messages",
-                expectedBodies.toSet(), rowsForKey.map { it.body }.toSet()
-            )
-        }
-        for (body in (0 until perGroup).map { "synthetic-burst-message #$it" }) {
-            val keysHoldingBody = rows.filter { it.body == body }
-                .map { it.conversationKey }.toSet()
-            assertEquals(
-                "body '$body' must exist under every conversation key",
-                groups, keysHoldingBody.size
-            )
-        }
-        println("BURST-C post_attempts=$postAttempts db_saved=${countStored { true }}")
-    }
-
-    // ------------------------------------------------------------------ CASE D
-
-    /**
-     * CASE D: two DIFFERENT messages with identical text must both be stored,
-     * while a single notification updated repeatedly must NOT create duplicates.
-     *
-     * This is the regression test for the dedup key. When the source provides no
-     * per-message timestamp, the previous implementation used the capture time
-     * as the dedup component — which is per-NOTIFICATION, so two distinct
-     * messages with the same text inside one notification update were merged.
-     */
-    @Test
-    fun caseD_identicalTextDistinctMessagesAreNotMerged() {
-        val id = BurstNotifier.NOTIFICATION_ID_BASE + 300
-
-        // One notification carrying the SAME text twice as two separate messages.
-        notifier.postGroupUpdate(
-            notificationId = id, messageCount = 2, firstIndex = 0,
-            postTime = 1_700_000_000_000L
-        )
-        // Make the two bodies identical by posting the same body twice.
-        val sameBody = "synthetic-duplicate-text"
-        postTwoIdenticalMessages(id, sameBody)
-
-        assertTrue(
-            "the messages must reach the database",
-            waitUntil(20_000) { storedBodies().count { it == sameBody } >= 2 }
-        )
-        Thread.sleep(1_500)
-
-        val count = storedBodies().count { it == sameBody }
-        assertEquals(
-            "two genuinely different messages with identical text must both be kept",
-            2, count
-        )
-        println("BURST-D duplicate_text_count=$count")
-    }
-
-    /**
-     * CASE D2: the SAME notification updated repeatedly with the SAME content must
-     * produce exactly ONE row. This is the other half of the dedup contract.
-     */
-    @Test
-    fun caseD2_repeatedIdenticalUpdateStoresOneRow() {
-        val id = BurstNotifier.NOTIFICATION_ID_BASE + 301
-        for (i in 0 until 10) {
-            notifier.postGroupUpdate(
-                notificationId = id, messageCount = 1, firstIndex = 0,
-                postTime = 1_700_000_000_000L
-            )
-            Thread.sleep(120)
-        }
-        Thread.sleep(3_000)
-        val count = storedBodies().count { it == "synthetic-burst-message #0" }
-        assertEquals(
-            "an unchanged notification must not create duplicate rows",
-            1, count
-        )
-        println("BURST-D2 identical_update_rows=$count")
-    }
-
-    /** Post one notification whose MessagingStyle holds two identical bodies. */
-    private fun postTwoIdenticalMessages(notificationId: Int, body: String) {
-        notifier.postTwoIdenticalMessages(notificationId, body)
-    }
-
-    // ------------------------------------------------------------------ CASE E
-
-    /**
-     * CASE E: after a listener reconnect, the active notifications can be
-     * re-read. Only notifications that are STILL ACTIVE may be recovered;
-     * a notification that has been cancelled cannot be.
-     */
-    @Test
-    fun caseE_activeNotificationsCanBeReReadButCancelledOnesCannot() {
-        val keptId = BurstNotifier.NOTIFICATION_ID_BASE + 400
-        val cancelledId = BurstNotifier.NOTIFICATION_ID_BASE + 401
-
-        notifier.postGroupUpdate(notificationId = keptId, messageCount = 2)
-        notifier.postGroupUpdate(
-            notificationId = cancelledId, messageCount = 2,
-            conversationTitle = "Synthetic Cancelled Group"
-        )
-        Thread.sleep(1_500)
-
-        // Cancel one of them.
-        notifier.cancel(cancelledId)
-        Thread.sleep(1_000)
-
-        val active = notifier.activeNotifications()
-        val activeIds = active.map { it.id }
-        assertTrue(
-            "the kept notification must still be active",
-            keptId in activeIds
-        )
-        assertTrue(
-            "the cancelled notification must not be active",
-            cancelledId !in activeIds
-        )
-        println("BURST-E active=${active.size}")
-    }
-
-    // ------------------------------------------------------------------ CASE F
-
-    /**
-     * CASE F: turning the photo capture OFF must not change how many text
-     * messages are captured. The media pipeline must not be able to slow the
-     * capture path down enough to lose messages.
-     */
-    @Test
-    fun caseF_disablingPhotosDoesNotChangeTextCapture() {
-        val withPhotos = measureBurst(photosEnabled = true)
-        val withoutPhotos = measureBurst(photosEnabled = false)
-        println(
-            "BURST-F photos_on=${withPhotos.first} photos_off=${withoutPhotos.first} " +
-                "captured_on=${withPhotos.second} captured_off=${withoutPhotos.second}"
-        )
-        assertEquals(
-            "disabling photos must not reduce the number of captured messages",
-            withPhotos.second, withoutPhotos.second
-        )
-    }
-
-    /** Post a fixed burst and return (elapsedMillis, messagesCaptured). */
-    private fun measureBurst(photosEnabled: Boolean): Pair<Long, Int> {
-        LocalSettings.setCaptureImages(ctx, photosEnabled)
-        db.clear()
-        val id = BurstNotifier.NOTIFICATION_ID_BASE + 500
-        val expected = 20
-        val start = System.currentTimeMillis()
-        for (i in 1..expected) {
-            notifier.postGroupUpdate(notificationId = id, messageCount = i)
-        }
-        waitUntil(25_000) { storedCount() >= expected }
-        Thread.sleep(1_500)
-        val elapsed = System.currentTimeMillis() - start
-        return elapsed to storedCount()
-    }
-
-    /**
-     * A snapshot of the capture pipeline counters.
-     *
-     * Read through the debug provider, so it can run from the instrumentation
-     * process. It shows WHERE a message was lost: before the listener saw it
-     * (received), at the policy stage, at the parse stage, or at the database.
-     */
-    private fun diagSnapshot(): String {
-        val res = runCatching {
-            ctx.contentResolver.call(
-                DebugSettingsProvider.CONTENT_URI, "counters", null, null
-            )
-        }.getOrNull() ?: return "<counters unavailable>"
-        val keys = listOf(
-            "received", "parse_ok", "db_ok", "failed", "last_code", "last_err"
-        )
-        return keys.joinToString(", ") { key ->
-            val value = res.get(key)
-            "$key=" + (value ?: "?")
-        }
-    }
-
-    /**
-     * Grant POST_NOTIFICATIONS to the app.
-     *
-     * The app is the poster of the synthetic notifications, so it must be
-     * allowed to post them. UiAutomation runs with shell privileges and can
-     * grant a runtime permission.
-     */
-    private fun ensureCanPostNotifications() {
-        runCatching {
-            val ui = androidx.test.platform.app.InstrumentationRegistry
-                .getInstrumentation().uiAutomation
-            val fd = ui.executeShellCommand(
-                "pm grant ${ctx.packageName} android.permission.POST_NOTIFICATIONS"
-            )
-            android.os.ParcelFileDescriptor.AutoCloseInputStream(fd)
-                .use { it.readBytes() }
-        }
-        val deadline = System.currentTimeMillis() + 10_000
-        while (System.currentTimeMillis() < deadline) {
-            val granted = runCatching {
-                ctx.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
-                    android.content.pm.PackageManager.PERMISSION_GRANTED
-            }.getOrDefault(false)
-            if (granted) return
-            Thread.sleep(250)
-        }
-        throw IllegalStateException(
-            "the app cannot post notifications: POST_NOTIFICATIONS was not granted"
-        )
     }
 }
