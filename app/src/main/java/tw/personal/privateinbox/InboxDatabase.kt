@@ -437,6 +437,26 @@ class InboxDatabase(private val appContext: Context) :
     }.getOrDefault(false)
 
     /**
+     * Set the journal mode of the database file.
+     *
+     * The mode is a property of the FILE, not of the connection, so it is set
+     * with a PRAGMA and it survives the handle being closed.
+     *
+     * @return the mode the database actually ended up in. SQLite refuses some
+     *         transitions, so the effective value is read back rather than
+     *         assumed.
+     */
+    fun setJournalMode(mode: String): String = runCatching {
+        // The PRAGMA returns the EFFECTIVE mode, which may differ from the
+        // requested one: SQLite refuses some transitions, for example out of
+        // WAL while a transaction is open. The returned value is therefore the
+        // one that is reported, never the one that was asked for.
+        readableDatabase.rawQuery("PRAGMA journal_mode = $mode", null).use { c ->
+            if (c.moveToFirst()) c.getString(0) ?: mode else mode
+        }
+    }.getOrDefault(mode)
+
+    /**
      * The journal mode the database is actually using.
      *
      * The single-writer guarantee depends on it: in WAL mode a reader never
