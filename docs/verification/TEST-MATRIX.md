@@ -64,7 +64,7 @@
 
 ---
 
-## 3. Instrumentation 測試（60 項）
+## 3. Instrumentation 測試（67 項）
 
 ### 3.1 通知擷取管線（13 項）
 
@@ -138,13 +138,44 @@ AES-GCM 成本、資料庫成長、記憶體佔用、Activity 啟動。
 
 ### 3.7 DHC 匯出（7 項）
 
-### 3.8 DHC 匯出（7 項）
+### 3.9 群組突發擷取（7 項）
+
+`BurstCaptureInstrumentedTest` — 合成通知驅動的突發擷取回歸測試。
+詳見 `docs/engineering/X200PRO-BURST-FIX.md` 與 `TEST-REPORT.md` 附錄。
+
+| 案例 | 驗證內容 |
+|------|----------|
+| A | 單一群組 20 次更新，每則都入庫且不重複 |
+| B | 5 群組 100 則訊息，零遺失 |
+| C | 5 群組交錯更新，各對話不串台 |
+| D | 兩則相同文字的不同訊息都要保留 |
+| D2 | 同一通知重複更新只產生一列 |
+| E | 只能補回仍 active 的通知 |
+| F | 照片開關不影響文字擷取數量 |
+
+### 3.10 DHC 匯出（7 項）
 
 訊息 id 穩定性、bundle 結構、容器 magic 與 header、每次匯出新 salt/nonce、
 **Android 產生的封包可被主機端 Python 匯入器讀取**、
 **錯誤密碼被拒絕**。
 
 ---
+
+## 3.11 去重鍵語意（8 項）
+
+`FingerprintIdentityTest` — 去重鍵必須識別**訊息**而非通知修訂。
+可��在 JVM 上執行（指紋輸入的建構是純函式）。
+
+| 測試 | 驗證內容 |
+|------|----------|
+| `twoDistinctMessagesWithoutTimestampGetDifferentKeys` | 兩則不同位置的訊息鍵不同 |
+| `theSameMessageKeepsItsKeyAcrossNotificationRevisions` | 同一則訊息跨修訂鍵不變 |
+| `theDiscriminatorIsAppendedOnlyWhenItIsPresent` | 有時間戳時不混入識別碼 |
+| `theHistoricalFingerprintFormatIsPreservedWhenNoDiscriminatorIsGiven` | 舊格式位元級保留 |
+| `differentPackagesNeverShareAKey` | 跨 App 不共用鍵 |
+| `differentConversationsNeverShareAKey` | 跨對話不共用鍵 |
+| `differentSendersNeverShareAKey` | 跨寄件者不共用鍵 |
+| `theComponentsAreSeparatedByAFieldSeparator` | 欄位分隔不會造成碰撞 |
 
 ## 4. Python 連接器測試（23 項）
 

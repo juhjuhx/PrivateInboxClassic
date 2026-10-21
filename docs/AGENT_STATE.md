@@ -11,16 +11,16 @@
 | CURRENT_BRANCH | `integration/dsh-v040` |
 | CURRENT_HEAD | `6ccb69f` 之後的整合提交（見 `git log`） |
 | BASELINE | `6ccb69f`（本輪接手時的 HEAD） |
-| CURRENT_PHASE | R6 完成 — 私人 GitHub 倉庫已建立、CI 全綠 |
-| CURRENT_TASK | 已完成（倉庫：juhjuhx/PrivateInboxClassic，PRIVATE） |
-| LAST_SUCCESS | 60 項 instrumentation 0 失敗 0 skip；42 項 unit；23 項 python；Lint 0 error；三個稽核腳本 PASS |
+| CURRENT_PHASE | X200 Pro 群組突發漏接 P0 修復 — 模擬器已驗證，真機待驗證 |
+| CURRENT_TASK | 在 vivo X200 Pro / OriginOS 上驗證並收集診斷證據 |
+| LAST_SUCCESS | 67 項 instrumentation 0 失敗 0 skip；50 項 unit；23 項 python；Lint 0 error；三個稽核腳本 PASS |
 | LAST_COMMAND | `./gradlew --no-daemon :app:connectedDebugAndroidTest` |
 | LAST_EXIT_CODE | 0 |
 | BUILD_STATUS | BUILD SUCCESSFUL |
-| TEST_STATUS | instrumentation 53/53、unit 42/42、python 23/23 |
+| TEST_STATUS | instrumentation 67/67、unit 50/50、python 23/23 |
 | DISK_STATUS | 22 GiB free（曾因 ENOSPC 失敗，見 `operations/DISK-SPACE-RUNBOOK.md`） |
-| BLOCKERS | 正式 release 金鑰未由使用者建立；實體手機真實來源驗證未做 |
-| NEXT_ACTION | 見下方 §3 |
+| BLOCKERS | 正式 release 金鑰未由使用者建立；**vivo X200 Pro 真機未連接，群組突發真機驗證未做** |
+| NEXT_ACTION | 把 v0.4.1-burst-debug.apk 覆蓋安裝到 X200 Pro，依 docs/engineering/X200PRO-BURST-FIX.md §3 驗證 |
 
 ---
 
@@ -128,3 +128,59 @@ python3 integrations/dhc/tests/test_connector.py
 4. 不在 Logcat 輸出訊息內容。
 5. 遷移不刪除使用者資料。
 6. **不宣稱沒實際跑過的測試通過。**
+
+
+---
+
+## 附錄：X200 Pro 群組突發漏接修復（本次）
+
+### 分支
+
+`fix/x200pro-burst-capture`（基準 `6436fec`）
+
+### 修正的三個真實缺陷
+
+| 缺陷 | 影響 | 修正 |
+|------|------|------|
+| **去重鍵識別通知而非訊息** | 來源無時間戳時退化成擷取時間，同一則群組通知的所有訊息算出同一個鍵 → 100 則訊息只存 20 列 | 退化成每則訊息的索引識別碼 |
+| **訊息歷史截斷在 25 則** | 較早的訊息靜默丟棄，且來源只送最新修訂 → 永久遺失 | 上限 500，超過時記錄 `MESSAGE_HISTORY_TRUNCATED` |
+| **佇列無上限 + 不補抓** | 突發變成看不見的積壓；worker 死亡會靜默停止所有擷取 | 有界佇列 512 + 溢出回報 + worker 存活 + 連線時補抓 active 通知 |
+
+### 另修
+
+- `<queries>` 元素缺失 → Android 11+ 看不到任何來源套件，來源清單是空的。
+
+### 量測（模擬器，Android 16 / API 36 / arm64-v8a，3 次連續執行）
+
+```
+CASE A  post_attempts=20  db_saved=20
+CASE B  post_attempts=100 db_saved=100
+CASE C  post_attempts=100 db_saved=100
+CASE D  duplicate_text_count=2      (兩則相同文字都保留)
+CASE D2 identical_update_rows=1     (不重複收錄)
+CASE E  active=10
+CASE F  captured_on=20 captured_off=20
+```
+
+修復前的對照：`db_saved=20`（CASE B 期望 100）。
+
+### 測試
+
+- `BurstCaptureInstrumentedTest`（7 項）— 新增
+- `FingerprintIdentityTest`（8 項）— 新增
+- 總計：instrumentation **67/67**、unit **50/50**、python **23/23**
+
+### 交付
+
+| 檔案 | SHA-256 |
+|------|---------|
+| `PrivateInboxClassic-v0.4.1-burst-debug.apk` | `6f5886dc32d5467160001fa4b8b96c41ba1c9e2889e2f5f71d7faa7ec9bc746e` |
+| `PrivateInboxClassic-v0.4.1-burst-release-unsigned.apk` | `e166f6a6b377f5eb8c6fbdfbddcbb69646ce12eb52654af60ebcbff5f988f4f4` |
+
+簽章憑證 SHA-256：`c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4`
+（**與既有安裝相同**，`adb install -r` 可直接覆蓋，不刪資料）
+
+### 未驗證
+
+**vivo X200 Pro / OriginOS 真機：NOT TESTED**（本輪沒有連接真機）。
+詳見 `docs/engineering/X200PRO-BURST-FIX.md` §5。

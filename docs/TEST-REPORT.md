@@ -19,7 +19,7 @@ AGP 8.13.2｜Kotlin 2.2.20｜Android SDK 36｜Build Tools 36.0.0
 | Debug Build | **PASS** |
 | Release Build + AAB | **PASS**（未以正式金鑰簽署） |
 | JVM 單元測試 | **PASS**（42/42） |
-| Instrumentation 測試 | **PASS**（60/60，**0 skip**） |
+| Instrumentation 測試 | **PASS**（67/67，**0 skip**） |
 | Android Lint | **PASS**（0 error） |
 | Python DHC 連接器測試 | **PASS**（23/23） |
 | 封裝產物資安稽核 | **PASS**（scripts/audit-release.sh） |
@@ -257,3 +257,59 @@ crash buffer: 0
 | 推送至 GitHub | **未執行** | 未取得使用者授權 |
 
 **這些項目沒有被執行，因此不宣稱通過。**
+
+
+---
+
+## 附錄：群組突發擷取測試（X200 Pro P0 修復）
+
+獨立的合成測試：`BurstCaptureInstrumentedTest`（7 項），
+以合法的 `NotificationManager` 發送合成通知，驗證系統真的把通知
+綁定到 listener。
+
+執行方式：
+
+```bash
+bash scripts/run-burst-tests.sh --repeat 3
+```
+
+### 分母（依 brief 要求分開計算）
+
+| 名稱 | 意義 |
+|------|------|
+| `post_attempts` | 測試呼叫 `notify()` 的次數 |
+| `listener_callbacks` | listener 被呼叫的次數 |
+| `logical_messages_exposed_to_listener` | listener 實際看到的**相異**訊息數 |
+| `db_saved` | 資料庫中的列數 |
+
+**不變條件**：`logical_messages_exposed_to_listener == db_saved + db_duplicate`。
+`post_attempts` **不**作為期望值 —— 平台有權在高頻更新時合併通知。
+
+### 結果（模擬器 Android 16 / API 36 / arm64-v8a，3 次連續執行）
+
+| 案例 | 內容 | post_attempts | db_saved | 結果 |
+|------|------|---------------|----------|------|
+| A | 單一群組，20 次更新 | 20 | 20 | PASS |
+| B | 5 群組，100 則訊息 | 100 | 100 | PASS |
+| C | 5 群組交錯更新 | 100 | 100 | PASS |
+| D | 兩則相同文字 | — | 2 | PASS |
+| D2 | 同一通知重複更新 10 次 | 10 | 1 | PASS |
+| E | 取消後的 active 清單 | — | 10 | PASS |
+| F | 照片開 / 關 | 20 | 20 / 20 | PASS |
+
+**沒有無法解釋的遺失。**
+
+### 修復前的對照
+
+同一個 CASE B 在修復前：
+
+```
+stored=20 expected=100  received=121  parse_ok=120  db_ok=1260
+```
+
+1260 次寫入嘗試只留下 20 列 —— 這是去重鍵識別通知而非訊息造成的。
+
+### 真機
+
+**NOT TESTED** —— 本輪沒有連接 vivo X200 Pro。
+詳見 `docs/engineering/X200PRO-BURST-FIX.md` §5。
