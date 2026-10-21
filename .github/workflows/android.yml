@@ -61,6 +61,30 @@ jobs:
       - name: DHC connector tests (python)
         run: python3 integrations/dhc/tests/test_connector.py
 
+      - name: DHC cross-language fixtures (python -> android)
+        # The fixtures are produced by the python reference implementation and
+        # validated by the android side. This is the direction that finds
+        # byte-level disagreements between the two.
+        run: |
+          mkdir -p app/build/outputs/dhc-fixtures
+          python3 integrations/dhc/tests/python_fixture.py app/build/outputs/dhc-fixtures
+          ls -la app/build/outputs/dhc-fixtures
+
+      - name: DHC contract compatibility
+        # The contract is the single source of truth. A change to it on one
+        # side without the other is a breaking change.
+        run: |
+          python3 - <<'PY'
+          import sys
+          sys.path.insert(0, "integrations/dhc")
+          from protocol import contract, crypto
+          assert contract.SCHEMA_NAME == "PRIVATE_INBOX_EXPORT_V1"
+          assert contract.SCHEMA_VERSION == 1
+          assert crypto.DEFAULT_ITERATIONS == 210_000
+          assert crypto.MIN_ITERATIONS == 50_000
+          print("contract OK:", contract.SCHEMA_NAME, "v", contract.SCHEMA_VERSION)
+          PY
+
       - name: Unit tests
         run: ./gradlew --no-daemon :app:testDebugUnitTest
 
