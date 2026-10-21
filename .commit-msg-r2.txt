@@ -1,0 +1,38 @@
+feat: the complete Keystore recovery flow
+
+The v0.4.1 key-state model existed, but the flow around it had gaps.
+
+WHAT WAS MISSING:
+
+1. A TEMPORARILY UNAVAILABLE KEY WAS TREATED LIKE A PERMANENT LOSS.
+
+   The decision of what to offer is now derived from the state: a key that
+   is only temporarily unavailable (the device has not been unlocked yet)
+   offers NOTHING. Offering to delete data in that state would destroy data
+   that is perfectly recoverable.
+
+2. DELETING REQUIRED ONLY ONE CONFIRMATION.
+
+   There is now a SECOND, explicit dialog that states how many messages are
+   affected and that the deletion cannot be undone. The destructive button is
+   worded so that it says what it does.
+
+3. THERE WAS NO DIAGNOSIS.
+
+   KeyRecovery.diagnose() reports the keystore's own view of the key: whether
+   each alias is present, whether the key can be USED right now, and whether
+   the device is locked. That is what distinguishes "temporarily unavailable"
+   from "invalidated" -- the state inferred from a failed decryption attempt
+   cannot tell them apart. The diagnosis is shown in the diagnostics panel and
+   contains no key material.
+
+4. THE PANEL DID NOT SHOW THE PIPELINE METRICS.
+
+   The capture counters and the latency percentiles are now in the diagnostics
+   panel, next to the key state, so a support report carries both.
+
+The rules are locked in by ten instrumentation tests: a temporary key offers
+nothing, an invalidated key offers the choice and shows the count, reading
+never deletes an unreadable row, a purge removes only the undecryptable rows,
+a purge on healthy data removes nothing, and the diagnosis never leaks key
+material.
