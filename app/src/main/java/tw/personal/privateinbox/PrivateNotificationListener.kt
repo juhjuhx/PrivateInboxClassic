@@ -9,11 +9,117 @@ import android.os.Build
 import android.os.Bundle
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
-import java.util.concurrent.Executors
+import java.util.concurrent.ArrayBlockingQueue
 
 /** Only stores user-selected sources. No network or chat-account privileges. */
 class PrivateNotificationListener : NotificationListenerService() {
-    private val worker = Executors.newSingleThreadExecutor()
+    /**
+     * The maximum number of messages taken from ONE notification.
+     *
+     * This is a safety bound, not a message limit: a single group notification
+     * can legitimately carry hundreds of messages, and every one of them has to
+     * be captured. The bound exists only so a pathological notification cannot
+     * exhaust memory. When it IS reached, the number of dropped messages is
+     * recorded as a diagnostic instead of being lost silently.
+     */
+    companion object {
+        const val MAX_PREVIEWS = 500
+
+        /**
+         * The maximum number of notifications waiting for the worker.
+         *
+         * A notification may carry hundreds of messages, so the bound is
+         * generous. It exists so a sustained flood cannot grow the heap
+         * without limit; an overflow is reported, never silent.
+         */
+        const val QUEUE_CAPACITY = 512
+    }
+
+    /**
+     * The bounded work queue.
+     *
+     * A single writer keeps the SQLite writes ordered, which is what the dedup
+     * key depends on. But an UNBOUNDED queue turns a burst into an unbounded
+     * backlog: the listener falls further and further behind the source, and the
+     * lag is invisible. The queue is therefore bounded, and an overflow is
+     * REPORTED rather than silently dropped.
+     *
+     * The bound is generous (512 notifications) because a notification may
+     * carry hundreds of messages, but it is a bound: a sustained flood must
+     * not be able to grow the heap without limit.
+     */
+    private val workQueue = ArrayBlockingQueue<Runnable>(QUEUE_CAPACITY)
+
+    /**
+     * The worker that drains the queue.
+     *
+     * It runs one task at a time so the database writes stay ordered.
+     */
+    private val worker = Thread({
+        while (true) {
+            val task = workQueue.take()
+            try {
+                task.run()
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return@Thread
+            } catch (e: Throwable) {
+                // One malformed notification must never kill the worker: a dead
+                // worker silently stops ALL capture. The failure type is
+                // recorded, never the content.
+                runCatching {
+                    val app = applicationContext
+                    if (app != null) {
+                        CaptureDiagnostics.note(
+                            app, null, "WORKER", CaptureDiagnostics.WORKER_FAILURE,
+                            e.javaClass.simpleName
+                        )
+                    }
+                }
+            }
+        }
+    }, "capture-worker").apply {
+        isDaemon = true
+        start()
+    }
+
+    /**
+     * Submit a task to the worker.
+     *
+     * @return true when the task was queued, false when the queue was full and
+     *         the task was REJECTED. A rejection is reported as a diagnostic,
+     *         never silent.
+     */
+    private fun submit(task: () -> Unit): Boolean {
+        val queued = workQueue.offer({
+            try {
+                task()
+            } catch (e: Throwable) {
+                runCatching {
+                    val app = applicationContext
+                    if (app != null) {
+                        CaptureDiagnostics.note(
+                            app, null, "WORKER", CaptureDiagnostics.WORKER_FAILURE,
+                            e.javaClass.simpleName
+                        )
+                    }
+                }
+            }
+        })
+        if (!queued) {
+            runCatching {
+                val app = applicationContext
+                if (app != null) {
+                    CaptureDiagnostics.note(
+                        app, null, "WORKER", CaptureDiagnostics.QUEUE_OVERFLOW,
+                        "depth=${workQueue.size}"
+                    )
+                }
+            }
+        }
+        return queued
+    }
+
     private data class Preview(
         val body: String, val sender: String, val time: Long,
         val mediaUri: Uri? = null, val mediaMime: String? = null
@@ -27,6 +133,32 @@ class PrivateNotificationListener : NotificationListenerService() {
         runCatching {
             val app = applicationContext ?: return@runCatching
             CaptureDiagnostics.markConnected(app)
+        }
+        // Catch up on the notifications that are STILL ACTIVE.
+        //
+        // A notification that has already been dismissed cannot be recovered —
+        // the platform simply does not have it any more. But a notification
+        // that is still on screen has NOT necessarily been captured: it may
+        // have arrived while the service was not bound, or while the source
+        // updated it. Reading the active list once at connect time recovers
+        // exactly those.
+        //
+        // This is NOT a polling loop: it runs once per connection.
+        runCatching {
+            val app = applicationContext ?: return@runCatching
+            val active = activeNotifications ?: return@runCatching
+            var recovered = 0
+            for (sbn in active) {
+                // The same dedup key applies, so a notification that was already
+                // captured is recognised as a duplicate and not stored twice.
+                if (submit { capture(app, sbn) }) {
+                    recovered++
+                }
+            }
+            if (recovered > 0) {
+                CaptureDiagnostics.note(app, null, "LISTENER_CONNECT",
+                    CaptureDiagnostics.ACTIVE_RECOVERED, "count=$recovered")
+            }
         }
     }
 
@@ -147,20 +279,58 @@ class PrivateNotificationListener : NotificationListenerService() {
         // on and the preview actually carries an image mime.
         val pictureBytes = if (captureImages) readPictureBytes(appContext, extras) else null
         val received = System.currentTimeMillis()
-        val window = previews.takeLast(25)
-        val items = window.mapIndexed { idx, p ->
-            val last = idx == window.lastIndex
+        // The message window is NOT truncated.
+        //
+        // A previous version took the last 25 previews, which silently DROPPED
+        // the earlier messages of a group notification carrying more than 25 of
+        // them. A busy group routinely exceeds that, and the dropped messages
+        // were never recoverable: the source only sends the newest revision.
+        //
+        // The list is now bounded by a limit that is high enough to cover any
+        // realistic group, and the number of messages that had to be dropped is
+        // recorded so the loss is visible instead of silent.
+        val totalPreviews = previews.size
+        val window = if (totalPreviews > MAX_PREVIEWS) {
+            // Keep the NEWEST messages: the oldest ones are the most likely to
+            // have been captured already in an earlier revision.
+            val truncated = totalPreviews - MAX_PREVIEWS
+            CaptureDiagnostics.note(appContext, pkg, "NOTIFICATION_PARSER",
+                CaptureDiagnostics.MESSAGE_HISTORY_TRUNCATED, "dropped=$truncated",
+                startTs, trace)
+            previews.takeLast(MAX_PREVIEWS)
+        } else {
+            previews
+        }
+        // The message discriminator: a per-message value that is STABLE across
+        // revisions of the same notification and DIFFERENT between two distinct
+        // messages.
+        //
+        // A group notification is delivered as a growing list: revision 1
+        // carries message 0, revision 2 carries messages 0 and 1, and so on.
+        // The INDEX of a message in that list is therefore stable for the same
+        // message, while the total count is not. Using the index keeps a
+        // message from being stored twice when the source re-sends the
+        // notification, and keeps two identical messages apart.
+        //
+        // The index is taken from the FULL preview list, not from the truncated
+        // window, so it does not shift when the window is cut.
+        // The index is taken from the FULL preview list, so it does not shift
+        // when the window is cut.
+        val windowStart = previews.size - window.size
+        val items = window.mapIndexed { offset, p ->
+            val index = windowStart + offset
+            val last = index == previews.lastIndex
             val fromMessage = if (captureImages && p.mediaMime?.startsWith("image/") == true)
                 ImageCapture.readBytes(appContext, p.mediaUri) else null
-            p to (fromMessage ?: pictureBytes?.takeIf { last })
+            Triple(p, fromMessage ?: pictureBytes?.takeIf { last }, "idx:$index")
         }
-        worker.execute {
-            if (!LocalSettings.isRecording(appContext)) return@execute
-            if (!CapturePolicy.allowed(pkg, LocalSettings.selected(appContext))) return@execute
+        submit {
+            if (!LocalSettings.isRecording(appContext)) return@submit
+            if (!CapturePolicy.allowed(pkg, LocalSettings.selected(appContext))) return@submit
             var db: InboxDatabase? = null
             try {
                 db = InboxDatabase(appContext)
-                for ((p, rawBytes) in items) {
+                for ((p, rawBytes, discriminator) in items) {
                     var photo: ByteArray? = null
                     var mediaNote: String? = null
                     if (rawBytes != null) {
@@ -182,7 +352,7 @@ class PrivateNotificationListener : NotificationListenerService() {
                     // fake success.
                     val result = runCatching {
                         db!!.save(pkg, received, p.time, conversationTitle, p.sender,
-                            body ?: "", photo, identity.key, kind.name)
+                            body ?: "", photo, identity.key, kind.name, discriminator)
                     }
                     when (val outcome = result.getOrNull()) {
                         InboxDatabase.SaveResult.NEW -> CaptureDiagnostics.note(
@@ -279,7 +449,9 @@ class PrivateNotificationListener : NotificationListenerService() {
     }
 
     override fun onDestroy() {
-        worker.shutdown()
+        // The worker is a daemon thread and blocks on take(); interrupting it
+        // is what stops it.
+        worker.interrupt()
         super.onDestroy()
     }
 }

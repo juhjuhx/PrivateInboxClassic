@@ -40,6 +40,32 @@ object CaptureDiagnostics {
     const val EMPTY_NOTIFICATION = "EMPTY_NOTIFICATION"
     const val PARSE_FAILED = "PARSE_FAILED"
     const val PARSE_SUCCESS = "PARSE_SUCCESS"
+    /**
+     * A single notification carried more messages than the safety bound allows,
+     * so the oldest ones were dropped. The error type carries the count, e.g.
+     * "dropped=37", so the loss is visible rather than silent.
+     */
+    const val MESSAGE_HISTORY_TRUNCATED = "MESSAGE_HISTORY_TRUNCATED"
+
+    /**
+     * The work queue was full, so a notification was REJECTED rather than
+     * silently dropped. The error type carries the queue depth.
+     */
+    const val QUEUE_OVERFLOW = "QUEUE_OVERFLOW"
+
+    /**
+     * The worker threw while processing a notification. A dead worker would
+     * silently stop ALL capture, so the failure is recorded and the worker
+     * continues.
+     */
+    const val WORKER_FAILURE = "WORKER_FAILURE"
+
+    /**
+     * Notifications that were still active when the listener connected were
+     * re-read, because they may not have been captured while the service was
+     * not bound. The error type carries the count.
+     */
+    const val ACTIVE_RECOVERED = "ACTIVE_RECOVERED"
     const val ENCRYPT_FAILED = "ENCRYPT_FAILED"
     const val DB_OPEN_FAILED = "DB_OPEN_FAILED"
     const val DB_INSERT_FAILED = "DB_INSERT_FAILED"

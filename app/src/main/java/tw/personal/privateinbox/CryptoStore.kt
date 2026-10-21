@@ -169,11 +169,40 @@ object CryptoStore {
     /** A decryption outcome: the key state and, on success, the plaintext. */
     data class Result(val state: KeyState, val plaintext: ByteArray?)
 
-    /** HMAC avoids storing a reversible low-entropy raw message hash in SQLite. */
-    fun fingerprint(packageName: String, timestamp: Long, title: String, text: String): ByteArray {
+    /**
+     * HMAC avoids storing a reversible low-entropy raw message hash in SQLite.
+     *
+     * @param discriminator an extra per-message component, used only when the
+     *        source provides no timestamp. It keeps two DISTINCT messages apart
+     *        when their text is identical, while staying stable for the same
+     *        message across revisions of the same notification.
+     *
+     * When the discriminator is empty the hashed input is byte-identical to the
+     * historical format, so rows written by an earlier version keep their
+     * fingerprint and are not captured a second time after an update.
+     */
+    fun fingerprint(packageName: String, timestamp: Long, title: String, text: String,
+                    discriminator: String = ""): ByteArray {
         val mac = Mac.getInstance("HmacSHA256")
         mac.init(hmacKey())
-        val data = "$packageName\u0000$timestamp\u0000$title\u0000$text"
-        return mac.doFinal(data.toByteArray(Charsets.UTF_8))
+        return mac.doFinal(fingerprintInput(packageName, timestamp, title, text, discriminator))
+    }
+
+    /**
+     * The exact bytes that are hashed to produce a message fingerprint.
+     *
+     * This is a pure function, so the dedup semantics can be tested on the
+     * JVM where the Android Keystore is not available.
+     *
+     * The format is `package \0 timestamp \0 title \0 text [\0 discriminator]`.
+     * The discriminator is appended ONLY when it is not empty, so a message
+     * whose source provided a timestamp keeps the historical fingerprint and
+     * is not captured a second time after an update.
+     */
+    fun fingerprintInput(packageName: String, timestamp: Long, title: String,
+                         text: String, discriminator: String = ""): ByteArray {
+        val base = "$packageName\u0000$timestamp\u0000$title\u0000$text"
+        val data = if (discriminator.isEmpty()) base else "$base\u0000$discriminator"
+        return data.toByteArray(Charsets.UTF_8)
     }
 }

@@ -81,16 +81,39 @@ class InboxDatabase(context: Context) : SQLiteOpenHelper(context, "inbox.db", nu
     fun save(packageName: String, receivedAt: Long, sourceTimestamp: Long,
              title: String, sender: String, body: String, image: ByteArray?,
              conversationKey: String = "",
-             messageKind: String = SourceRegistry.MessageKind.UNKNOWN.name): SaveResult {
+             messageKind: String = SourceRegistry.MessageKind.UNKNOWN.name,
+             messageDiscriminator: String = ""): SaveResult {
         return try {
             val json = JSONObject().put("title", title).put("sender", sender)
                 .put("body", body).put("sourceTs", sourceTimestamp).toString()
                 .toByteArray(Charsets.UTF_8)
-            // Dedup key: when the source provides no original timestamp (0), fall back to
-            // the capture time so repeated posts of the identical notification dedup stably
-            // across re-sends, without merging genuinely different messages.
-            val dedupTs = if (sourceTimestamp > 0) sourceTimestamp else receivedAt
-            val fingerprint = CryptoStore.fingerprint(packageName, dedupTs, title, "$sender\u0000$body")
+            // Dedup key.
+            //
+            // The key must identify a MESSAGE, not a notification revision.
+            //
+            // The previous implementation fell back to the CAPTURE TIME when
+            // the source provided no timestamp. The capture time is per
+            // NOTIFICATION, so every message inside one group notification
+            // produced the SAME key and collapsed into a single row: a burst of
+            // 100 group messages was stored as one message. That is the
+            // mechanism behind "the group burst is missing messages".
+            //
+            // The fallback is now the message DISCRIMINATOR: a per-message
+            // value derived from the message itself (its position in the
+            // notification's message list and its content). It is stable
+            // across revisions of the same notification — the same message
+            // keeps its position — and it differs between two distinct
+            // messages, even when their text is identical.
+            //
+            // When the source DOES provide a timestamp, that timestamp is used
+            // exactly as before, so the fingerprint of an already-stored
+            // message is unchanged and it is not captured a second time.
+            val hasSourceTimestamp = sourceTimestamp > 0
+            val dedupTs = if (hasSourceTimestamp) sourceTimestamp else 0L
+            val dedupExtra = if (hasSourceTimestamp) "" else messageDiscriminator
+            val fingerprint = CryptoStore.fingerprint(
+                packageName, dedupTs, title, "$sender\u0000$body", dedupExtra
+            )
             val protectedImage = image?.let { CryptoStore.seal("$packageName:image", it) }
             val cv = ContentValues().apply {
                 put("package_name", packageName)
