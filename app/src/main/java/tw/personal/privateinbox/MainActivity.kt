@@ -836,7 +836,8 @@ class MainActivity : ComponentActivity() {
         }
         panel.addView(permission, LinearLayout.LayoutParams(-1, 52.dp()))
         panel.addView(txt("選擇訊息來源", 18f, INK, true).apply { setPadding(0, 25.dp(), 0, 8.dp()) })
-        for (source in SourceRegistry.all) {
+        // The self-test and burst-test fixtures are not offered to the user.
+        for (source in SourceRegistry.all.filterNot { it.isSelfTest }) {
             panel.addView(CheckBox(this).apply {
                 text = source.displayName
                 buttonTintList = ColorStateList.valueOf(BLUE)

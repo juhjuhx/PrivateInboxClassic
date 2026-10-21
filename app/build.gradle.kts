@@ -95,8 +95,13 @@ android {
     signingConfigs {
         // A deterministic debug key keeps `adb install -r` working across
         // rebuilds and across machines.
+        //
+        // AGP pre-creates the "debug" and "release" signing configs, so the
+        // existing ones are MODIFIED with named() rather than re-created:
+        // create("debug") fails with "a SigningConfig with that name already
+        // exists".
         if (debugSigning != null) {
-            create("debug") {
+            named("debug") {
                 storeFile = debugSigning.storeFile
                 storePassword = debugSigning.storePassword
                 keyAlias = debugSigning.keyAlias
