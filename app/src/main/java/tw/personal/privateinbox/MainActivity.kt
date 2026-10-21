@@ -25,6 +25,8 @@ import android.widget.*
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
+import tw.personal.privateinbox.dhc.DhcExportPlan
+import tw.personal.privateinbox.dhc.DhcExportService
 import java.util.Date
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -89,6 +91,32 @@ class MainActivity : ComponentActivity() {
 
     /** The number of pages loaded so far, for the diagnostics panel. */
     private var pagesLoaded: Int = 0
+
+    /**
+     * The plan the user is about to export.
+     *
+     * It is built first and shown, so the export is always an informed,
+     * explicit action. Nothing is written before the user has seen it.
+     */
+    private var pendingExportPlan: tw.personal.privateinbox.dhc.DhcExportPlan.Plan? = null
+
+    /**
+     * The Storage Access Framework picker.
+     *
+     * The user chooses the destination. The app never picks a path itself, so
+     * it can only write where the user pointed it.
+     */
+    private val exportDestination = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri ->
+        val plan = pendingExportPlan
+        pendingExportPlan = null
+        if (uri == null || plan == null) {
+            Toast.makeText(this, "已取消匯出", Toast.LENGTH_SHORT).show()
+            return@registerForActivityResult
+        }
+        askExportPassphrase(plan, uri)
+    }
     /** Guard so the recovery dialog is not shown repeatedly. */
     private var keyRecoveryShown = false
     private val io: ExecutorService = Executors.newFixedThreadPool(2)
@@ -921,12 +949,153 @@ class MainActivity : ComponentActivity() {
         show(root)
     }
 
+    /**
+     * The export section of the settings screen.
+     *
+     * The export is an explicit, local action: the user chooses what to
+     * export, where to put it, and a passphrase. Nothing is sent anywhere,
+     * and the app has no INTERNET permission to send it with.
+     */
+    private fun exportSection(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        addView(txt("加密匯出", 18f, INK, true).apply { setPadding(0, 22.dp(), 0, 4.dp()) })
+        addView(txt(
+            "把已保存的訊息匯出成一個加密檔案，供離線工具讀取。" +
+                "檔案由你提供的密碼加密，密碼不會被儲存。" +
+                "本程式沒有網路權限，匯出的檔案不會離開這台裝置，除非你把它交出去。",
+            13f, SECONDARY
+        ).apply { setPadding(0, 4.dp(), 0, 12.dp()) })
+
+        addView(Button(this@MainActivity).apply {
+            text = "匯出全部私人訊息"
+            setOnClickListener { startExport(DhcExportPlan.Scope.ALL) }
+        }.apply { layoutParams = LinearLayout.LayoutParams(-1, 46.dp()) })
+
+        addView(Button(this@MainActivity).apply {
+            text = "選擇來源後匯出"
+            setOnClickListener { startExport(DhcExportPlan.Scope.SELECTED_SOURCES) }
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(-1, 46.dp())
+            setPadding(0, 8.dp(), 0, 0)
+        })
+    }
+
+    /**
+     * Start an export: build the plan, then ask for the destination.
+     *
+     * The plan is built on the worker thread because it reads and decrypts the
+     * database. The user sees the plan before anything is written.
+     */
+    private fun startExport(scope: DhcExportPlan.Scope) {
+        io.execute {
+            val db = InboxDatabase(this@MainActivity)
+            val filter = when (scope) {
+                DhcExportPlan.Scope.ALL -> DhcExportPlan.Filter()
+                DhcExportPlan.Scope.SELECTED_SOURCES -> DhcExportPlan.Filter(
+                    scope = scope,
+                    packages = LocalSettings.selected(this@MainActivity).toSet()
+                )
+                DhcExportPlan.Scope.DATE_RANGE -> DhcExportPlan.Filter(scope = scope)
+            }
+            val plan = runCatching { DhcExportPlan.build(this@MainActivity, filter, db) }
+                .getOrNull()
+            db.close()
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (plan == null) {
+                    Toast.makeText(this@MainActivity, "無法建立匯出計畫", Toast.LENGTH_LONG).show()
+                    return@runOnUiThread
+                }
+                if (plan.messages.isEmpty()) {
+                    Toast.makeText(this@MainActivity, "沒有符合條件的訊息", Toast.LENGTH_LONG).show()
+                    return@runOnUiThread
+                }
+                pendingExportPlan = plan
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("確認匯出")
+                    .setMessage(plan.summary())
+                    .setNegativeButton("取消") { _, _ -> pendingExportPlan = null }
+                    .setPositiveButton("選擇儲存位置") { _, _ ->
+                        exportDestination.launch("private-inbox-export-${System.currentTimeMillis()}.picbox")
+                    }
+                    .show()
+            }
+        }
+    }
+
+    /**
+     * Ask for the passphrase that protects the export.
+     *
+     * The passphrase is held in a CharArray that is zeroed as soon as the
+     * export finishes. It is never stored and never logged.
+     */
+    private fun askExportPassphrase(plan: DhcExportPlan.Plan, destination: android.net.Uri) {
+        val input = android.widget.EditText(this).apply {
+            hint = "匯出密碼"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setPadding(20.dp(), 14.dp(), 20.dp(), 14.dp())
+        }
+        val wrapper = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(18.dp(), 8.dp(), 18.dp(), 0)
+            addView(txt(
+                "請輸入一個匯出密碼。這個密碼之後是讀取檔案的唯一方式，" +
+                    "忘記了就無法復原。",
+                13f, SECONDARY
+            ))
+            addView(input)
+        }
+        AlertDialog.Builder(this@MainActivity)
+            .setTitle("設定匯出密碼")
+            .setView(wrapper)
+            .setNegativeButton("取消", null)
+            .setPositiveButton("匯出") { _, _ ->
+                val passphrase = input.text.toString().toCharArray()
+                input.text?.clear()
+                if (passphrase.isEmpty()) {
+                    Toast.makeText(this@MainActivity, "密碼不能是空的", Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+                runExport(plan, destination, passphrase)
+            }
+            .show()
+    }
+
+    /** Run the export and report the outcome. */
+    private fun runExport(
+        plan: DhcExportPlan.Plan,
+        destination: android.net.Uri,
+        passphrase: CharArray
+    ) {
+        io.execute {
+            val result = DhcExportService.export(this@MainActivity, destination, plan, passphrase)
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                when (result) {
+                    is DhcExportService.Result.Written -> Toast.makeText(
+                        this@MainActivity,
+                        "已匯出 ${result.messages} 則訊息（${result.bytes} bytes）",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    is DhcExportService.Result.Cancelled -> Toast.makeText(
+                        this@MainActivity, "已取消匯出", Toast.LENGTH_SHORT
+                    ).show()
+                    is DhcExportService.Result.Failed -> Toast.makeText(
+                        this@MainActivity, "匯出失敗：${result.reason}", Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
+
     private fun showSettings() {
         if (!unlocked) return
         page = "settings"
         val root = column()
         root.addView(toolbar("來源與隱私", { showInbox(true) }))
         val panel = column().apply { setPadding(18.dp(), 18.dp(), 18.dp(), 25.dp()) }
+        panel.addView(exportSection())
         panel.addView(txt("擷取設定", 20f, INK, true))
         panel.addView(txt("Android 通知監聽權限可以接收多種通知。本程式只保存你勾選的通訊 App，預設完全關閉。", 13f, SECONDARY).apply {
             setPadding(0, 8.dp(), 0, 14.dp())

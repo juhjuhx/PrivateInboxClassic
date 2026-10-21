@@ -362,6 +362,55 @@ class InboxDatabase(private val appContext: Context) :
     }
 
     /**
+     * Read every row as an EXPORT message.
+     *
+     * The export form carries the fields the export contract needs. The
+     * bodies are decrypted, because the exporter has to encrypt them again
+     * with the user's export passphrase; nothing leaves this process in the
+     * clear.
+     */
+    fun readAllForExport(): List<tw.personal.privateinbox.dhc.DhcExporter.ExportedMessage> {
+        val output = ArrayList<tw.personal.privateinbox.dhc.DhcExporter.ExportedMessage>()
+        readableDatabase.query("messages",
+            arrayOf("id", "package_name", "received_at", "source_ts", "sealed_content",
+                "conversation_key", "message_kind"),
+            null, null, null, null, "received_at DESC, id DESC", null
+        ).use { c ->
+            while (c.moveToNext()) {
+                val pkg = c.getString(1)
+                val res = CryptoStore.openWithState(pkg, c.getBlob(4))
+                val plaintext = res.plaintext ?: continue
+                try {
+                    val decoded = JSONObject(String(plaintext, Charsets.UTF_8))
+                    val title = decoded.optString("title")
+                    val key = c.getString(5)?.takeIf { it.isNotEmpty() }
+                        ?: legacyConversationKey(pkg, title)
+                    val sourceTs = c.getLong(3)
+                    output += tw.personal.privateinbox.dhc.DhcExporter.ExportedMessage(
+                        messageId = tw.personal.privateinbox.dhc.DhcExporter.computeMessageId(
+                            conversationId = key,
+                            sourceApplication = pkg,
+                            sourceTimestamp = if (sourceTs > 0) sourceTs else null,
+                            body = decoded.optString("body")
+                        ),
+                        conversationId = key,
+                        sourceApplication = pkg,
+                        messageKind = c.getString(6) ?: "UNKNOWN",
+                        receivedAt = c.getLong(2),
+                        sourceTimestamp = if (sourceTs > 0) sourceTs else null,
+                        sender = decoded.optString("sender"),
+                        body = decoded.optString("body"),
+                        hasAttachment = false
+                    )
+                } catch (_: Exception) {
+                    // A corrupt row is skipped. Its content is never logged.
+                }
+            }
+        }
+        return output
+    }
+
+    /**
      * Delete a single row by its id.
      *
      * @return true when a row was removed
