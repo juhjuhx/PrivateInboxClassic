@@ -7,7 +7,13 @@
   permission is satisfied. The permission itself is declared by the app's
   debug manifest overlay; it is referenced here (not re-declared) so that the
   protection level stays under the app's control.
+
+  The ${permissionSuffix} placeholder matches the app's variant: the devtest
+  variant declares ...DEBUG_SETTINGS.devtest and the prod variant declares
+  ...DEBUG_SETTINGS. Without the placeholder the instrumentation APK would ask
+  for the wrong permission against the devtest variant, and every call to the
+  provider would be denied.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-permission android:name="tw.personal.privateinbox.permission.DEBUG_SETTINGS" />
+    <uses-permission android:name="tw.personal.privateinbox.permission.DEBUG_SETTINGS${permissionSuffix}" />
 </manifest>

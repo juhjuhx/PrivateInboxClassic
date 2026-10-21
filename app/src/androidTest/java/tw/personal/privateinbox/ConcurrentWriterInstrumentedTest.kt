@@ -32,14 +32,21 @@ class ConcurrentWriterInstrumentedTest {
 
     @Before
     fun setUp() {
+        // This test destroys the database, so it only runs against the
+        // ISOLATED variant. On the production package it is SKIPPED
+        // with a reason, and nothing is deleted.
         db = InboxDatabase(ctx)
-        db.clear()
+        DestructiveTestAssumption.requireIsolated(ctx)
+        TestDataIsolation.clearDatabase(ctx)
     }
 
     @After
     fun tearDown() {
-        db.clear()
-        db.close()
+        // The cleanup is a no-op outside an isolated package: the
+        // tryClearDatabase form returns false instead of throwing, and the
+        // handle is only closed when it was actually opened.
+        TestDataIsolation.tryClearDatabase(ctx)
+        if (this::db.isInitialized) db.close()
     }
 
     @Test

@@ -3,7 +3,15 @@
 #
 # The burst tests drive the capture pipeline with synthetic group notifications
 # that are updated in place, the way a group chat behaves. They measure what
-# reaches the DATABASE, with the four denominators the brief requires:
+# reaches the DATABASE, with the four denominators the brief requires.
+#
+# SAFETY: the tests CLEAR the database, so they run against the ISOLATED
+# devtest variant, whose application id is tw.personal.privateinbox.devtest and
+# whose data directory is separate from the production app's. Running this
+# against the production package would delete the user's saved messages.
+#
+# The script refuses to run if the production package is present on the device
+# AND the user has not acknowledged it. It never uninstalls anything.
 #
 #   post_attempts                        - notify() calls made by the test
 #   listener_callbacks                   - times the listener was called
@@ -53,12 +61,27 @@ echo "sdk:      $("$ADB" shell getprop ro.build.version.sdk 2>/dev/null | tr -d 
 echo "model:    $("$ADB" shell getprop ro.product.model 2>/dev/null | tr -d '\r')"
 echo "abi:      $("$ADB" shell getprop ro.product.cpu.abi 2>/dev/null | tr -d '\r')"
 
+# SAFETY CHECK: the production app must not be on the device, because the
+# burst tests clear a database. They run against the isolated devtest variant,
+# so the production package is not touched -- but if it IS present, the user
+# should know that the suite installs and removes the test variant on their
+# device.
+if "$ADB" shell pm list packages 2>/dev/null | grep -q "tw.personal.privateinbox$"; then
+  echo ""
+  echo "NOTE: the production app tw.personal.privateinbox is installed on this device."
+  echo "      The burst tests run against the ISOLATED variant"
+  echo "      (tw.personal.privateinbox.devtest), which has its own data directory,"
+  echo "      so the production app's messages are NOT touched."
+  echo "      The isolated variant IS uninstalled when the run finishes."
+  echo ""
+fi
+
 FAILED=0
 for run in $(seq 1 "$REPEAT"); do
   echo ""
   echo "=== burst run $run/$REPEAT ==="
   "$ADB" logcat -c
-  ./gradlew --no-daemon :app:connectedDebugAndroidTest \
+  ./gradlew --no-daemon :app:connectedDevtestDebugAndroidTest \
     -Pandroid.testInstrumentationRunnerArguments.class=tw.personal.privateinbox.BurstCaptureInstrumentedTest
   RESULT=$?
   echo "--- burst metrics (run $run) ---"

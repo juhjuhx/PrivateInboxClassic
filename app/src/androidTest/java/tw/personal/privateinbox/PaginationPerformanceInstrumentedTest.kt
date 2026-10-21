@@ -31,14 +31,21 @@ class PaginationPerformanceInstrumentedTest {
 
     @Before
     fun setUp() {
+        // This test destroys the database, so it only runs against the
+        // ISOLATED variant. On the production package it is SKIPPED
+        // with a reason, and nothing is deleted.
         db = InboxDatabase(ctx)
-        db.clear()
+        DestructiveTestAssumption.requireIsolated(ctx)
+        TestDataIsolation.clearDatabase(ctx)
     }
 
     @After
     fun tearDown() {
-        db.clear()
-        db.close()
+        // The cleanup is a no-op outside an isolated package: the
+        // tryClearDatabase form returns false instead of throwing, and the
+        // handle is only closed when it was actually opened.
+        TestDataIsolation.tryClearDatabase(ctx)
+        if (this::db.isInitialized) db.close()
     }
 
     /**
@@ -68,7 +75,11 @@ class PaginationPerformanceInstrumentedTest {
     fun theReadPathBaseline() {
         val sizes = listOf(100, 1_000, 10_000)
         for (size in sizes) {
-            db.clear()
+        // This test destroys the database, so it only runs against the
+        // ISOLATED variant. On the production package it is SKIPPED
+        // with a reason, and nothing is deleted.
+        DestructiveTestAssumption.requireIsolated(ctx)
+            TestDataIsolation.clearDatabase(ctx)
             seed(size, conversations = 10)
             val stored = db.countRows()
             assertTrue("the seed must have stored $size rows (got $stored)", stored >= size)
@@ -119,10 +130,14 @@ class PaginationPerformanceInstrumentedTest {
 
     @Test
     fun theDatabaseGrowsLinearly() {
-        db.clear()
+        // This test destroys the database, so it only runs against the
+        // ISOLATED variant. On the production package it is SKIPPED
+        // with a reason, and nothing is deleted.
+        DestructiveTestAssumption.requireIsolated(ctx)
+        TestDataIsolation.clearDatabase(ctx)
         seed(1_000, conversations = 10)
         val small = db.databaseSizeBytes()
-        db.clear()
+        TestDataIsolation.clearDatabase(ctx)
         seed(10_000, conversations = 10)
         val large = db.databaseSizeBytes()
         println("PERF-SIZE rows_1k_bytes=$small rows_10k_bytes=$large")
@@ -131,7 +146,11 @@ class PaginationPerformanceInstrumentedTest {
 
     @Test
     fun aPageReadIsMuchCheaperThanAnUnboundedRead() {
-        db.clear()
+        // This test destroys the database, so it only runs against the
+        // ISOLATED variant. On the production package it is SKIPPED
+        // with a reason, and nothing is deleted.
+        DestructiveTestAssumption.requireIsolated(ctx)
+        TestDataIsolation.clearDatabase(ctx)
         seed(10_000, conversations = 10)
 
         // Measure the unbounded read.

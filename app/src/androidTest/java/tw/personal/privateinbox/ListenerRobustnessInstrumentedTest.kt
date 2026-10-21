@@ -102,27 +102,27 @@ class ListenerRobustnessInstrumentedTest {
     /** Read a diagnostic counter from the app's own preferences. */
     private fun providerLong(key: String): Long {
         val res = ctx.contentResolver.call(
-            DebugSettingsProvider.CONTENT_URI, "counters", null, null
+            DebugSettingsProvider.contentUriFor(ctx), "counters", null, null
         ) ?: return 0L
         return res.getLong(key, 0L)
     }
 
     private fun providerEnableSources(vararg packages: String) {
         ctx.contentResolver.call(
-            DebugSettingsProvider.CONTENT_URI, "enableSources",
+            DebugSettingsProvider.contentUriFor(ctx), "enableSources",
             packages.joinToString(","), null
         )
     }
 
     private fun providerSetRecording(enabled: Boolean) {
         ctx.contentResolver.call(
-            DebugSettingsProvider.CONTENT_URI, "setRecording", enabled.toString(), null
+            DebugSettingsProvider.contentUriFor(ctx), "setRecording", enabled.toString(), null
         )
     }
 
     private fun providerIsRecording(): Boolean {
         val res = ctx.contentResolver.call(
-            DebugSettingsProvider.CONTENT_URI, "counters", null, null
+            DebugSettingsProvider.contentUriFor(ctx), "counters", null, null
         ) ?: return false
         return res.getBoolean("recording", false)
     }

@@ -58,6 +58,14 @@ jobs:
       - name: Secret audit (tree and full Git history)
         run: bash scripts/audit-secrets.sh
 
+      - name: Test isolation audit (no destructive test on user data)
+        # An instrumentation test that clears the database would DELETE THE
+        # USER'S MESSAGES if the suite were ever run on a phone with the real
+        # app installed. The destructive tests must go through
+        # TestDataIsolation, which refuses to destroy data outside an isolated
+        # package.
+        run: python3 scripts/audit-test-isolation.py
+
       - name: DHC connector tests (python)
         run: python3 integrations/dhc/tests/test_connector.py
 

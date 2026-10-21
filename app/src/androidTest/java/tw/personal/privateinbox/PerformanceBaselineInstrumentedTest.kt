@@ -31,13 +31,21 @@ class PerformanceBaselineInstrumentedTest {
 
     @Before
     fun setUp() {
+        // This test destroys the database, so it only runs against the
+        // ISOLATED variant. On the production package it is SKIPPED
+        // with a reason, and nothing is deleted.
         db = InboxDatabase(ctx)
-        db.clear()
+        DestructiveTestAssumption.requireIsolated(ctx)
+        TestDataIsolation.clearDatabase(ctx)
     }
 
     @After
     fun tearDown() {
-        db.close()
+        // The cleanup is a no-op outside an isolated package: the
+        // tryClearDatabase form returns false instead of throwing, and the
+        // handle is only closed when it was actually opened.
+        TestDataIsolation.tryClearDatabase(ctx)
+        if (this::db.isInitialized) db.close()
     }
 
     private fun seed(count: Int) {
@@ -60,7 +68,11 @@ class PerformanceBaselineInstrumentedTest {
     fun measureWriteThroughput() {
         val counts = listOf(100, 1000)
         val results = counts.map { n ->
-            db.clear()
+        // This test destroys the database, so it only runs against the
+        // ISOLATED variant. On the production package it is SKIPPED
+        // with a reason, and nothing is deleted.
+        DestructiveTestAssumption.requireIsolated(ctx)
+            TestDataIsolation.clearDatabase(ctx)
             val elapsed = measureNanoTime { seed(n) }
             n to (elapsed / 1_000_000.0)
         }
@@ -75,7 +87,11 @@ class PerformanceBaselineInstrumentedTest {
     fun measureReadAndDecrypt() {
         val counts = listOf(100, 1000, 10000)
         for (n in counts) {
-            db.clear()
+        // This test destroys the database, so it only runs against the
+        // ISOLATED variant. On the production package it is SKIPPED
+        // with a reason, and nothing is deleted.
+        DestructiveTestAssumption.requireIsolated(ctx)
+            TestDataIsolation.clearDatabase(ctx)
             seed(n)
             // Warm the page cache so the measurement reflects decryption cost
             // rather than cold disk IO.
@@ -150,7 +166,11 @@ class PerformanceBaselineInstrumentedTest {
 
     @Test
     fun measureDatabaseGrowth() {
-        db.clear()
+        // This test destroys the database, so it only runs against the
+        // ISOLATED variant. On the production package it is SKIPPED
+        // with a reason, and nothing is deleted.
+        DestructiveTestAssumption.requireIsolated(ctx)
+        TestDataIsolation.clearDatabase(ctx)
         val before = dbFileSize()
         seed(1000)
         val after = dbFileSize()

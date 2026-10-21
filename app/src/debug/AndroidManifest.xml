@@ -11,19 +11,25 @@
   that, any app on the device could read the app's capture diagnostics and
   toggle the recording switch — which is a real control surface, not a
   read-only one.
+
+  The permission name and the provider authority carry the per-variant
+  ${permissionSuffix} placeholder, so the production and devtest variants
+  declare DIFFERENT permissions and providers. Without that, the devtest
+  variant could call the production variant's provider, and the two variants
+  would not be properly separated.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <permission
-        android:name="tw.personal.privateinbox.permission.DEBUG_SETTINGS"
+        android:name="tw.personal.privateinbox.permission.DEBUG_SETTINGS${permissionSuffix}"
         android:protectionLevel="signature"
         android:label="@string/debug_settings_permission_label" />
 
     <application>
         <provider
             android:name=".DebugSettingsProvider"
-            android:authorities="tw.personal.privateinbox.debugsettings"
+            android:authorities="tw.personal.privateinbox.debugsettings${permissionSuffix}"
             android:exported="true"
-            android:permission="tw.personal.privateinbox.permission.DEBUG_SETTINGS"
+            android:permission="tw.personal.privateinbox.permission.DEBUG_SETTINGS${permissionSuffix}"
             android:grantUriPermissions="false" />
     </application>
 </manifest>

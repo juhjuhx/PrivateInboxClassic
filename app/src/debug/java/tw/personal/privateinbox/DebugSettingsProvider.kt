@@ -27,8 +27,26 @@ import android.os.Bundle
 class DebugSettingsProvider : ContentProvider() {
 
     companion object {
-        const val AUTHORITY = "tw.personal.privateinbox.debugsettings"
-        val CONTENT_URI: Uri = Uri.parse("content://$AUTHORITY")
+        /**
+         * The authority of the debug provider.
+         *
+         * It is derived from the RUNNING package, so the production and
+         * devtest variants get different authorities and cannot reach each
+         * other's provider. The manifest declares the same name through the
+         * ${permissionSuffix} placeholder.
+         */
+        fun authorityFor(packageName: String): String =
+            VariantNames.debugSettingsAuthority(packageName)
+
+        /**
+         * The URI of the debug provider.
+         *
+         * It is a function rather than a constant because the authority
+         * depends on the running package, which is only known once the
+         * provider is attached to a context.
+         */
+        fun contentUriFor(context: Context): Uri =
+            Uri.parse("content://${authorityFor(context.packageName)}")
 
         /** The instrumentation APK's package name. */
         const val INSTRUMENTATION_PACKAGE = "tw.personal.privateinbox.test"
@@ -65,6 +83,11 @@ class DebugSettingsProvider : ContentProvider() {
         // with its own UID.
         val allowedUids = setOf(
             uidOf(ctx, ctx.packageName),
+            // The instrumentation APK is named after the target, so the name
+            // depends on the variant. The prod variant's test APK is
+            // tw.personal.privateinbox.test and the devtest one is
+            // tw.personal.privateinbox.devtest.test.
+            uidOf(ctx, VariantNames.instrumentationPackage(ctx.packageName)),
             uidOf(ctx, INSTRUMENTATION_PACKAGE)
         ).filter { it != null }.mapNotNull { it }.toSet()
         if (callerUid !in allowedUids) return false
@@ -162,7 +185,8 @@ class DebugSettingsProvider : ContentProvider() {
 
     override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int = 0
 
-    override fun getType(uri: Uri): String = "vnd.android.cursor.item/vnd.$AUTHORITY"
+    override fun getType(uri: Uri): String =
+        "vnd.android.cursor.item/vnd.${authorityFor(context?.packageName ?: "tw.personal.privateinbox")}"
 
     override fun call(method: String, arg: String?, extras: Bundle?): Bundle? {
         if (!callerAllowed()) return null

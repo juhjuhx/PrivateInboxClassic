@@ -69,8 +69,12 @@ class BurstCaptureInstrumentedTest {
 
     @Before
     fun setUp() {
+        // This test destroys the database, so it only runs against the
+        // ISOLATED variant. On the production package it is SKIPPED
+        // with a reason, and nothing is deleted.
         db = InboxDatabase(ctx)
-        db.clear()
+        DestructiveTestAssumption.requireIsolated(ctx)
+        TestDataIsolation.clearDatabase(ctx)
         notifier.ensureChannel()
         CaptureMetrics.reset()
         // The synthetic notifications are posted by the app package, so the app
@@ -92,8 +96,11 @@ class BurstCaptureInstrumentedTest {
 
     @After
     fun tearDown() {
-        db.clear()
-        db.close()
+        // The cleanup is a no-op outside an isolated package: the
+        // tryClearDatabase form returns false instead of throwing, and the
+        // handle is only closed when it was actually opened.
+        TestDataIsolation.tryClearDatabase(ctx)
+        if (this::db.isInitialized) db.close()
     }
 
     // ---------------------------------------------------------------- helpers
@@ -459,7 +466,11 @@ class BurstCaptureInstrumentedTest {
                 null, "filler", "DIRECT_MESSAGE", "idx:$i"
             )
         }
-        db.clear()
+        // This test destroys the database, so it only runs against the
+        // ISOLATED variant. On the production package it is SKIPPED
+        // with a reason, and nothing is deleted.
+        DestructiveTestAssumption.requireIsolated(ctx)
+        TestDataIsolation.clearDatabase(ctx)
 
         val groups = 4
         val perGroup = 25
@@ -513,7 +524,7 @@ class BurstCaptureInstrumentedTest {
 
         // Turn recording off through the app's own provider.
         ctx.contentResolver.call(
-            DebugSettingsProvider.CONTENT_URI, "setRecording", "false", null
+            DebugSettingsProvider.contentUriFor(ctx), "setRecording", "false", null
         )
         val id2 = BurstNotifier.NOTIFICATION_ID_BASE + 801
         notifier.postGroupUpdate(notificationId = id2, messageCount = 1, firstIndex = 0)
@@ -528,7 +539,7 @@ class BurstCaptureInstrumentedTest {
         // used, because the listener remembers which messages of a given
         // notification it has already written.
         ctx.contentResolver.call(
-            DebugSettingsProvider.CONTENT_URI, "setRecording", "true", null
+            DebugSettingsProvider.contentUriFor(ctx), "setRecording", "true", null
         )
         val id3 = BurstNotifier.NOTIFICATION_ID_BASE + 802
         // A DISTINCT body: the dedup key contains the message text, so
@@ -633,12 +644,13 @@ class BurstCaptureInstrumentedTest {
     private fun enableSelfTestSource() {
         val ok = runCatching {
             ctx.contentResolver.call(
-                DebugSettingsProvider.CONTENT_URI, "enableSources",
-                "${CapturePolicy.SELF_TEST},${SourceRegistry.SELF_TEST_INSTRUMENTATION_PACKAGE}",
+                DebugSettingsProvider.contentUriFor(ctx), "enableSources",
+                "${SourceRegistry.selfTestPackage(ctx.packageName)}," +
+                    "${SourceRegistry.selfTestInstrumentationPackage(ctx.packageName)}",
                 null
             )
             ctx.contentResolver.call(
-                DebugSettingsProvider.CONTENT_URI, "setRecording", "true", null
+                DebugSettingsProvider.contentUriFor(ctx), "setRecording", "true", null
             )
         }.isSuccess
         assertTrue("the synthetic capture source must be enabled", ok)
@@ -656,7 +668,7 @@ class BurstCaptureInstrumentedTest {
                 .getInstrumentation().uiAutomation
             val fd = ui.executeShellCommand(
                 "cmd notification allow_listener " +
-                    "${ctx.packageName}/${ctx.packageName}.PrivateNotificationListener"
+                    VariantNames.listenerComponent(ctx.packageName)
             )
             android.os.ParcelFileDescriptor.AutoCloseInputStream(fd)
                 .use { it.readBytes() }
@@ -674,7 +686,7 @@ class BurstCaptureInstrumentedTest {
         while (System.currentTimeMillis() < deadline) {
             val connected = runCatching {
                 ctx.contentResolver.call(
-                    DebugSettingsProvider.CONTENT_URI, "ensureListener", null, null
+                    DebugSettingsProvider.contentUriFor(ctx), "ensureListener", null, null
                 )?.getBoolean("connected") == true
             }.getOrDefault(false)
             if (connected) return true

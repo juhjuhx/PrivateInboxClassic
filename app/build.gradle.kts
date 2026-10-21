@@ -76,14 +76,53 @@ android {
         applicationId = "tw.personal.privateinbox"
         minSdk = 28
         targetSdk = 36
-        // v0.4.2: the group-burst notification capture fix.
+        // v0.4.3: reliability hardening.
         //
-        // The version code is monotonic: 7 was v0.4.1, so this is 8. The
+        // The version code is monotonic: 8 was v0.4.2, so this is 9. The
         // version is asserted by scripts/audit-release.sh, which also checks
         // that the release bundle is not signed with the debug key.
-        versionCode = 8
-        versionName = "0.4.2"
+        versionCode = 9
+        versionName = "0.4.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    // ---------------------------------------------------------------------
+    // The devtest variant: an ISOLATED application id for the destructive
+    // instrumentation tests.
+    //
+    // The problem this solves: the instrumentation tests open the TARGET
+    // application's database and clear it. The target package is
+    // `tw.personal.privateinbox` — the SAME package the user installs — so
+    // running the suite on a phone that has the real app would DELETE THE
+    // USER'S SAVED MESSAGES.
+    //
+    // The devtest variant has the application id
+    // `tw.personal.privateinbox.devtest`. Android gives each application id its
+    // own data directory, so the test variant has its own `inbox.db` and
+    // physically cannot reach the real one.
+    //
+    // The production variant keeps the real id, and
+    // DestructiveOperationGuard refuses to destroy data when the target
+    // package is the production one. The guard is by PACKAGE ID, not by build
+    // type, so a release build installed on a phone is protected too.
+    //
+    // The permission names are suffixed per variant so the two variants
+    // cannot impersonate each other's providers.
+    // ---------------------------------------------------------------------
+    flavorDimensions += "isolation"
+    productFlavors {
+        create("prod") {
+            dimension = "isolation"
+            applicationId = "tw.personal.privateinbox"
+            // The suffix distinguishes the permission from the devtest one.
+            manifestPlaceholders["permissionSuffix"] = ""
+        }
+        create("devtest") {
+            dimension = "isolation"
+            applicationId = "tw.personal.privateinbox.devtest"
+            manifestPlaceholders["permissionSuffix"] = ".devtest"
+            versionNameSuffix = "-devtest"
+        }
     }
 
     compileOptions {
@@ -238,6 +277,11 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
 
     // Instrumentation test only. These never ship inside the app APK.
+    //
+    // The destructive instrumentation tests run against the devtest variant,
+    // which has its own application id and therefore its own data directory.
+    // That is what makes `db.clear()` in a test SAFE: it cannot reach the
+    // production app's database.
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:rules:1.6.1")
