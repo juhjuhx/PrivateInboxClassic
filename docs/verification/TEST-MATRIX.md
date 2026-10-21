@@ -64,7 +64,7 @@
 
 ---
 
-## 3. Instrumentation 測試（67 項）
+## 3. Instrumentation 測試（105 項）
 
 ### 3.1 通知擷取管線（13 項）
 
@@ -176,6 +176,20 @@ AES-GCM 成本、資料庫成長、記憶體佔用、Activity 啟動。
 | `differentConversationsNeverShareAKey` | 跨對話不共用鍵 |
 | `differentSendersNeverShareAKey` | 跨寄件者不共用鍵 |
 | `theComponentsAreSeparatedByAFieldSeparator` | 欄位分隔不會造成碰撞 |
+
+### 3.12 併發寫入者（3 項）
+
+ConcurrentWriterInstrumentedTest — 證明兩個寫入者並存時不會失敗或遺失資料。
+
+| 測試 | 驗證內容 |
+|------|----------|
+| theJournalModeIsRecorded | 記錄實際的 journal mode（實測為 truncate，不是 WAL）|
+| twoWritersDoNotFailAndDoNotLoseRows | 2 個 writer x 150 列 = 300 列，0 失敗，0 遺失 |
+| aReaderDoesNotBlockAWriter | 讀取與寫入同時進行，寫入 0 失敗 |
+
+為什麼重要：listener 用單一 writer 執行緒，但 UI 另開 2 執行緒池的
+資料庫 handle，兩者可能同時寫入。這個測試把那個風險量化，
+而不是假設它不存在。
 
 ## 4. Python 連接器測試（23 項）
 

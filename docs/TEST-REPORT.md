@@ -18,7 +18,7 @@ AGP 8.13.2｜Kotlin 2.2.20｜Android SDK 36｜Build Tools 36.0.0
 |------|------|
 | Debug Build | **PASS** |
 | Release Build + AAB | **PASS**（未以正式金鑰簽署） |
-| JVM 單元測試 | **PASS**（42/42） |
+| JVM 單元測試 | **PASS**（50/50） |
 | Instrumentation 測試 | **PASS**（102/102，**0 skip**） |
 | Android Lint | **PASS**（0 error） |
 | Python DHC 連接器測試 | **PASS**（23/23） |
@@ -34,7 +34,7 @@ AGP 8.13.2｜Kotlin 2.2.20｜Android SDK 36｜Build Tools 36.0.0
 
 ---
 
-## 2. JVM 單元測試（42/42 PASS）
+## 2. JVM 單元測試（50/50 PASS）
 
 ```
 $ bash scripts/test-core.sh

@@ -420,6 +420,18 @@ class InboxDatabase(private val appContext: Context) :
     }.getOrDefault(false)
 
     /**
+     * The journal mode the database is actually using.
+     *
+     * The single-writer guarantee depends on it: in WAL mode a reader never
+     * blocks the writer, and a writer never blocks a reader.
+     */
+    fun journalMode(): String = runCatching {
+        readableDatabase.rawQuery("PRAGMA journal_mode", null).use { c ->
+            if (c.moveToFirst()) c.getString(0) ?: "unknown" else "unknown"
+        }
+    }.getOrDefault("unknown")
+
+    /**
      * The number of rows in the table.
      *
      * The read path is capped, so the row count has to come from the database

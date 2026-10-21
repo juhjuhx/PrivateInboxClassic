@@ -12,9 +12,9 @@
 | BASELINE | `8494910`（v0.4.1 群組突發修復） |
 | CURRENT_PHASE | R6 — 文件收斂、CI、推送 |
 | CURRENT_TASK | 完整驗證 + 推送私人倉庫 |
-| LAST_SUCCESS | 95 項 instrumentation 0 失敗 0 skip；50 項 unit；23 項 python；7 項跨語言；Lint 0 error；三個稽核腳本 PASS |
+| LAST_SUCCESS | 105 項 instrumentation 0 失敗 0 skip；50 項 unit；23 項 python；7 項跨語言；Lint 0 error；三個稽核腳本 PASS |
 | BUILD_STATUS | BUILD SUCCESSFUL |
-| TEST_STATUS | instrumentation 95/95、unit 50/50、python 23/23、fixture 7/7 |
+| TEST_STATUS | instrumentation 105/105、unit 50/50、python 23/23、fixture 7/7 |
 | DISK_STATUS | 20 GiB free |
 | BLOCKERS | 正式 release 金鑰未由使用者建立；**vivo X200 Pro 真機未連接** |
 | NEXT_ACTION | 在 X200 Pro 上執行 `bash scripts/run-burst-tests.sh --repeat 3` |
