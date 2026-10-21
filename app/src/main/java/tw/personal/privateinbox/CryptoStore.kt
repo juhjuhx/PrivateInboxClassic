@@ -16,8 +16,16 @@ import javax.crypto.spec.GCMParameterSpec
  */
 object CryptoStore {
     private const val PROVIDER = "AndroidKeyStore"
-    private const val AES_ALIAS = "private-inbox-aes-v1"
-    private const val HMAC_ALIAS = "private-inbox-hmac-v1"
+
+    /**
+     * The key aliases.
+     *
+     * They are public so the recovery flow can report on them. The alias
+     * itself is not a secret: it is the NAME of a key inside the Keystore, and
+     * the key material never leaves the Keystore.
+     */
+    const val AES_ALIAS = "private-inbox-aes-v1"
+    const val HMAC_ALIAS = "private-inbox-hmac-v1"
 
     @Synchronized
     private fun aesKey(): SecretKey {

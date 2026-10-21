@@ -297,35 +297,59 @@ class MainActivity : ComponentActivity() {
      * must confirm before anything is removed.
      */
     private fun offerKeyRecovery() {
-        if (keyState != CryptoStore.KeyState.RECOVERY_REQUIRED) return
         if (keyRecoveryShown) return
-        keyRecoveryShown = true
-        val message = buildString {
-            append("加密金鑰已失效（例如變更螢幕鎖或重新註冊生物辨識）。\n\n")
-            append("受影響的 $unreadableRows 則訊息已永久無法解密。")
-            append("金鑰無法復原 —— 重新設定螢幕鎖也不會讓舊資料回來。\n\n")
-            append("這些資料仍留在本機。你可以先保留它們，或明確清除它們並重新開始。")
+        // A key that is only TEMPORARILY unavailable must not raise a dialog
+        // offering to delete anything: the device simply has not been unlocked
+        // yet, and nothing is lost.
+        if (keyState == CryptoStore.KeyState.KEY_AVAILABLE ||
+            keyState == CryptoStore.KeyState.KEY_TEMPORARILY_UNAVAILABLE
+        ) {
+            return
         }
+        if (keyState == CryptoStore.KeyState.DECRYPT_FAILED && unreadableRows == 0) return
+
+        val description = KeyRecovery.describe(keyState, unreadableRows, entries.size)
+        if (description.action == KeyRecovery.Action.NONE) {
+            // Nothing the user can do about it right now; the state is shown in
+            // the diagnostics panel instead.
+            keyRecoveryShown = true
+            return
+        }
+        keyRecoveryShown = true
         AlertDialog.Builder(this@MainActivity)
-            .setTitle("需要處理：加密金鑰已失效")
-            .setMessage(message)
+            .setTitle(description.title)
+            .setMessage(description.message)
             .setNegativeButton("保留資料") { _, _ -> keyRecoveryShown = false }
             .setPositiveButton("清除無法解密的資料") { _, _ ->
                 keyRecoveryShown = false
-                io.execute {
-                    val db = InboxDatabase(this@MainActivity)
-                    val removed = runCatching { db.purgeUndecryptableRows() }.getOrDefault(0)
-                    db.close()
-                    runOnUiThread {
-                        if (isFinishing || isDestroyed) return@runOnUiThread
-                        Toast.makeText(this@MainActivity,
-                            "已清除 $removed 則無法解密的資料", Toast.LENGTH_LONG).show()
-                        loadEntries()
-                    }
+                // A SECOND, explicit confirmation before anything is deleted.
+                KeyRecovery.confirmClear(this@MainActivity, unreadableRows) {
+                    purgeUndecryptable()
                 }
             }
             .setOnCancelListener { keyRecoveryShown = false }
             .show()
+    }
+
+    /**
+     * Delete the rows that cannot be decrypted.
+     *
+     * This is only ever reached after the user has confirmed twice: once that
+     * they understand the state, and once that they want the deletion. The
+     * rows that CAN be decrypted are never touched.
+     */
+    private fun purgeUndecryptable() {
+        io.execute {
+            val db = InboxDatabase(this@MainActivity)
+            val removed = runCatching { db.purgeUndecryptableRows() }.getOrDefault(0)
+            db.close()
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                Toast.makeText(this@MainActivity,
+                    "已清除 $removed 則無法解密的資料", Toast.LENGTH_LONG).show()
+                loadEntries()
+            }
+        }
     }
 
     /** Stable conversation identity: the platform conversation key when available,
@@ -949,6 +973,38 @@ class MainActivity : ComponentActivity() {
         panel.addView(diagRow("最後收到通知", if (lastReceived > 0) time(lastReceived, true) else "（尚無）"))
         panel.addView(diagRow("最後成功保存", if (lastSuccess > 0) time(lastSuccess, true) else "（尚無）"))
         panel.addView(diagRow("最後診斷事件", if (lastEvent > 0) time(lastEvent, true) else "（尚無）"))
+        panel.addView(divider().apply { setPadding(0, 14.dp(), 0, 4.dp()) })
+
+        // The encryption key's own state. This is what tells a temporary lock
+        // apart from a permanent loss, which the message list alone cannot.
+        panel.addView(txt("加密金鑰", 16f, INK, true).apply { setPadding(0, 8.dp(), 0, 6.dp()) })
+        val keyDescription = KeyRecovery.describe(keyState, unreadableRows, entries.size)
+        panel.addView(diagRow("金鑰狀態", keyState.name))
+        panel.addView(diagRow("無法解密的訊息", "$unreadableRows 則"))
+        panel.addView(diagRow("金鑰診斷", KeyRecovery.diagnose(this)))
+        panel.addView(divider().apply { setPadding(0, 14.dp(), 0, 4.dp()) })
+
+        // The capture pipeline's quantitative counters. They are in-memory, so
+        // they are reset when the process dies.
+        panel.addView(txt("擷取管線（本次行程）", 16f, INK, true).apply { setPadding(0, 8.dp(), 0, 6.dp()) })
+        val metrics = CaptureMetrics.snapshot()
+        panel.addView(diagRow("通知回呼", "${metrics["callbacks_entered"] ?: 0}"))
+        panel.addView(diagRow("通過來源政策", "${metrics["policy_accepted"] ?: 0}"))
+        panel.addView(diagRow("呈現的訊息", "${metrics["messages_presented"] ?: 0}"))
+        panel.addView(diagRow("送去寫入", "${metrics["messages_submitted"] ?: 0}"))
+        panel.addView(diagRow("入庫", "${metrics["db_committed"] ?: 0}"))
+        panel.addView(diagRow("重複", "${metrics["db_duplicated"] ?: 0}"))
+        panel.addView(diagRow("寫入失敗", "${metrics["db_failed"] ?: 0}"))
+        panel.addView(diagRow("佇列最大深度", "${metrics["queue_high_watermark"] ?: 0}"))
+        panel.addView(diagRow("佇列溢出", "${metrics["queue_overflow"] ?: 0}"))
+        panel.addView(diagRow("Worker 例外", "${metrics["worker_failures"] ?: 0}"))
+        panel.addView(diagRow("截斷的訊息", "${metrics["messages_truncated"] ?: 0}"))
+        panel.addView(diagRow("回呼耗時 p95/p99",
+            "${CaptureMetrics.callbackDuration.snapshot().p95} / " +
+                "${CaptureMetrics.callbackDuration.snapshot().p99} ms"))
+        panel.addView(diagRow("佇列等待 p95/p99",
+            "${CaptureMetrics.queueWait.snapshot().p95} / " +
+                "${CaptureMetrics.queueWait.snapshot().p99} ms"))
         panel.addView(divider().apply { setPadding(0, 14.dp(), 0, 4.dp()) })
         val diagActions = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
