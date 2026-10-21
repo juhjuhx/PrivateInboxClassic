@@ -174,7 +174,7 @@ CASE F  captured_on=20 captured_off=20
 
 | 檔案 | SHA-256 |
 |------|---------|
-| `PrivateInboxClassic-v0.4.1-burst-debug.apk` | `6f5886dc32d5467160001fa4b8b96c41ba1c9e2889e2f5f71d7faa7ec9bc746e` |
+| `PrivateInboxClassic-v0.4.1-burst-debug.apk` | `a6f9034335a3da60b4c9b3316720a1cf6d6c965ebf1cb11b77c2885e50b2680d` |
 | `PrivateInboxClassic-v0.4.1-burst-release-unsigned.apk` | `e166f6a6b377f5eb8c6fbdfbddcbb69646ce12eb52654af60ebcbff5f988f4f4` |
 
 簽章憑證 SHA-256：`c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4`
