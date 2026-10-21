@@ -1,154 +1,178 @@
-# Private Inbox Classic — 交接文件（HANDOFF）
+# HANDOFF — Private Inbox Classic v0.4.2
 
-**CURRENT_PHASE**：PHASE 8 — APK 交付與驗收
+> 交給下一位接手者。這份文件說明**現在的狀態**、**這輪做了什麼**、
+> **還沒做什麼**。
 
 ---
 
-## 1. 狀態摘要
+## 1. 快速索引
 
-| 項目 | 狀態 |
+| 文件 | 內容 |
 |------|------|
-| 分支 | `integration/dsh-v040`（工作樹 `../PrivateInboxClassic-v0.4-wt`） |
-| BASELINE_SHA | `6ccb69f`（接手時的 HEAD） |
-| 本輪分支 HEAD | 見 `git log -1` |
-| 版本 | 0.4.0-alpha (versionCode 6) |
-| Build | ✅ BUILD SUCCESSFUL |
-| 單元測試 | ✅ 42/42 PASS |
-| Python DHC 連接器 | ✅ 23/23 PASS |
-| Instrumentation | ✅ 60/60（0 skip）— Android 16 模擬器 |
-| Lint | ✅ 0 error |
-| 秘密稽核 | ✅ PASS（工作樹 + 完整 Git 歷史） |
-| APK | ✅ 已產出，權限與簽章已驗證，Debug 版已安裝並啟動 |
-| 遠端 | `https://github.com/juhjuhx/PrivateInboxClassic`（**PRIVATE**） |
-| 推送分支 | `integration/dsh-v040` |
-| CI | ✅ **GREEN** — run 39450024722，全部步驟成功，含 APK 與測試報告 artifact |
+| `AGENT_STATE.md` | 給 agent 的狀態摘要與下一個動作 |
+| `TEST-REPORT.md` | 所有測試的結果（PASS / FAIL / NOT TESTED）|
+| `engineering/SECURITY-AUDIT.md` | 15 項安全審查的完整結果 |
+| `engineering/PERFORMANCE-BASELINE.md` | 效能量測基準 |
+| `reliability/BURST-CAPTURE-ROOT-CAUSE.md` | **群組突發漏接的根因與量測** |
+| `reliability/QUEUE-BACKPRESSURE.md` | 佇列設計與背壓量測 |
+| `reliability/NOTIFICATION-DEDUP.md` | 去重策略與三個版本的演進 |
+| `reliability/X200PRO-ORIGINOS-MATRIX.md` | **真機要收集什麼** |
+| `roadmap/NOTIFICATION-MIRROR.md` | 通知鏡像規格（DESIGN_ONLY）|
+| `roadmap/RUST-CORE.md` | Rust 核心研究（FUTURE_RESEARCH）|
+| `roadmap/MEDIA-CAPTURE.md` | 圖片擷取（DEFERRED）|
+| `roadmap/MULTI-DEVICE-SYNC.md` | 多裝置同步（PLANNING_ONLY）|
 
 ---
 
-## 2. 本輪實際修正的缺陷
+## 2. 這一輪的成果
 
-每個都先在裝置上重現，再修正，再回歸測試。
+### 2.1 群組突發漏接（最高優先）
 
-### 2.1 P0 — 會讓擷取靜默停止的崩潰
+**症狀**：多個群組同時大量傳送訊息時，部分訊息沒有被保存。
 
-| # | 缺陷 | 根因 | 影響 |
-|---|------|------|------|
-| 1 | `ClassCastException` in `LocalSettings.selected()` | 偏好設定值型別錯誤（String 而非 Set）時 `getStringSet` 拋例外 | **`NotificationListenerService` 被系統殺掉，所有擷取靜默停止**直到重新綁定 |
-| 2 | `onNotificationPosted` 未受保護 | 監聽器拋例外會被系統殺掉 | 單一畸形通知即可停止全部擷取 |
-| 3 | `NPE` in `MainActivity.showSettings()` | `c["last_ts"] as Long` 讀取不存在的 key | **整個設定畫面崩潰** |
-| 4 | `applicationContext` 為 null 時 NPE | 非系統建立的 service 實例 | 直接呼叫 `onNotificationPosted` 會崩潰 |
+**真正的根因不是 OriginOS，也不是 SQLite。是寫入放大。**
 
-### 2.2 P0 — 自我測試長期 SKIP
+| 指標 | 修正前 | 修正後 |
+|------|--------|--------|
+| `messages_saved`（500 則的場景） | 250 | **500** |
+| `unaccounted` | **3,821** | **0** |
+| `queue_wait` p99 | 39,144 ms | **2,091 ms** |
+| `callback` p99 | — | 47 ms |
 
-三個 SYSTEM E2E 測試先前**永遠被跳過**。逐項找出根因：
+兩個原因：
 
-| # | 根因 | 修正 |
-|---|------|------|
-| a | 連線檢查用 `isListenerConnectedInProcess()`（App 行程的 static），但 instrumentation 跑在**另一個行程**，該 flag 永遠不可能為 true | 改為透過 debug provider 讀取 App 行程的真實連線證據 |
-| b | instrumentation APK 是**獨立套件、有自己的 UID**，無法寫入 App 的 SharedPreferences，也無法讀 App 的資料庫與診斷 | 新增 debug-only `DebugSettingsProvider`（`app/src/debug/`，release 不存在） |
-| c | 從測試行程發出的通知會被蓋上**測試套件**的套件名，不是 App 套件，因此被來源政策拒絕 | 把 instrumentation 套件也註冊為自我測試來源 |
-| d | 從測試行程檢查 `POST_NOTIFICATIONS`，但該權限屬於 **App 套件** | 改為查詢 App 套件的權限，並用 `UiAutomation` 授權 |
+1. **寫入放大**：群組通知帶的是累積的歷史，所以 500 則訊息被呈現了
+   9,500 次，而每一次都先做了一次 AES-GCM 加密才發現是重複。
+   現在只提交新訊息。
+2. **去重識別碼用索引**：平台的 `MessagingStyle` 上限是 25 則，
+   超過後索引會位移，第 26 則以後永遠抓不到。
+   現在用訊息內容。
 
-**結果：0 skip，34/34 通過。** 一則通知真的走過
-Android 系統 → 監聽器 → 解析 → 加密入庫 → UI，且重啟後仍在。
+**驗證**：10 個案例的矩陣（TEST-A..TEST-J），3 次連續執行，全部通過。
 
-### 2.3 P1 — 其他真實缺陷
+### 2.2 Release 產物完整性
 
-| # | 缺陷 | 修正 |
-|---|------|------|
-| 5 | 搜尋畫面的來源與日期篩選器是區域變數，每次重新繪製都會**無聲重置** | 改為 Activity 狀態，與平台篩選共用 |
-| 6 | 「失敗事件」計數器把**政策決定**（記錄關閉、來源未勾選）也算成失敗 | 失敗只統計真正的失敗 |
-| 7 | `@Synchronized` 用在有 backing field 的 property 上 | 移除（所有存取都在同一物件的 `@Synchronized` 方法內，monitor 仍序列化） |
-
----
-
-## 3. 新增功能
-
-| 功能 | 位置 |
+| 問題 | 修正 |
 |------|------|
-| 平台來源註冊表（唯一來源） | `SourceRegistry.kt` |
-| Threads 支援 + 訊息分類 | `SourceRegistry.classify()` |
-| 平台篩選列 | `MainActivity.platformFilterBar()` |
-| 穩定的對話識別 | `ConversationIdentity.kt` |
-| 資料庫 schema v4（非破壞性遷移） | `InboxDatabase.kt` |
-| 可重現簽章（debug/release/upload 三種身分） | `app/build.gradle.kts`、`keystore/` |
-| 秘密稽核（工作樹 + 完整歷史） | `scripts/audit-secrets.sh` |
-| 診斷 JSON schema 版本 + 最後成功保存時間 | `CaptureDiagnostics.kt` |
-| Debug-only 設定橋接（僅 debug 組態） | `app/src/debug/.../DebugSettingsProvider.kt` |
-| GitHub Actions CI | `.github/workflows/android.yml` |
-| 開源文件集 | `README.md`、`LICENSE`、`PRIVACY.md`、`CONTRIBUTING.md`、`AGENTS.md`、`CHANGELOG.md`、`docs/` |
+| Release AAB 帶著 **debug 簽章** | AAB 的簽章組態在沒有正式金鑰時清空 |
+| 回報的「v0.4.1 AAB」實際是 **v0.4.0-alpha** | 稽核腳本改驗 AAB 內的版本與簽章 |
+
+稽核腳本已用舊產物驗證過：它會**同時**報出這兩個缺陷。
+
+### 2.3 跨語言一致性
+
+DHC 的跨語言測試找到一個真實缺陷：
+
+```
+python:  msg_vAqh2ijUIiDWkO4grhsE
+android: msg_vAqh2ijUIiDWkO4grhsE\n
+```
+
+Android 的 `Base64` 預設附加換行。摘要完全相同，結果差一個字元。
+後果是同一則訊息在兩邊有不同的 id，**匯入不再冪等**。
+
+修正後兩個方向都通過：Android 匯出 → Python 匯入，
+Python 匯出 → Android 驗證。
+
+### 2.4 其他
+
+- **Keystore 復原流程**：暫時鎖定與永久失效分開處理；刪除需要兩次確認；
+  診斷面板顯示金鑰狀態與管線指標。
+- **列表分頁**：首屏讀取是**固定的 ~89 ms**，與資料表大小無關。
+- **DHC v0.2 匯出流程**：選範圍 → SAF 選位置 → 密碼 → 加密寫出。
+  密碼用完即歸零，永不儲存。
 
 ---
 
-## 4. 簽章狀態
+## 3. 驗證結果
 
-| 身分 | 憑證 SHA-256 | 位置 |
-|------|--------------|------|
-| Debug（本專案採用） | `c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4` | `keystore/debug.keystore`（git-ignored） |
-| Debug（另一份，未採用） | `46488e99...` | `~/.android/debug.keystore` |
-
-**採用前者，因為它是裝置上實際安裝的那一份**（以 `apksigner` 對裝置上的
-`base.apk` 實測確認）。**不得輪替**，否則無法覆蓋更新既有安裝。
-
-Release / Upload 金鑰**尚未建立** — 需要使用者在自己機器上建立並保管
-（見 `docs/SIGNING.md`）。
+| 項目 | 結果 |
+|------|------|
+| Instrumentation | **102/102 PASS**，0 skip |
+| Unit | **50/50 PASS** |
+| Python DHC | **23/23 PASS** |
+| 跨語言 fixture | **7/7 PASS** |
+| Lint | 0 error |
+| `audit.sh` / `audit-secrets.sh` / `audit-release.sh` | 全部 PASS |
+| CI（run 39532595947） | **GREEN**，20 個步驟全部成功 |
 
 ---
 
-## 5. 已知阻塞
+## 4. 交付產物
+
+| 檔案 | 大小 | SHA-256 |
+|------|------|---------|
+| `PrivateInboxClassic-v0.4.2-debug.apk` | 5,948,649 B | `dca038856f83761f080cf8ec64e43fa73e43925e846911c1eedee3bc5e6f8567` |
+| `PrivateInboxClassic-v0.4.2-release-unsigned.apk` | 4,975,111 B | `d63707f15e10b8e893d7149e78433e6878e9816a7be8d03eb319ec34cae5a0c5` |
+| `PrivateInboxClassic-v0.4.2.aab` | 1,736,305 B | `7dd33706f00f797397491ad9e28bf6afbdb3d2788713ff0d6f14429300bea7a4` |
+
+**簽章憑證 SHA-256**：`c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4`
+（與手機上既有版本**相同**，`adb install -r` 可直接覆蓋，不刪資料）
+
+**Release 產物是未簽署的** —— 正式金鑰必須由擁有者保管。
+
+---
+
+## 5. 尚未完成（誠實列出）
 
 | 項目 | 狀態 | 原因 |
 |------|------|------|
-| 實體手機上的 LINE / Messenger / Instagram / Threads 驗證 | **NOT TESTED** | 本次無實體裝置；計畫見 `docs/REAL-DEVICE-TEST-PLAN.md` |
-| Release 正式簽章 | **BLOCKED** | 需使用者建立並保管金鑰 |
-| AAB 產出 | 可建置但未簽章 | 需 upload 金鑰 |
-| 推送至 GitHub | **未執行** | 未取得使用者授權；且 `juhjuhx/PrivateInboxClassic` 是否存在尚未查證 |
-| Keystore 金鑰失效的明確 UI 提示 | 未實作 | 目前只做到「不 Crash、跳過無法解密的列」 |
+| **vivo X200 Pro 真機驗證** | **NOT_TESTED** | 本輪沒有連接真機 |
+| OriginOS 背景行為 | **NOT_TESTED** | 同上 |
+| 鎖屏 / 亮屏、省電模式 | **NOT_TESTED** | 需要實機 |
+| 正式 release 簽章 | **BLOCKED** | 金鑰必須由擁有者保管 |
+| 持久化 intake journal | **NOT_IMPLEMENTED** | 記憶體佇列在行程被殺時會遺失事件 |
+| Android 9/13/14/15 | **NOT_TESTED** | 只驗證了 Android 16 |
+| DHC 正式 UI 整合 | **CONNECTOR_READY** | 匯出/匯入已就緒，DHC 端未接 |
 
 ---
 
-## 6. 下一個可執行的具體動作
+## 6. 下一步
+
+### 6.1 立即（不需要授權）
 
 ```bash
-# 1. 在本工作樹驗證一切
-cd ../PrivateInboxClassic-v0.4-wt
+cd <worktree>
 export JAVA_HOME="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
 export GRADLE_USER_HOME="<workspace>/gradle_home"
 export ANDROID_SDK_ROOT="<workspace>/android-sdk"
 export ANDROID_HOME="$ANDROID_SDK_ROOT"
 export ANDROID_USER_HOME="<workspace>/.android-home"
-export PATH="$JAVA_HOME/bin:$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/emulator:$PATH"
+export PATH="$JAVA_HOME/bin:$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/build-tools/36.0.0:$PATH"
 
-./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
 ./gradlew --no-daemon :app:connectedDebugAndroidTest
-bash scripts/audit.sh && bash scripts/audit-secrets.sh
-
-# 2. 產出交付物
-cp app/build/outputs/apk/debug/app-debug.apk \
-   ../PrivateInboxClassic-v0.4.0-alpha-debug.apk
-shasum -a 256 ../PrivateInboxClassic-v0.4.0-alpha-debug.apk
-
-# 3. 需要使用者授權才能做的事
-#    - 建立正式 release / upload 金鑰
-#    - 建立或推送 GitHub repository
-#    - 在實體手機上執行 REAL-DEVICE-TEST-PLAN.md
+bash scripts/audit.sh && bash scripts/audit-secrets.sh && bash scripts/audit-release.sh
+python3 integrations/dhc/tests/test_connector.py
+bash scripts/run-burst-tests.sh --repeat 3
 ```
 
-**建議的下一個工程項目**（依優先序）：
+### 6.2 需要實機
 
-1. Keystore 金鑰失效的明確處理（偵測 → UI 提示 → 清理無法解密的列）。
-2. 聊天室列表分頁（現在一次載入 1500 筆並全數解密）。
-3. 實體手機相容性矩陣（依 `docs/REAL-DEVICE-TEST-PLAN.md`）。
+```bash
+adb install -r PrivateInboxClassic-v0.4.2-debug.apk
+# vivo 設定：允許自啟動 + 允許後台高耗電 + 最近任務鎖定（三項都要）
+# LINE / Threads / Instagram 本身也要允許後台接收
+bash scripts/run-burst-tests.sh --repeat 3
+```
+
+**注意**：`run-burst-tests.sh` 會重裝 App，那會刪除已擷取的訊息。
+在真機上跑之前先匯出備份。
+
+詳細步驟見 `reliability/X200PRO-ORIGINOS-MATRIX.md`。
+
+### 6.3 需要授權
+
+- 建立正式 release / upload 金鑰。
+- 合併到 `integration/dsh-v040`（本分支未合併）。
+- 建立公開 Release（本專案維持私人）。
 
 ---
 
-## 7. 環境限制速查
+## 7. 不要做的事
 
-| 症狀 | 解法 |
-|------|------|
-| `libnative-platform.dylib` 載入失敗 | `export GRADLE_USER_HOME=<workspace>/gradle_home` |
-| Kotlin daemon 無法連線 | 已由 `gradle.properties` 的 `in-process` 策略處理 |
-| debug keystore 無法建立 | `export ANDROID_USER_HOME=<workspace>/.android-home` |
-| emulator 無法開機 | `export HOME=<workspace>/emulator-home` |
-| `not encryption aware!` | 裝置被鎖屏；`adb shell locksettings clear` |
-| instrumentation 找不到 provider | App 未安裝；測試會自動啟動 App 行程 |
+1. **不要**把 Debug 金鑰當成正式簽章。
+2. **不要**用 `uninstall` 更新 App —— 會刪掉資料。
+3. **不要**在真機上跑 `run-burst-tests.sh` 而不先備份。
+4. **不要**宣稱 OriginOS 的行為已驗證 —— 沒有實機就是 NOT_TESTED。
+5. **不要**把記憶體佇列的可靠性說成「不丟失」—— 行程被殺時會遺失。

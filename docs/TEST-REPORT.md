@@ -19,7 +19,7 @@ AGP 8.13.2｜Kotlin 2.2.20｜Android SDK 36｜Build Tools 36.0.0
 | Debug Build | **PASS** |
 | Release Build + AAB | **PASS**（未以正式金鑰簽署） |
 | JVM 單元測試 | **PASS**（42/42） |
-| Instrumentation 測試 | **PASS**（67/67，**0 skip**） |
+| Instrumentation 測試 | **PASS**（102/102，**0 skip**） |
 | Android Lint | **PASS**（0 error） |
 | Python DHC 連接器測試 | **PASS**（23/23） |
 | 封裝產物資安稽核 | **PASS**（scripts/audit-release.sh） |
@@ -313,3 +313,26 @@ stored=20 expected=100  received=121  parse_ok=120  db_ok=1260
 
 **NOT TESTED** —— 本輪沒有連接 vivo X200 Pro。
 詳見 `docs/engineering/X200PRO-BURST-FIX.md` §5。
+
+
+---
+
+## 附錄二：v0.4.2 的新增測試
+
+| 群組 | 數量 | 內容 |
+|------|------|------|
+| 群組突發矩陣（TEST-A..TEST-J） | 10 | 見 `docs/reliability/BURST-CAPTURE-ROOT-CAUSE.md` |
+| Keystore 復原 | 10 | 見 `docs/reliability/BURST-CAPTURE-ROOT-CAUSE.md` 與 `KeyRecovery` |
+| 分頁契約 | 10 | 首頁、下一頁、末頁、空列表、刪除後、篩選後、搜尋、抵達時更新 |
+| 效能基準 | 3 | 讀取路徑、資料庫成長、分頁 vs 全量 |
+| 跨語言 fixture | 7 | Python 匯出 → Android 驗證（含竄改、錯誤密碼、未知版本）|
+
+**本輪新增的缺陷（由新測試找到）**：
+
+1. 寫入放大 → 佇列飽和 → 3,821 則訊息遺失。
+2. 去重識別碼用索引 → 平台 25 則上限讓索引位移。
+3. Release AAB 帶 debug 簽章。
+4. 回報的 AAB 是舊的 v0.4.0 產物。
+5. 跨語言 base64 換行 → 匯入不冪等。
+
+**真機（vivo X200 Pro / OriginOS）：NOT TESTED。** 本輪沒有連接實機。
