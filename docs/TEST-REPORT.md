@@ -18,8 +18,8 @@ AGP 8.13.2｜Kotlin 2.2.20｜Android SDK 36｜Build Tools 36.0.0
 |------|------|
 | Debug Build | **PASS** |
 | Release Build + AAB | **PASS**（未以正式金鑰簽署） |
-| JVM 單元測試 | **PASS**（50/50） |
-| Instrumentation 測試 | **PASS**（102/102，**0 skip**） |
+| JVM 單元測試 | **PASS**（66/66） |
+| Instrumentation 測試（隔離的 devtest 變體） | **PASS**（119/119，**0 skip**） |
 | Android Lint | **PASS**（0 error） |
 | Python DHC 連接器測試 | **PASS**（23/23） |
 | 封裝產物資安稽核 | **PASS**（scripts/audit-release.sh） |
@@ -336,3 +336,48 @@ stored=20 expected=100  received=121  parse_ok=120  db_ok=1260
 5. 跨語言 base64 換行 → 匯入不冪等。
 
 **真機（vivo X200 Pro / OriginOS）：NOT TESTED。** 本輪沒有連接實機。
+
+
+---
+
+## 附錄三：v0.4.3 的測試結果
+
+### 兩個變體
+
+| 變體 | 套件 ID | 結果 |
+|------|---------|------|
+| **prod**（正式 App）| `tw.personal.privateinbox` | 119 項，**0 失敗**，66 skip |
+| **devtest**（隔離）| `tw.personal.privateinbox.devtest` | 119 項，**0 失敗**，**0 skip** |
+
+正式套件上的破壞性測試是**帶原因的 skip**，不是失敗：
+
+```
+SKIPPED: this test destroys the database, so it only runs against the
+ISOLATED variant (tw.personal.privateinbox.devtest). The target here is
+tw.personal.privateinbox, and nothing was deleted.
+```
+
+### 新增的測試
+
+| 群組 | 數量 | 內容 |
+|------|------|------|
+| 破壞性操作守衛 | 8 | 守衛必須拒絕正式套件、必須允許隔離套件、拒絕訊息必須說明資料沒被刪 |
+| 去重識別碼審查 | 8 | brief 的 A–E 五個案例 |
+| 擷取計數驗證 | 8 | 每個計數關係；不一致就是失敗 |
+| WAL A/B 基準 | 3 | 兩種模式的對照；三個 writer |
+| 行程死亡實驗 | 3 | 狀態機、遺失視窗、進行中事件 |
+| 跨語言 fixture | 7 | Python 匯出 → Android 驗證 |
+| 突發矩陣 | 10 | TEST-A..TEST-J |
+
+### 驗證腳本
+
+| 腳本 | 結果 |
+|------|------|
+| `scripts/audit.sh` | PASS |
+| `scripts/audit-secrets.sh` | PASS |
+| `scripts/audit-release.sh` | PASS |
+| `scripts/audit-test-isolation.py` | PASS（24 個測試檔）|
+
+### 真機
+
+**NOT TESTED。** 見 `docs/reliability/X200PRO-NON-DESTRUCTIVE-QA.md`。
