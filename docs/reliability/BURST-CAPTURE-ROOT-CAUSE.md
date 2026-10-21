@@ -54,10 +54,26 @@ presented=9500  →  9500 次 CryptoStore.seal()  →  9500 次 insert
 ### 2.3 量測（修正前，TEST-C：10 對話 / 500 則訊息）
 
 ```
-presented=9500  submitted=250  saved=250  unaccounted=250
+presented=9500  submitted=250  saved=250  deduped=0  unaccounted=0
 queue_depth_max=476  overflow=0
 queue_wait_ms  p50=20342  p95=37883  p99=39144  max=39374
 ```
+
+> **更正（v0.4.3）**：本節原本寫著 `unaccounted=250`，而另一份文件寫著
+> `unaccounted=3,821`。**兩個數字都不對**，而且是兩次不同的執行被混在一起。
+>
+> 依正確定義 `unaccounted = accepted − saved − deduped − failed − inFlight`：
+> 當 `accepted=250, saved=250, deduped=0` 時，`unaccounted = 0`。
+>
+> 真正的遺失發生在**更早的執行**：那時用的是以索引為基礎的識別碼，
+> 歷史滑動超過 25 則之後索引位移，導致訊息被重複判定，
+> `saved` 只有 250 而 `deduped` 高達數千。
+> `3,821` 這個數字是拿 `presented` 去減 `saved` 與另一個執行的 `deduped`
+> 得到的 —— **混用了兩個分母**。
+>
+> 現在的計算是機器可驗證的：見
+> `app/src/test/java/tw/personal/privateinbox/CaptureAccountingTest.kt`，
+> 它明確檢查每個關係，不一致就是測試失敗。
 
 | 指標 | 修正前 | 修正後 | 改善 |
 |------|--------|--------|------|

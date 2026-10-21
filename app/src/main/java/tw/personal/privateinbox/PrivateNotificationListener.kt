@@ -73,7 +73,7 @@ class PrivateNotificationListener : NotificationListenerService() {
      * safety net for a source that never dismisses its notifications.
      */
     private val seenDiscriminators =
-        java.util.concurrent.ConcurrentHashMap<String, MutableSet<String>>()
+        java.util.concurrent.ConcurrentHashMap<String, HashMap<String, Int>>()
 
     /**
      * The worker that drains the queue.
@@ -401,21 +401,32 @@ class PrivateNotificationListener : NotificationListenerService() {
         // are new. The set is per notification, and it is bounded, so it
         // cannot grow without limit.
         val notificationMemoryKey = sbn.key ?: "$pkg#${sbn.id}"
-        val seen = seenDiscriminators.getOrPut(notificationMemoryKey) { HashSet() }
+        // The memory counts OCCURRENCES, it does not hold a set.
+        //
+        // A group history can contain two messages with the SAME content. A set
+        // would treat the second one as already seen and drop it, so a genuine
+        // message would be lost. A count per discriminator keeps both.
+        val seen = seenDiscriminators.getOrPut(notificationMemoryKey) { HashMap() }
+        // The rule: a message is new when its occurrence index within the
+        // CURRENT window exceeds the number of times that discriminator was
+        // already written for this notification.
+        val occurrenceInWindow = HashMap<String, Int>()
         val newItems = items.filter { (_, _, discriminator) ->
-            if (seen.contains(discriminator)) {
+            val index = (occurrenceInWindow[discriminator] ?: 0) + 1
+            occurrenceInWindow[discriminator] = index
+            val written = seen[discriminator] ?: 0
+            if (index <= written) {
                 false
             } else {
-                seen.add(discriminator)
+                seen[discriminator] = index
                 true
             }
         }
         // The memory is only useful while the notification is alive. When the
         // notification is dismissed the entry would linger, so it is trimmed
-        // whenever the set grows past its bound.
+        // whenever the map grows past its bound.
         if (seen.size > SEEN_INDICES_LIMIT) {
             seen.clear()
-            seen.addAll(newItems.map { it.third })
         }
         // The messages that are actually written. This is the denominator the
         // database accounting adds up against.
@@ -519,8 +530,34 @@ class PrivateNotificationListener : NotificationListenerService() {
      * two genuinely different messages differ in at least one of them, and the
      * same message keeps both.
      */
+    /**
+     * The per-message discriminator used for the dedup key.
+     *
+     * It must satisfy two properties at once:
+     *
+     *  1. STABLE across revisions of the same notification. A group
+     *     notification is delivered as a growing history, so the same message
+     *     appears in every revision. If the discriminator changed between
+     *     revisions, the same message would be stored again and again.
+     *
+     *  2. DIFFERENT for two distinct messages, even when their text is
+     *     identical.
+     *
+     * The source timestamp satisfies (1) and mostly satisfies (2), but it has
+     * MILLISECOND resolution, so two messages sent in the same millisecond
+     * collide. The index satisfies (2) but NOT (1): the platform caps the
+     * history at 25 messages, so beyond that the oldest is dropped and every
+     * remaining message SHIFTS its index.
+     *
+     * The discriminator is therefore built from the CONTENT -- the sender and
+     * the body -- with the index as a last resort. The content is stable
+     * across revisions, and two messages with identical content are genuinely
+     * ambiguous; the index breaks that tie for as long as the window has not
+     * shifted.
+     */
     private fun discriminatorFor(p: Preview, index: Int): String =
-        if (p.time > 0) "ts:${p.time}" else "c:$index:${p.sender}:${p.body}"
+        if (p.time > 0) "ts:${p.time}:c:${p.sender}:${p.body}"
+        else "c:${p.sender}:${p.body}:i$index"
 
     private fun readPictureBytes(ctx: android.content.Context, extras: Bundle): ByteArray? {
         val raw = if (Build.VERSION.SDK_INT >= 33)

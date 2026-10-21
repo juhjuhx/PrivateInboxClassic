@@ -111,9 +111,26 @@ class InboxDatabase(private val appContext: Context) :
             // message is unchanged and it is not captured a second time.
             val hasSourceTimestamp = sourceTimestamp > 0
             val dedupTs = if (hasSourceTimestamp) sourceTimestamp else 0L
-            val dedupExtra = if (hasSourceTimestamp) "" else messageDiscriminator
+            // The conversation key is part of the key, NOT the display title.
+            //
+            // Two different conversations can share a display name -- that is
+            // exactly why ConversationIdentity exists and why the schema has a
+            // conversation_key column. Using the title in the key meant two
+            // same-named groups in the same app, from the same sender, with the
+            // same text, at the same millisecond, collapsed into one row.
+            val conversationPart = conversationKey.ifEmpty { title }
+            // The discriminator is ALWAYS included.
+            //
+            // It used to be dropped when the source provided a timestamp, on
+            // the reasoning that the timestamp identifies the message. It does
+            // not: the source timestamp is per message but has MILLISECOND
+            // resolution, so two messages sent in the same millisecond
+            // collide. The discriminator distinguishes them, and it is stable
+            // across revisions of the same notification, so including it does
+            // not cause a re-capture.
             val fingerprint = CryptoStore.fingerprint(
-                packageName, dedupTs, title, "$sender\u0000$body", dedupExtra
+                packageName, dedupTs, conversationPart, "$sender\u0000$body",
+                messageDiscriminator
             )
             // NOTE ON THE WRITE AMPLIFICATION
             //

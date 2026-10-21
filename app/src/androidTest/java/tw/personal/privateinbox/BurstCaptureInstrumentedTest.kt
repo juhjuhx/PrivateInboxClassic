@@ -158,11 +158,26 @@ class BurstCaptureInstrumentedTest {
         val overflow = m["queue_overflow"] ?: 0L
         // A submitted message must be either saved or recognised as a
         // duplicate. Anything else was lost inside the pipeline.
-        val unaccounted = submitted - saved - deduped
+        // The unaccounted count uses the SUBMITTED denominator, never the
+        // presented one and never policy_accepted.
+        //
+        // presented: message OCCURRENCES, including the ones that were
+        //   already captured and therefore never submitted.
+        // policy_accepted: CALLBACKS that passed the policy, not messages.
+        //   One callback can present many messages.
+        // submitted: MESSAGES that were sent for writing.
+        //
+        // The unaccounted count must be in MESSAGE units, so it is
+        // submitted - saved - deduped - failed. Mixing a callback count in
+        // here is exactly the mistake an earlier report made.
+        val unaccounted = submitted - saved - deduped - failed
         val line = "BURST $name " +
             "generated=$generated posted=$posted " +
-            "callbacks=${m["callbacks_entered"]} presented=$presented submitted=$submitted " +
-            "accepted=${m["policy_accepted"]} rejected=${m["policy_rejected"]} " +
+            "callbacks=${m["callbacks_entered"]} " +
+            "callbacks_accepted=${m["policy_accepted"]} " +
+            "callbacks_rejected=${m["policy_rejected"]} " +
+            "presented_occurrences=$presented " +
+            "submitted_messages=$submitted " +
             "saved=$saved deduped=$deduped failed=$failed " +
             "unaccounted=$unaccounted " +
             "queue_depth_max=${m["queue_high_watermark"]} overflow=$overflow " +

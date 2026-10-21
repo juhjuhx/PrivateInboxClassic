@@ -48,6 +48,14 @@ object CaptureMetrics {
     val parseFailed = AtomicInteger(0)
 
     /**
+     * How many notifications the source posted.
+     *
+     * This is the test's own count, not the app's: the app cannot know how
+     * many times a source called notify().
+     */
+    val notificationAttempts = AtomicInteger(0)
+
+    /**
      * The messages PRESENTED in the parsed notifications.
      *
      * This counts every message the source showed, including the ones that
@@ -219,6 +227,7 @@ object CaptureMetrics {
         callbacksEntered.set(0); callbacksExited.set(0)
         policyAccepted.set(0); policyRejected.set(0)
         parseSucceeded.set(0); parseFailed.set(0)
+        notificationAttempts.set(0)
         messagesPresented.set(0); messagesSubmitted.set(0)
         queued.set(0); queueOverflow.set(0); dequeued.set(0)
         queueHighWatermark.set(0); queueDepth.set(0)
@@ -239,6 +248,7 @@ object CaptureMetrics {
         "policy_rejected" to policyRejected.get().toLong(),
         "parse_succeeded" to parseSucceeded.get().toLong(),
         "parse_failed" to parseFailed.get().toLong(),
+        "notification_attempts" to notificationAttempts.get().toLong(),
         "messages_presented" to messagesPresented.get().toLong(),
         "messages_submitted" to messagesSubmitted.get().toLong(),
         "queued" to queued.get().toLong(),
