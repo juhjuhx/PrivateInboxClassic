@@ -29,8 +29,7 @@ export JAVA_HOME="${JAVA_HOME:-/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/
 find_dir() {
   local name="$1"
   local env_value="${!1-}"
-  for candidate in "$env_value" "$ROOT/../$name" "$ROOT/../../$name" \
-                   "$HOME/$name"; do
+  for candidate in "$env_value" "$ROOT/../$name" "$ROOT/../../$name" "$HOME/$name"; do
     if [ -n "$candidate" ] && [ -d "$candidate" ]; then
       echo "$candidate"
       return 0

@@ -1,18 +1,13 @@
 #!/usr/bin/env bash
 # Build a Gradle task with the workspace environment resolved locally.
 #
-# The environment (Gradle home, Android SDK, AVD home) lives next to the
-# WORKSPACE, not next to the worktree, so it is resolved here rather than
-# expected from the caller's shell.
+# The environment (Gradle home, Android SDK, AVD home) may live next to the
+# workspace rather than next to the worktree, so _env.sh resolves it here
+# instead of expecting it from the caller's shell.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-export JAVA_HOME="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
-export GRADLE_USER_HOME="$HOME/gradle_home"
-export ANDROID_SDK_ROOT="$HOME/android-sdk"
-export ANDROID_HOME="$ANDROID_SDK_ROOT"
-export ANDROID_USER_HOME="$HOME/.android-home"
-export PATH="$JAVA_HOME/bin:$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/emulator:$PATH"
+source "$(dirname "$0")/_env.sh"
 
 TASK="${1:-:app:assembleDevtestDebug}"
 shift 2>/dev/null || true

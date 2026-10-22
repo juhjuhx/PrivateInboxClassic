@@ -30,3 +30,7 @@ emulator-home/
 
 # The commit-message scratch files are temporary.
 .commit-msg-*.txt
+
+# Python bytecode (embeds absolute __file__ paths)
+__pycache__/
+*.pyc
