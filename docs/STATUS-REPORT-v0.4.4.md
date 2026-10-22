@@ -411,8 +411,14 @@ README **明說**平台限制、沒實測的機型、以及它**不是**什麼�
 
 ## 12. 產物
 
-**本輪的程式碼已改，v0.4.3 的 APK 不代表 v0.4.4。**
-必須重新建置並重算雜湊 —— 那是 `GITHUB-PUSH-HANDOFF.md` 的第一個動作。
+| 檔案 | 大小 | SHA-256 |
+|------|------|---------|
+| `PrivateInboxClassic-v0.4.4-debug.apk` | 5,986,817 B | `6c6def174902a192cf5f65846261c517ff42edff62bde8ee9c72104ddd8c1556` |
+| `PrivateInboxClassic-v0.4.4-release-unsigned.apk` | 5,003,975 B | `58714f224a8508dc4caa25d27bd29e7697d842caa341af81aad95307e2bbe73f` |
+| `PrivateInboxClassic-v0.4.4.aab` | 1,748,736 B | `5a196b520556376e7245ef8a8b65d589814b9e4841a2455b073aa7848705bb2a` |
+
+**版本**：`versionName = 0.4.4`，`versionCode = 10`
+**簽章已驗證**（`apksigner verify --print-certs`）與既有版本相同。
 
 **簽章憑證 SHA-256**（**不可輪替**）：
 

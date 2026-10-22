@@ -98,14 +98,15 @@ Keystore 格式、App Lock、DHC v0.2 的匯出格式。
 
 ## 5. APK_SHA256 / SIGNING_SHA256
 
-> **本輪的產物在下方。** 執行下面的指令取得**本輪建置**的雜湊，
-> 不要直接沿用舊的值。
+### 本輪建置的 v0.4.4 產物
 
-```bash
-shasum -a 256 PrivateInboxClassic-v0.4.4-debug.apk
-shasum -a 256 PrivateInboxClassic-v0.4.4-release-unsigned.apk
-shasum -a 256 PrivateInboxClassic-v0.4.4.aab
-```
+| 檔案 | 大小 | SHA-256 |
+|------|------|---------|
+| `PrivateInboxClassic-v0.4.4-debug.apk` | 5,986,817 B | `6c6def174902a192cf5f65846261c517ff42edff62bde8ee9c72104ddd8c1556` |
+| `PrivateInboxClassic-v0.4.4-release-unsigned.apk` | 5,003,975 B | `58714f224a8508dc4caa25d27bd29e7697d842caa341af81aad95307e2bbe73f` |
+| `PrivateInboxClassic-v0.4.4.aab` | 1,748,736 B | `5a196b520556376e7245ef8a8b65d589814b9e4841a2455b073aa7848705bb2a` |
+
+**版本**：`versionName = 0.4.4`，`versionCode = 10`
 
 **簽章憑證 SHA-256**（**不可輪替**）：
 
@@ -113,11 +114,27 @@ shasum -a 256 PrivateInboxClassic-v0.4.4.aab
 c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4
 ```
 
-這個憑證**必須與使用者手機上既有版本相同**，
-否則 `adb install -r` 會失敗。
+**已驗證**（`apksigner verify --print-certs`）：
 
-**Release 產物仍未簽署** → 狀態是 `BLOCKED_SIGNING`。
+```
+Signer #1 certificate SHA-256 digest: c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4
+```
+
+這個憑證**與使用者手機上既有版本相同**，
+所以 `adb install -r` 會直接覆蓋更新，**保留資料**。
+
+**AAB 未簽署**（沒有 `META-INF/` 簽章目錄）→ 狀態是 `BLOCKED_SIGNING`。
 **不要**為了讓它「看起來完成」而用 debug keystore 簽署。
+
+### 若要重新建置
+
+```bash
+./scripts/g.sh :app:assembleProdDebug :app:assembleProdRelease :app:bundleProdRelease
+shasum -a 256 <產物>
+```
+
+**重新建置後雜湊會不同**（Gradle 的建置不是位元級可重現的）。
+那不是問題，但**報告裡的雜湊必須是實際交付的那一份**。
 
 ---
 

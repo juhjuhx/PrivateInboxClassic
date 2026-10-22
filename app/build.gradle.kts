@@ -81,8 +81,8 @@ android {
         // The version code is monotonic: 8 was v0.4.2, so this is 9. The
         // version is asserted by scripts/audit-release.sh, which also checks
         // that the release bundle is not signed with the debug key.
-        versionCode = 9
-        versionName = "0.4.3"
+        versionCode = 10
+        versionName = "0.4.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
