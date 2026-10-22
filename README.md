@@ -23,8 +23,8 @@ delivers, and it has no network access at all.
 - **Encrypts everything at rest** with AES-256-GCM, key in the Android Keystore
 - **Groups by conversation**, using the platform's own conversation identity
   rather than the display name
-- **Searches locally** by platform, conversation, date range, message type and
-  your own tags
+- **Searches locally** by text (conversation title, sender, message body),
+  source app and date range
 - **Exports** an encrypted, versioned bundle for the offline DHC connector
 - **Explains itself**: a diagnostics export with stage codes and timings, and
   never any message content
@@ -51,6 +51,8 @@ delivers, and it has no network access at all.
 | Instagram | Supported |
 | Messenger | Supported |
 | Threads | Supported |
+| Telegram X | Supported |
+| Teams | Supported |
 | KakaoTalk | Supported |
 | Others | Add one entry in `SourceRegistry.kt`. Nothing else changes. |
 
@@ -117,7 +119,7 @@ so that nobody reports them as defects.
 
 | Environment | Status |
 |-------------|--------|
-| Android 16 (API 36), AOSP emulator | **Tested** — 122 instrumentation tests, 84 unit tests |
+| Android 16 (API 36), AOSP emulator | **Tested** — 126 instrumentation tests, 84 unit tests |
 | Android 9 to 15 | **NOT TESTED** — no device available |
 | vivo OriginOS, Xiaomi HyperOS, OPPO ColorOS, realme UI, HONOR MagicOS, Huawei EMUI | **NOT TESTED** — no device available |
 | Samsung One UI, Motorola | **NOT TESTED** — no device available |
@@ -153,7 +155,7 @@ Details: [`SECURITY.md`](SECURITY.md) and
 Download a debug APK and install it, or build it yourself (below).
 
 ```bash
-adb install -r PrivateInboxClassic-v0.4.3-debug.apk
+adb install -r PrivateInboxClassic-v0.4.4-debug.apk
 ```
 
 `install -r` **keeps your data**. Do not uninstall: that deletes it.
@@ -281,11 +283,11 @@ See [`docs/DATABASE.md`](docs/DATABASE.md) and
 
 | Suite | Count | Command |
 |-------|-------|---------|
-| Instrumentation (isolated variant) | 122 | `./scripts/g.sh :app:connectedDevtestDebugAndroidTest` |
-| Instrumentation (production variant) | 122, destructive ones skip | `./scripts/g.sh :app:connectedProdDebugAndroidTest` |
+| Instrumentation (isolated variant) | 126 | `./scripts/g.sh :app:connectedDevtestDebugAndroidTest` |
+| Instrumentation (production variant) | 126, destructive ones skip | `./scripts/g.sh :app:connectedProdDebugAndroidTest` |
 | Unit | 84 | `./scripts/g.sh :app:testProdDebugUnitTest` |
 | DHC connector (Python) | 23 | `python3 integrations/dhc/tests/test_connector.py` |
-| Cross-language fixtures | 7 | `python3 integrations/dhc/tests/test_fixtures.py` |
+| Cross-language fixtures | 7 | `DhcPythonFixtureInstrumentedTest` (instrumentation; runs with the suite above) |
 
 The instrumentation tests need an **unlocked** emulator or device: the
 Keystore is CE-backed and fails on a locked device.
@@ -297,11 +299,14 @@ See [`docs/TESTING.md`](docs/TESTING.md) and
 
 ## The DHC connector
 
-Private Inbox can export an **encrypted, versioned bundle** for the
-[DHC](https://github.com/juhjuhx/PrivateInboxDHC) connector, which imports it
-into a local knowledge base. The two projects exchange a **data contract**, not
-source code, and the contract is versioned: an unknown schema version is
-**rejected, never guessed**.
+Private Inbox can export an **encrypted, versioned bundle**. This repository
+ships a local Python import adapter in [`integrations/dhc/`](integrations/dhc/)
+that decrypts the bundle and imports it into a local data store. The broader
+DHC workstation ([`hades60414-sys/dhc-cli`](https://github.com/hades60414-sys/dhc-cli),
+AGPL-3.0) is **not integrated yet** — it is a separate project, and no DHC source
+code is copied into this MIT repository. The two sides exchange a **data
+contract**, not source code, and the contract is versioned: an unknown schema
+version is **rejected, never guessed**.
 
 The export never hands a message to a network service. It produces a file the
 user chooses where to put.

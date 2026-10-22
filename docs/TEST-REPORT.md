@@ -1,5 +1,11 @@
 # 測試報告（TEST-REPORT）
 
+> **歷史文件。** 本文記錄的是 **v0.4.0-alpha** 那一輪的測試結果。
+> 目前版本（**v0.4.4**）的新鮮結果在
+> [`STATUS-REPORT-v0.4.4.md`](STATUS-REPORT-v0.4.4.md) §11 與
+> [`GITHUB-PUSH-HANDOFF.md`](GITHUB-PUSH-HANDOFF.md) §4。
+> 不要把本文的 66/119 等數字當成 v0.4.4 的結果。
+
 **版本**：0.4.0-alpha (versionCode 6)
 **測試日期**：本次交付
 **環境**：macOS 15.8.1 (aarch64)｜JDK 17.0.20.1 (Homebrew)｜Gradle 8.13（wrapper）｜
@@ -376,7 +382,7 @@ tw.personal.privateinbox, and nothing was deleted.
 | `scripts/audit.sh` | PASS |
 | `scripts/audit-secrets.sh` | PASS |
 | `scripts/audit-release.sh` | PASS |
-| `scripts/audit-test-isolation.py` | PASS（24 個測試檔）|
+| `scripts/audit-test-isolation.py` | PASS（27 個測試檔）|
 
 ### 真機
 

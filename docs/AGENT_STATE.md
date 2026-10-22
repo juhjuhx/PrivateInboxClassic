@@ -14,14 +14,14 @@
 | CURRENT_TASK | 交由 Codex / Hermes 執行 GitHub 推送 |
 | LAST_SUCCESS | 見「驗證狀態」一節 |
 | LAST_FAILURE | 無（本輪所有失敗皆已修正並重跑通過）|
-| GIT_HEAD | `git rev-parse HEAD`（本輪的提交都在本地，**未推送**）|
+| GIT_HEAD | `87df4ec`（v0.4.4 程式碼）；文件修正另成一個 commit |
 | WORKTREE | `<workspace>/PrivateInboxClassic-v0.2/PrivateInboxClassic-v0.4-wt` |
-| DISK_FREE | 約 14 GiB |
+| DISK_FREE | 約 11 GiB（建置後）|
 | QUEUE_TEST_STATUS | PASS（10 個突發案例，unaccounted 全為 0）|
 | BUILD_STATUS | BUILD SUCCESSFUL |
 | TEST_STATUS | 見「驗證狀態」一節 |
-| APK_STATUS | **待重建**（v0.4.4 的程式碼已改，必須重新建置並重算 SHA-256）|
-| GITHUB_STATUS | **PRIVATE，未推送**（見 `docs/GITHUB-PUSH-HANDOFF.md`）|
+| APK_STATUS | 已重建（prod debug / prod release-unsigned / prodRelease AAB，SHA-256 見 `docs/GITHUB-PUSH-HANDOFF.md` §5）|
+| GITHUB_STATUS | **PRIVATE**；推送由本輪 Reviewer 依 `docs/GITHUB-PUSH-HANDOFF.md` 執行 |
 | DEVICE_STATUS | **REAL_DEVICE=NOT_TESTED**（沒有連接 X200 Pro）|
 | NEXT_ACTION | 由 Codex / Hermes 依 `docs/GITHUB-PUSH-HANDOFF.md` 推送並跑 CI |
 | BLOCKERS | 正式 release 金鑰未由擁有者建立；真機未連接；GPL 來源需人工逐行比對 |
@@ -41,7 +41,7 @@
 | `scripts/audit.sh` | PASS |
 | `scripts/audit-secrets.sh` | PASS |
 | `scripts/audit-release.sh` | PASS |
-| `scripts/audit-test-isolation.py` | PASS（24 個測試檔）|
+| `scripts/audit-test-isolation.py` | PASS（27 個測試檔）|
 | DHC 連接器（Python）| 23/23 PASS |
 | 跨語言 fixture | 7/7 PASS |
 
@@ -81,7 +81,7 @@
 
 | 缺陷 | 後果 |
 |------|------|
-| 準備好的批次是 per-instance 的 | 其他實例（補抓路徑、測試）準備的資料**永遠不會被寫入**，訊息就這樣消失 |
+| 準備與寫入分屬不同實例 | 其他實例（補抓路徑、測試）準備的資料**永遠不會被寫入**，訊息就這樣消失；最終改為每個實例各自持有批次與 worker |
 | 診斷 flush 持有 monitor 跨越寫入 | worker 的每次 `note()` 都阻塞，提交延遲到 **40 秒** |
 | 每個事件都提交一個 flush 任務 | 發佈一百則通知從 130 ms 變成 **116 秒** |
 | `normalize()` 每次呼叫編譯新的 Regex | 每則通知最多 50 個 Regex，編譯在主執行緒 |

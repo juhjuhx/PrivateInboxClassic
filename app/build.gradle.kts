@@ -76,11 +76,11 @@ android {
         applicationId = "tw.personal.privateinbox"
         minSdk = 28
         targetSdk = 36
-        // v0.4.3: reliability hardening.
+        // v0.4.4: performance and portability.
         //
-        // The version code is monotonic: 8 was v0.4.2, so this is 9. The
-        // version is asserted by scripts/audit-release.sh, which also checks
-        // that the release bundle is not signed with the debug key.
+        // The version code is monotonic: 8 was v0.4.2, 9 was v0.4.3, so this
+        // is 10. The version is asserted by scripts/audit-release.sh, which
+        // also checks that the release bundle is not signed with the debug key.
         versionCode = 10
         versionName = "0.4.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

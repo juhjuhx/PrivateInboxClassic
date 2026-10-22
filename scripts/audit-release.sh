@@ -23,8 +23,11 @@ SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/opt/homebrew/share/android-commandline
 BT="$SDK/build-tools/36.0.0"
 AAPT="$BT/aapt"
 APKSIGNER="$BT/apksigner"
-APKDEBUG="app/build/outputs/apk/debug/app-debug.apk"
-APKRELEASE="app/build/outputs/apk/release/app-release-unsigned.apk"
+# The build uses the `prod` flavor, so the flavored output paths are the ones
+# that actually exist. The unflavored paths are stale leftovers from before the
+# flavor split and would audit an old artifact (or none at all).
+APKDEBUG="app/build/outputs/apk/prod/debug/app-prod-debug.apk"
+APKRELEASE="app/build/outputs/apk/prod/release/app-prod-release-unsigned.apk"
 
 fail=0
 ok()   { printf '  OK   %s\n' "$*"; }
@@ -211,9 +214,9 @@ echo "=== 7. Release bundle: identity, version and signing ==="
 # shipped an AAB that was (a) still carrying the v0.4.0 version inside and
 # (b) signed with the DEBUG certificate, under a v0.4.1 file name. Neither is
 # visible from the file name, so both are checked here.
-AAB="app/build/outputs/bundle/release/app-release.aab"
-EXPECTED_VERSION_NAME="0.4.2"
-EXPECTED_VERSION_CODE="8"
+AAB="app/build/outputs/bundle/prodRelease/app-prod-release.aab"
+EXPECTED_VERSION_NAME="0.4.4"
+EXPECTED_VERSION_CODE="10"
 if [ -f "$AAB" ]; then
   tmp="$(mktemp -d)"
   unzip -o -q "$AAB" -d "$tmp" 2>/dev/null

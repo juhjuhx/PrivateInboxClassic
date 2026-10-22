@@ -102,14 +102,19 @@ class PrivateNotificationListener : NotificationListenerService() {
     )
 
     /**
-     * The batches that are prepared but not yet written, shared by every
-     * instance of the listener.
+     * The batches that are prepared but not yet written, owned by THIS
+     * listener instance.
      *
-     * It has to be SHARED. The system constructs the service, but the
-     * catch-up path and the tests construct other instances and call
-     * capture() on them. The worker that writes the batches belongs to the
-     * service instance, so per-instance storage would leave the other
-     * instance's rows unwritten -- they would simply never appear.
+     * Each instance owns its queue, its prepared list and its worker, so an
+     * instance that the system did not construct (the catch-up path and the
+     * tests construct their own) still has a worker that drains what that same
+     * instance prepared. Nothing crosses instances, so no lock is needed
+     * between them; the lock below only orders the queue task that appends
+     * against the worker that drains.
+     *
+     * The batch carries the context it was prepared with. A system-created
+     * service instance always has an applicationContext, but an instance built
+     * by a caller may not, and the write must not depend on it.
      */
     private val PREPARED = ArrayList<PreparedBatch>()
 

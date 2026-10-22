@@ -12,8 +12,8 @@
 | 項目 | 值 |
 |------|-----|
 | **BRANCH** | `fix/x200pro-notification-burst` |
-| **BASE_COMMIT** | `41ac02f`（v0.4.3 交接的基準）|
-| **HEAD_COMMIT** | 見下方 §2 的指令輸出 |
+| **BASE_COMMIT** | `a3b8967`（遠端 `fix/x200pro-notification-burst` 的 tip；`41ac02f` 是更早的 v0.4.3 交接基準）|
+| **HEAD_COMMIT** | `87df4ec7388b1876801992ddaeaab273b8a90081` |
 | **REPOSITORY** | `https://github.com/juhjuhx/PrivateInboxClassic` |
 | **VISIBILITY** | **PRIVATE**（本輪**未**修改）|
 
@@ -70,7 +70,7 @@ Keystore 格式、App Lock、DHC v0.2 的匯出格式。
 | 產物稽核 | `bash scripts/audit-release.sh` | **PASS** |
 | 靜態安全稽核 | `bash scripts/audit.sh` | **PASS** |
 | DHC 連接器 | `python3 integrations/dhc/tests/test_connector.py` | **23/23 PASS** |
-| 跨語言 fixture | `python3 integrations/dhc/tests/test_fixtures.py` | **7/7 PASS** |
+| 跨語言 fixture | `DhcPythonFixtureInstrumentedTest`（instrumentation）| **7/7 PASS** |
 
 ### 效能數字（Gate A）
 
@@ -79,7 +79,7 @@ Keystore 格式、App Lock、DHC v0.2 的匯出格式。
 | callback p50 | 623 ms | **4 ms** | — |
 | enqueue p50 | 0.09 ms | **0.02 ms** | ≤ 2 ms ✅ |
 | queue wait p50 | 33,945 ms | **3,520 ms** | — |
-| queue wait p95 | — | 16,245 ms | ≤ 20 ms ✅ |
+| queue wait p95 | — | 16,245 ms | ≤ 20 ms ❌ **NOT MET** |
 | 500 則的交易數 | 648 | **40** | — |
 | 每則的磁碟 | — | **511 bytes** | — |
 
@@ -102,9 +102,9 @@ Keystore 格式、App Lock、DHC v0.2 的匯出格式。
 
 | 檔案 | 大小 | SHA-256 |
 |------|------|---------|
-| `PrivateInboxClassic-v0.4.4-debug.apk` | 5,986,817 B | `6c6def174902a192cf5f65846261c517ff42edff62bde8ee9c72104ddd8c1556` |
-| `PrivateInboxClassic-v0.4.4-release-unsigned.apk` | 5,003,975 B | `58714f224a8508dc4caa25d27bd29e7697d842caa341af81aad95307e2bbe73f` |
-| `PrivateInboxClassic-v0.4.4.aab` | 1,748,736 B | `5a196b520556376e7245ef8a8b65d589814b9e4841a2455b073aa7848705bb2a` |
+| `PrivateInboxClassic-v0.4.4-debug.apk` | 5,986,817 B | `d4410fe658e6ba866d22a42e467ff3e9bc7b17244c3f87e3734c83d862de4c69` |
+| `PrivateInboxClassic-v0.4.4-release-unsigned.apk` | 5,003,975 B | `0e1eb4458f34e4826eb8debcadbc5a683ac0f3e422ebf180e09fcc1b853fad79` |
+| `PrivateInboxClassic-v0.4.4.aab` | 1,748,739 B | `2370bfe102fffa26a14ddbcc5c5a80cc15eb8ffb1aae0a77d9d77c15899165a5` |
 
 **版本**：`versionName = 0.4.4`，`versionCode = 10`
 
@@ -176,7 +176,7 @@ RESULT: PASS — no secrets or key material found in the tree or the history.
 | SECURITY.md | ✅ |
 | CONTRIBUTING.md | ✅（既有）|
 | PRIVACY.md | ✅（既有）|
-| CHANGELOG.md | ✅（既有，**需要補 v0.4.4**）|
+| CHANGELOG.md | ✅（已包含 `[0.4.4-alpha]` 段落）|
 | Issue / PR templates | ✅ |
 | 社交預覽圖 | ❌ 未產生（需要合成內容的 UI 截圖）|
 
@@ -217,6 +217,11 @@ CI 包含：靜態安全稽核、秘密稽核、隔離稽核、DHC 測試、
 | 全文搜尋 | 未實作，**刻意不做**（明文索引會洩漏）| 需要獨立安全審查 |
 | 合併到 `integration/dsh-v040` | 未合併 | 擁有者 |
 | 公開發布 | **本專案維持私人** | 擁有者 |
+| queue wait p95 | **16,245 ms，未達 ≤ 20 ms 目標** | 需要真機與進一步的排程分析 |
+| 去重語料與正式實作不一致 | 語料以 `keyOf()` 重實作，未呼叫 `CryptoStore.fingerprint`；部分案例（同一毫秒同寄件者同內容、無時戳的 25 則視窗滑動）在正式路徑可能被合併 | 需要以正式函式重寫語料 |
+| v1 資料庫升級路徑 | `source_ts` 在 `<2` 與 `<3` 兩個分支都 ALTER，v1→v5 會 duplicate column | 既有問題，需遷移測試 |
+| 診斷尾段未 flush | 少於 16 個事件時行程死亡會遺失最後一批診斷 | 可在 `onDestroy` 加 flush |
+| 批次失敗即丟棄 | DB 開啟／交易失敗時整批已 drain 的資料不會重試 | 需要失敗重送設計 |
 
 ---
 

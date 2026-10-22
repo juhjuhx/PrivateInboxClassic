@@ -20,7 +20,7 @@
 
 | 編號 | 項目 | 狀態 | 證據 |
 |------|------|------|------|
-| GIT_HEAD | 本地提交 | ✅ | `a397121`（見 §9）|
+| GIT_HEAD | 本地提交 | ✅ | `87df4ec`（見 §9）|
 | BASELINE | v0.4.3 的基準 | ✅ | `a3b8967` |
 | WORKTREE | 整合工作樹 | ✅ | `PrivateInboxClassic-v0.4-wt` |
 | SOURCE_DIFF | 原始碼差異 | ✅ | §3 |
@@ -79,8 +79,11 @@
 所以那些資料**永遠不會被寫入**，訊息就這樣消失了。
 
 三個測試以「資料必須被儲存」失敗。
-**批次改成共享，並且各自帶著準備時的 context**
+**最終設計是每個 listener 實例各自持有自己的批次與 worker**，
+批次由**同一個實例**的 worker 寫入，並且各自帶著準備時的 context
 （系統沒有建立的實例，其 `applicationContext` 是 null）。
+中間曾嘗試把批次做成跨實例共享，但那會讓沒有被系統建立的實例失去 context；
+程式碼的註解已改為描述實際的 per-instance 設計。
 
 ---
 
@@ -147,14 +150,18 @@ visible_latency  = T6 - T0
 |------|--------|--------|------|------|
 | Enqueue p50 | 0.09 ms | **0.02 ms** | ≤ 2 ms | ✅ MET |
 | Callback p95 | 623 ms (p50) | **106 ms (p95) / 4 ms (p50)** | ≤ 5 ms | ⚠️ **p95 NOT MET** |
-| Queue wait p95 | — | **16,245 ms** | ≤ 20 ms | ✅ MET |
+| Queue wait p95 | — | **16,245 ms** | ≤ 20 ms | ❌ **NOT MET**（超出目標約 812×）|
 | Queue wait p50 | 33,945 ms | **3,520 ms** | — | 9.6× 改善 |
 | 500 則的交易數 | 648 | **40** | — | 16× 改善 |
 | Commit p50 | 24,268 ms | **1,697 ms** | — | 14× 改善 |
 
-### 4.3 沒有達標的那一項，誠實說明
+### 4.3 沒有達標的兩項，誠實說明
 
 **Callback p95 = 106 ms，目標是 ≤ 5 ms。沒有達標。**
+
+**Queue wait p95 = 16,245 ms，目標是 ≤ 20 ms。沒有達標。**
+p50 雖然從 33,945 ms 降到 3,520 ms（9.6×），但 p95 仍遠高於 20 ms 的目標。
+目標**沒有**被調整以讓這一項看起來通過。
 
 原因與瓶頸：
 
@@ -314,20 +321,23 @@ App 也沒有任何 Play 相依。
 | 項目 | 值 |
 |------|-----|
 | 分支 | `fix/x200pro-notification-burst` |
-| 基準 | `41ac02f` |
-| HEAD | `a397121` |
-| 本輪提交數 | 7 |
+| v0.4.3 交接基準 | `41ac02f` |
+| 遠端分支基準（推送前）| `a3b8967` |
+| HEAD | `87df4ec` |
+| 本輪提交數 | 8 |
 | 工作樹 | **乾淨** |
-| 遠端 | **未推送**（brief 禁止）|
+| 遠端 | 推送前未推送（本報告撰寫時）|
 
 ```
+87df4ec chore: version 0.4.4 (code 10) and the verified artifact hashes
+6d39e97 test: the latency benchmark takes a baseline instead of resetting shared metrics
+3342d35 docs: the v0.4.4 unified status report
 a397121 test: bound the read benchmark by a time budget instead of letting it time out
 19e07bf docs: the public open-source preparation
 191d480 feat: the schema v5 indexes, the storage benchmark, and the 32-case dedup corpus
-0a0adb7 perf: the notification callback no longer does disk I/O, and the writer batches
 e421043 chore: keep the commit-message scratch file out of the tree
-0a0adb7^  (the performance commit)
-5ed2ee9 (the v0.4.3 baseline)
+0a0adb7 perf: the notification callback no longer does disk I/O, and the writer batches
+a3b8967 (origin/fix/x200pro-notification-burst, the v0.4.3 tip)
 ```
 
 ---
@@ -402,7 +412,7 @@ README **明說**平台限制、沒實測的機型、以及它**不是**什麼�
 | `scripts/audit.sh` | PASS |
 | `scripts/audit-secrets.sh` | PASS |
 | `scripts/audit-release.sh` | PASS |
-| `scripts/audit-test-isolation.py` | PASS（24 個測試檔）|
+| `scripts/audit-test-isolation.py` | PASS（27 個測試檔）|
 | DHC 連接器（Python）| 23/23 PASS |
 | 跨語言 fixture | 7/7 PASS |
 | 突發矩陣 | 10 個案例，`unaccounted` 全為 0 |
@@ -413,9 +423,9 @@ README **明說**平台限制、沒實測的機型、以及它**不是**什麼�
 
 | 檔案 | 大小 | SHA-256 |
 |------|------|---------|
-| `PrivateInboxClassic-v0.4.4-debug.apk` | 5,986,817 B | `6c6def174902a192cf5f65846261c517ff42edff62bde8ee9c72104ddd8c1556` |
-| `PrivateInboxClassic-v0.4.4-release-unsigned.apk` | 5,003,975 B | `58714f224a8508dc4caa25d27bd29e7697d842caa341af81aad95307e2bbe73f` |
-| `PrivateInboxClassic-v0.4.4.aab` | 1,748,736 B | `5a196b520556376e7245ef8a8b65d589814b9e4841a2455b073aa7848705bb2a` |
+| `PrivateInboxClassic-v0.4.4-debug.apk` | 5,986,817 B | `d4410fe658e6ba866d22a42e467ff3e9bc7b17244c3f87e3734c83d862de4c69` |
+| `PrivateInboxClassic-v0.4.4-release-unsigned.apk` | 5,003,975 B | `0e1eb4458f34e4826eb8debcadbc5a683ac0f3e422ebf180e09fcc1b853fad79` |
+| `PrivateInboxClassic-v0.4.4.aab` | 1,748,739 B | `2370bfe102fffa26a14ddbcc5c5a80cc15eb8ffb1aae0a77d9d77c15899165a5` |
 
 **版本**：`versionName = 0.4.4`，`versionCode = 10`
 **簽章已驗證**（`apksigner verify --print-certs`）與既有版本相同。

@@ -105,13 +105,16 @@ export JAVA_HOME=/path/to/jdk-17
 export ANDROID_SDK_ROOT=/path/to/android-sdk
 export ANDROID_HOME="$ANDROID_SDK_ROOT"
 
-./gradlew :app:assembleDebug               # Debug APK
-./gradlew :app:testDebugUnitTest           # 單元測試
-./gradlew :app:lintDebug                   # Android Lint
-./gradlew :app:connectedDebugAndroidTest   # 儀器測試（需模擬器或實機）
+./gradlew :app:assembleProdDebug               # Debug APK
+./gradlew :app:testProdDebugUnitTest           # 單元測試
+./gradlew :app:lintProdDebug                   # Android Lint
+./gradlew :app:connectedDevtestDebugAndroidTest # 儀器測試（隔離變體）
 ```
 
-產出：`app/build/outputs/apk/debug/app-debug.apk`
+產出：`app/build/outputs/apk/prod/debug/app-prod-debug.apk`
+
+**絕不在 `prod` 變體上執行破壞性測試。** 破壞性測試只在隔離的 `devtest`
+變體執行，`scripts/audit-test-isolation.py` 會擋下違規的測試。
 
 簽章設定見 [docs/SIGNING.md](docs/SIGNING.md)。
 建置教學見 [docs/BUILDING.md](docs/BUILDING.md)。
@@ -194,7 +197,7 @@ app/src/main/java/tw/personal/privateinbox/
 ├── SelfTestNotifier.kt             透過真實系統通知的自我測試
 ├── CryptoStore.kt                  Keystore AES-256-GCM + HMAC
 ├── ImageCapture.kt                 影像驗證 / 降級 / 壓縮
-├── InboxDatabase.kt                SQLite schema v4 + 遷移
+├── InboxDatabase.kt                SQLite schema v5 + 遷移
 ├── LocalSettings.kt                設定、保留期限、已讀標記
 └── PhotoZoomView.kt               純框架縮放照片檢視器
 ```
@@ -207,6 +210,7 @@ app/src/main/java/tw/personal/privateinbox/
 
 | 版本 | 說明 |
 |------|------|
+| 0.4.4 | 效能與可攜性：回呼不再做磁碟 I/O、批次寫入、schema v5、去重黃金集、相容性層 |
 | 0.4.0-alpha | 平台分類、Threads、診斷強化、可重現簽章 |
 | 0.3.1 | 通知診斷、自我測試、SaveResult |
 | 0.3.0 | 建置復原、Gradle Wrapper、真實 APK、instrumentation 測試 |
@@ -215,13 +219,13 @@ app/src/main/java/tw/personal/privateinbox/
 
 ---
 
-## 交付產物（v0.4.2）
+## 交付產物（v0.4.4）
 
 | 檔案 | 大小 | SHA-256 | 狀態 |
 |------|------|---------|------|
-| `PrivateInboxClassic-v0.4.2-debug.apk` | 5,948,649 B | `dca038856f83761f080cf8ec64e43fa73e43925e846911c1eedee3bc5e6f8567` | Debug 測試版，簽章與既有安裝相容 |
-| `PrivateInboxClassic-v0.4.2-release-unsigned.apk` | 4,975,111 B | `d63707f15e10b8e893d7149e78433e6878e9816a7be8d03eb319ec34cae5a0c5` | **未簽署**，需正式金鑰 |
-| `PrivateInboxClassic-v0.4.2.aab` | 1,736,305 B | `7dd33706f00f797397491ad9e28bf6afbdb3d2788713ff0d6f14429300bea7a4` | **未簽署**（已修正：舊版會誤用 debug 金鑰）|
+| `PrivateInboxClassic-v0.4.4-debug.apk` | 5,986,817 B | `d4410fe658e6ba866d22a42e467ff3e9bc7b17244c3f87e3734c83d862de4c69` | Debug 測試版，簽章與既有安裝相容 |
+| `PrivateInboxClassic-v0.4.4-release-unsigned.apk` | 5,003,975 B | `0e1eb4458f34e4826eb8debcadbc5a683ac0f3e422ebf180e09fcc1b853fad79` | **未簽署**，需正式金鑰 |
+| `PrivateInboxClassic-v0.4.4.aab` | 1,748,739 B | `2370bfe102fffa26a14ddbcc5c5a80cc15eb8ffb1aae0a77d9d77c15899165a5` | **未簽署**，需正式金鑰 |
 
 Debug APK 的簽章憑證 SHA-256：
 `c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4`
