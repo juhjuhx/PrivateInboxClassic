@@ -39,9 +39,7 @@ class LatencyBenchmarkInstrumentedTest {
     @Before
     fun setUp() {
         DestructiveTestAssumption.requireIsolated(ctx)
-        val db = InboxDatabase(ctx)
-        db.clear()
-        db.close()
+        TestDataIsolation.clearDatabase(ctx)
         notifier.ensureChannel()
         // The listener has to be bound before anything is measured, or the
         // benchmark measures a pipeline that never ran.
@@ -49,9 +47,15 @@ class LatencyBenchmarkInstrumentedTest {
             "the notification listener must be bound before the latency is measured",
             BenchmarkSetup.prepare()
         )
-        // The metrics live in the APP's process, so they are reset through the
-        // provider rather than in this process.
-        BenchmarkSetup.resetMetrics()
+        // The metrics are NOT reset here.
+        //
+        // They live in the APP's process, and every instrumentation test runs
+        // against that same process, so a reset would wipe the samples of a
+        // test that is measuring at the same time. The burst matrix hit this
+        // exact problem and now takes a baseline instead.
+        //
+        // The latency test does the same: it reads the counters BEFORE its
+        // measurement and reports the DIFFERENCE.
     }
 
     @After
@@ -66,23 +70,50 @@ class LatencyBenchmarkInstrumentedTest {
      * in a separate one, so reading the metrics directly from the test would
      * always return zero. The debug provider is the bridge.
      */
+    /**
+     * The counters before this test's measurement window.
+     *
+     * The metrics are cumulative and shared, so the report is a DIFFERENCE.
+     */
+    private var baseline: Map<String, Long> = emptyMap()
+
+    private fun snapshotCounters(): Map<String, Long> {
+        val res = ctx.contentResolver.call(
+            DebugSettingsProvider.contentUriFor(ctx), "latency", null, null
+        )
+        if (res == null) return emptyMap()
+        val out = HashMap<String, Long>()
+        for (stage in listOf("snapshot", "enqueue", "worker_start", "committed")) {
+            out["${stage}_n"] = res.getLong("${stage}_n")
+            out["${stage}_p50"] = res.getLong("${stage}_p50")
+            out["${stage}_p95"] = res.getLong("${stage}_p95")
+            out["${stage}_p99"] = res.getLong("${stage}_p99")
+        }
+        return out
+    }
+
     private fun latencyReport(): Pair<String, String> {
         val res = ctx.contentResolver.call(
             DebugSettingsProvider.contentUriFor(ctx), "latency", null, null
         )
-        return (res?.getString("report") ?: "<no report>") to
+        val now = snapshotCounters()
+        val lines = StringBuilder()
+        for (stage in listOf("snapshot", "enqueue", "worker_start", "committed")) {
+            val n = (now["${stage}_n"] ?: 0L) - (baseline["${stage}_n"] ?: 0L)
+            lines.append(stage).append(" n=").append(n).append("  ")
+        }
+        return lines.toString() to
             (res?.getString("targets") ?: "<no targets>")
     }
 
     private fun stageCount(stage: String): Long {
-        val res = ctx.contentResolver.call(
-            DebugSettingsProvider.contentUriFor(ctx), "latency", null, null
-        )
-        return res?.getLong("${stage}_n") ?: 0L
+        val now = snapshotCounters()
+        return (now["${stage}_n"] ?: 0L) - (baseline["${stage}_n"] ?: 0L)
     }
 
     @Test
     fun theLatencyOfASingleNotification() {
+        baseline = snapshotCounters()
         val id = BurstNotifier.NOTIFICATION_ID_BASE + 1000
         notifier.postGroupUpdate(notificationId = id, messageCount = 1, firstIndex = 0)
         Thread.sleep(1_500)
@@ -97,6 +128,7 @@ class LatencyBenchmarkInstrumentedTest {
 
     @Test
     fun theLatencyUnderABurst() {
+        baseline = snapshotCounters()
         val groups = 5
         val perGroup = 20
         val idBase = BurstNotifier.NOTIFICATION_ID_BASE + 2000
@@ -135,12 +167,11 @@ class LatencyBenchmarkInstrumentedTest {
         // it calls does a SharedPreferences read-modify-write per event, so if
         // the callback time scales with the number of diagnostics written, the
         // callback is doing disk I/O.
-        val db = InboxDatabase(ctx)
-        db.clear()
-        db.close()
+        TestDataIsolation.clearDatabase(ctx)
 
         // A notification with a LONG history: the parser has to walk it, and
         // the diagnostics writer has to record several events for it.
+        baseline = snapshotCounters()
         val id = BurstNotifier.NOTIFICATION_ID_BASE + 3000
         notifier.postGroupUpdate(notificationId = id, messageCount = 25, firstIndex = 0)
         Thread.sleep(2_000)
