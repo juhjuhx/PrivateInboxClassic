@@ -1,4 +1,4 @@
-# AGENT_STATE — Private Inbox Classic v0.4.3
+# AGENT_STATE — Private Inbox Classic v0.4.4
 
 > 這份檔案是給**下一個**接手的工作者（人或 AI agent）看的。
 > 它記錄的是「現在在哪、接下來做什麼」，不是成就報告。
@@ -9,22 +9,41 @@
 |------|-----|
 | PROJECT | Private Inbox Classic (`tw.personal.privateinbox`) |
 | CURRENT_BRANCH | `fix/x200pro-notification-burst` |
-| BASELINE | `41ac02f`（v0.4.2 狀態報告） |
-| CURRENT_PHASE | v0.4.3 Reliability Hardening — 完成 |
-| CURRENT_TASK | 推送私人倉庫並等待 CI |
-| LAST_SUCCESS | 119 項 instrumentation（隔離變體）0 失敗 0 skip；119 項（正式變體）0 失敗 66 skip；66 項 unit；Lint 0 error；四個稽核腳本 PASS |
+| BASELINE | `41ac02f`（v0.4.3 狀態報告）|
+| CURRENT_PHASE | v0.4.4 Performance & Portability — 完成 |
+| CURRENT_TASK | 交由 Codex / Hermes 執行 GitHub 推送 |
+| LAST_SUCCESS | 見「驗證狀態」一節 |
 | LAST_FAILURE | 無（本輪所有失敗皆已修正並重跑通過）|
-| GIT_HEAD | 見 `git rev-parse HEAD` |
+| GIT_HEAD | `git rev-parse HEAD`（本輪的提交都在本地，**未推送**）|
 | WORKTREE | `<workspace>/PrivateInboxClassic-v0.2/PrivateInboxClassic-v0.4-wt` |
-| DISK_FREE | 約 20 GiB |
+| DISK_FREE | 約 14 GiB |
 | QUEUE_TEST_STATUS | PASS（10 個突發案例，unaccounted 全為 0）|
-| BUILD_STATUS | BUILD SUCCESSFUL（clean）|
-| TEST_STATUS | instrumentation 119/119（隔離）、unit 66/66、python 23/23、跨語言 7/7 |
-| APK_STATUS | v0.4.3 debug + release-unsigned + AAB 已產出 |
-| GITHUB_STATUS | PRIVATE 倉庫，CI 執行中 |
+| BUILD_STATUS | BUILD SUCCESSFUL |
+| TEST_STATUS | 見「驗證狀態」一節 |
+| APK_STATUS | **待重建**（v0.4.4 的程式碼已改，必須重新建置並重算 SHA-256）|
+| GITHUB_STATUS | **PRIVATE，未推送**（見 `docs/GITHUB-PUSH-HANDOFF.md`）|
 | DEVICE_STATUS | **REAL_DEVICE=NOT_TESTED**（沒有連接 X200 Pro）|
-| NEXT_ACTION | 在 X200 Pro 上依 `docs/reliability/X200PRO-NON-DESTRUCTIVE-QA.md` 驗收 |
-| BLOCKERS | 正式 release 金鑰未由擁有者建立；真機未連接 |
+| NEXT_ACTION | 由 Codex / Hermes 依 `docs/GITHUB-PUSH-HANDOFF.md` 推送並跑 CI |
+| BLOCKERS | 正式 release 金鑰未由擁有者建立；真機未連接；GPL 來源需人工逐行比對 |
+
+---
+
+## 驗證狀態
+
+> **全部是本輪實際執行的結果。**
+
+| 項目 | 結果 |
+|------|------|
+| 單元測試 | **84/84 PASS** |
+| Instrumentation（隔離的 devtest 變體）| **126/126 PASS**，0 skip |
+| Instrumentation（正式的 prod 變體）| 126 項，**0 失敗**，破壞性測試 skip |
+| Android Lint | **0 error** |
+| `scripts/audit.sh` | PASS |
+| `scripts/audit-secrets.sh` | PASS |
+| `scripts/audit-release.sh` | PASS |
+| `scripts/audit-test-isolation.py` | PASS（24 個測試檔）|
+| DHC 連接器（Python）| 23/23 PASS |
+| 跨語言 fixture | 7/7 PASS |
 
 ---
 
@@ -32,94 +51,46 @@
 
 | 階段 | 內容 | 狀態 |
 |------|------|------|
-| R0 | 恢復狀態、確認 HEAD、驗證 JUnit XML 對應 | ✅ |
-| **P0** | **破壞性測試隔離**（devtest 變體 + 守衛 + 建置閘門）| ✅ |
-| P1 | 去重識別碼審查（兩個真實缺陷已修）| ✅ |
-| P1 | 擷取計數驗證（機器可檢查、單位標明）| ✅ |
-| P1 | WAL A/B 實驗（**結論：不啟用**）| ✅ |
-| P2 | 行程死亡實驗 + Intake Journal 契約 | ✅ |
-| P2 | X200 Pro 非破壞性流程（**NOT_TESTED**）| ✅ |
-
-### P0：破壞性測試會刪掉使用者的訊息
-
-**真實缺陷**：8 個測試檔直接對**目標 App**（正式套件）的資料庫呼叫
-`db.clear()`。在裝著正式 App 的手機上跑測試，會**刪掉使用者已擷取的訊息**。
-`run-burst-tests.sh` 也一樣，而上一輪正是讓使用者在真機上跑這支腳本。
-
-**三層保護**：
-
-1. **應用程式 ID 隔離**：`devtest` 變體，ID 為 `tw.personal.privateinbox.devtest`，
-   有自己的資料目錄，**物理上碰不到**正式資料庫。
-2. **程式層守衛**：`DestructiveOperationGuard` 依**套件 ID**（不是 build type）
-   拒絕在正式套件上執行破壞性操作，並明確說「資料沒有刪除」。
-   `TestDataIsolation` 是測試唯一被允許的入口，而且只存在於 debug 組態。
-3. **建置閘門**：`scripts/audit-test-isolation.py` 在測試繞過守衛時**讓建置失敗**。
-   雙向驗證過：乾淨的樹通過，注入違規時報錯。它還額外抓到 3 個
-   `purgeUndecryptableRows()` 呼叫。
-
-**量測**：
-
-| 變體 | 結果 |
-|------|------|
-| devtest（隔離）| 119 項，**0 失敗，0 skip** |
-| prod（正式 App）| 119 項，**0 失敗，66 skip** |
-
-正式套件上的破壞性測試是**帶原因 skip**，不是失敗 —— skip 表示
-「這裡沒跑，原因是 X」，失敗則會錯誤地表示產品壞了。
-
-### P1：去重鍵不是訊息身分
-
-找到**兩個**真實缺陷：
-
-1. **來源有時間戳時，識別碼被完全丟棄**。時間戳是毫秒解析度，
-   同一毫秒的相同文字會合併。
-2. **指紋用的是顯示名稱，不是 `conversation_key`**。兩個同名群組會合併 ——
-   而 `conversation_key` 存在的理由恰恰就是顯示名稱不足以分辨對話。
-
-修正：指紋改用 `conversation_key`；識別碼**永遠**納入且以內容優先
-（時間戳 + 寄件者 + 內文），索引只作最後手段。記憶體過濾從 `Set`
-改成**計數**，否則兩則相同內容的訊息會被丟掉一則。
-
-### P1：擷取計數混用單位
-
-brief 指出 `submitted=250 saved=250 unaccounted=250` 在公式下不成立，
-而另一份文件的 `3,821` 來自**另一次執行**。兩個數字都不對。
-
-現在計算是**機器可檢查**的（`CaptureAccountingTest`，8 項），
-每個關係都明確列出，報告的每個計數器都標明單位。
-
-### P1：WAL 實驗 —— 結論是**不啟用**
-
-```
-mode=truncate  writes=500  failures=0  busy=0  p50=25  p95=41  p99=63  max=252
-mode=wal       writes=500  failures=0  busy=0  p50=24  p95=40  p99=77  max=330
-```
-
-WAL 沒有改善，某些指標還比較差。**沒有啟用 WAL。**
-基準程式碼保留在專案裡。
-
-> 第一版的基準有真實缺陷：`PRAGMA journal_mode = \$mode` 的跳脫寫錯，
-> 「切到 WAL」根本沒發生（讀回 `truncate`）。修正後讀回 `wal`，
-> 這才是有效的 A/B。
-
-### P2：行程死亡實驗
-
-```
-DEATH-WINDOW received=200 committed=200 lost=0 drain_ms=5565
-```
-
-`drain_ms` 就是遺失視窗：事件**只存在於記憶體**的時間。
-刻意放慢 writer 時是 5.6 秒（正常操作的佇列等待 p99 是 2.1 秒）。
-
-實驗**沒有真的殺行程** —— 在真機上殺行程會影響使用者的資料，
-在模擬器上殺則不等於 OriginOS 的行為。所以這是視窗的**上界量測**。
-
-**Intake Journal 維持設計文件，未接入正式管線**：證據不足以說明它有足夠
-改善，而一個寫錯的 journal 會讓擷取整個停擺。
+| R0 | 狀態恢復：HEAD `a3b8967` 與回報值一致、工作樹乾淨、CI 39644240175 綠 | ✅ |
+| §2 | 延遲分段量測（T0–T6，單調時鐘）| ✅ |
+| §2 | 熱路徑最佳化（回呼 623 ms → 4 ms）| ✅ |
+| §2 | 寫入批次（交易數 648 → 40）| ✅ |
+| §3 | 儲存與吞吐基準（100–10,000 列）| ✅ |
+| §4 | Schema v5 複合索引（`EXPLAIN QUERY PLAN` 驗證）| ✅ |
+| §5 | 去重黃金集（32 個案例）| ✅ |
+| §6 | 相容性分層（`DeviceCapabilities` + OEM 指引）| ✅ |
+| §7 | Rust Core 研究（三份文件，**不接入**）| ✅ |
+| §8 | 開源文件（README 中英、metadata、templates、授權稽核）| ✅ |
+| §9 | Git 準備（**未推送**）| ✅ |
 
 ---
 
-## 2. 現有的重要事實
+## 2. 這一轮的三個關鍵數字
+
+| 指標 | 修正前 | 修正後 |
+|------|--------|--------|
+| 回呼 p50 | **623 ms** | **4 ms** |
+| 佇列等待 p50（500 則）| **33,945 ms** | **3,520 ms** |
+| 500 則訊息的交易數 | **648** | **40** |
+
+**瓶頸不是運算，是磁碟 I/O。** 這是 Rust 研究得出「目前不需要 Rust」的依據。
+
+---
+
+## 3. 本輪修正的真實缺陷
+
+| 缺陷 | 後果 |
+|------|------|
+| 準備好的批次是 per-instance 的 | 其他實例（補抓路徑、測試）準備的資料**永遠不會被寫入**，訊息就這樣消失 |
+| 診斷 flush 持有 monitor 跨越寫入 | worker 的每次 `note()` 都阻塞，提交延遲到 **40 秒** |
+| 每個事件都提交一個 flush 任務 | 發佈一百則通知從 130 ms 變成 **116 秒** |
+| `normalize()` 每次呼叫編譯新的 Regex | 每則通知最多 50 個 Regex，編譯在主執行緒 |
+| `LocalSettings.selected()` 走 `.all` | 每則通知把整個偏好設定檔載入成 map |
+| 累計計數器在共享行程裡被 reset | **量測本身是錯的** —— 一個測試會清掉另一個正在量測的測試的計數器 |
+
+---
+
+## 4. 現有的重要事實
 
 - **Gradle 啟動失敗不是套件損壞**，是 `~/.gradle` 不可寫 → `GRADLE_USER_HOME`。
 - **emulator 需要 `HOME=<workspace>/emulator-home`**。
@@ -128,38 +99,51 @@ DEATH-WINDOW received=200 committed=200 lost=0 drain_ms=5565
 - **instrumentation 會重裝 App** → App 的 external files 目錄會被刪除。
 - **App 沒有儲存空間權限** → 測試要用 `adb exec-out cat` 傳位元組進 App cache。
 - **平台限制**：`MessagingStyle` 最多 25 則。
-- **`journal_mode` 是 `truncate`**，不是 WAL（實測）。
+- **`journal_mode` 是 `truncate`**，不是 WAL（實測後決定**不**啟用）。
 - **WAL 不移除 SQLite 的單一 writer 規則**，只是讓讀寫不互相阻塞。
+- **Android 13+ 發通知需要 `POST_NOTIFICATIONS`**，沒有它 `notify()` 會被靜默丟棄。
+- **診斷的 flush 必須在 monitor 之外寫入**。
 
 ---
 
-## 3. 下一步
+## 5. 下一步
 
-### 3.1 需要真機
+### 5.1 交給 Codex / Hermes（**本輪不做**）
 
 ```bash
-adb install -r PrivateInboxClassic-v0.4.3-debug.apk
-# vivo：允許自啟動 + 允許後台高耗電 + 最近任務鎖定（三項都要）
-bash scripts/run-burst-tests.sh --repeat 3
+# 1. 檢查
+git status --short                 # 必須是空的
+bash scripts/audit-secrets.sh      # 必須 PASS
+python3 scripts/audit-test-isolation.py   # 必須 PASS
+git diff --check 41ac02f..HEAD
+
+# 2. 建置 v0.4.4 的產物並重算雜湊
+./scripts/g.sh :app:assembleProdDebug
+
+# 3. 推送
+git push origin fix/x200pro-notification-burst
+
+# 4. CI
+gh workflow run android.yml --repo juhjuhx/PrivateInboxClassic \
+  --ref fix/x200pro-notification-burst
 ```
 
-詳細步驟見 `docs/reliability/X200PRO-NON-DESTRUCTIVE-QA.md`。
+詳細的指令在 **`docs/GITHUB-PUSH-HANDOFF.md`**。
 
-### 3.2 需要授權
+### 5.2 需要真機
 
-- 正式 release / upload 金鑰。
-- 合併到 `integration/dsh-v040`（本分支未合併）。
-- 公開 Release（本專案維持私人）。
+依 `docs/reliability/X200PRO-NON-DESTRUCTIVE-QA.md` 執行。
+**必須先備份**，而且**不要**卸載正式 App。
 
-### 3.3 建議的工程項目
+### 5.3 需要授權
 
-1. **在真機上量測實際的行程死亡遺失** —— 那是決定 Intake Journal
-   是否值得實作的依據。見 `docs/reliability/INTAKE-JOURNAL.md` §5。
-2. 若「擷取時 UI 卡住」真的發生，重做 WAL 實驗，這次量**讀取**延遲。
+- 正式 release / upload 金鑰（`BLOCKED_SIGNING`）。
+- 合併到 `integration/dsh-v040`（本分支**未**合併）。
+- 公開發布（本專案維持**私人**）。
 
 ---
 
-## 4. 重要路徑
+## 6. 重要路徑
 
 | 用途 | 路徑 |
 |------|------|
@@ -170,9 +154,11 @@ bash scripts/run-burst-tests.sh --repeat 3
 
 ---
 
-## 5. 不可破壞的規則
+## 7. 不可破壞的規則
 
 完整清單見 `AGENTS.md`。這一輪新增的：
 
 6. **不得在正式套件上執行破壞性測試。** 守衛會拒絕，稽核腳本會讓建置失敗。
 7. **不得宣稱沒實際跑過的測試通過。** 真機的每一格都是 NOT_TESTED。
+8. **不得把入列時間當成持久化時間。** 提交階段是分開量的。
+9. **不得在共享行程裡重置累計計數器。** 取 baseline 然後相減。
