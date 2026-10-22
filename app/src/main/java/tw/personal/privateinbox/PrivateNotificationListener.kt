@@ -93,8 +93,25 @@ class PrivateNotificationListener : NotificationListenerService() {
         val enqueuedAt: Long,
         val t0: Long,
         val startTs: Long,
-        val trace: String
+        val trace: String,
+        /**
+         * The context the capture ran with. It is carried with the batch
+         * because the service's own context is not always usable.
+         */
+        val context: android.content.Context
     )
+
+    /**
+     * The batches that are prepared but not yet written, shared by every
+     * instance of the listener.
+     *
+     * It has to be SHARED. The system constructs the service, but the
+     * catch-up path and the tests construct other instances and call
+     * capture() on them. The worker that writes the batches belongs to the
+     * service instance, so per-instance storage would leave the other
+     * instance's rows unwritten -- they would simply never appear.
+     */
+    private val PREPARED = ArrayList<PreparedBatch>()
 
     /**
      * The batches that are prepared but not yet written.
@@ -103,7 +120,6 @@ class PrivateNotificationListener : NotificationListenerService() {
      * writes them in one transaction. That split is what makes the batching
      * possible: the transaction can span several notifications.
      */
-    private val preparedBatches = ArrayList<PreparedBatch>()
 
     /**
      * The worker thread.
@@ -162,12 +178,18 @@ class PrivateNotificationListener : NotificationListenerService() {
      */
     private fun flushPrepared() {
         val batches: List<PreparedBatch>
-        synchronized(preparedBatches) {
-            if (preparedBatches.isEmpty()) return
-            batches = ArrayList(preparedBatches)
-            preparedBatches.clear()
+        synchronized(PREPARED) {
+            if (PREPARED.isEmpty()) return
+            batches = ArrayList(PREPARED)
+            PREPARED.clear()
         }
-        val app = applicationContext ?: return
+        // The context comes from the BATCH, not from the service.
+        //
+        // The service's own applicationContext is null in an instance that the
+        // system did not construct -- which is what the catch-up path and the
+        // tests do. Using it here silently discarded the prepared rows, and
+        // the message simply never appeared.
+        val app = batches.firstOrNull()?.context ?: applicationContext ?: return
         var db: InboxDatabase? = null
         try {
             db = InboxDatabase(app)
@@ -652,9 +674,11 @@ class PrivateNotificationListener : NotificationListenerService() {
                 // The rows are PREPARED, not written. The worker writes the
                 // batches of several notifications in ONE transaction, which
                 // is what removes the per-notification fsync.
-                synchronized(preparedBatches) {
-                    preparedBatches.add(
-                        PreparedBatch(pending, pkg, enqueuedAt, t0, startTs, trace)
+                synchronized(PREPARED) {
+                    PREPARED.add(
+                        PreparedBatch(
+                            pending, pkg, enqueuedAt, t0, startTs, trace, appContext
+                        )
                     )
                 }
             } catch (e: Exception) {

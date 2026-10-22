@@ -16,7 +16,7 @@ import org.json.JSONObject
  *  Migration is additive: existing rows keep their data and get a neutral
  *  conversation_key derived from their package + title, so no user data is lost. */
 class InboxDatabase(private val appContext: Context) :
-    SQLiteOpenHelper(appContext, "inbox.db", null, 4) {
+    SQLiteOpenHelper(appContext, "inbox.db", null, 5) {
     data class Entry(
         val id: Long, val packageName: String, val receivedAt: Long,
         val sourceTimestamp: Long,
@@ -41,6 +41,21 @@ class InboxDatabase(private val appContext: Context) :
         )""".trimIndent())
         db.execSQL("CREATE INDEX received_idx ON messages(received_at DESC)")
         db.execSQL("CREATE INDEX conversation_idx ON messages(conversation_key)")
+        // The composite indexes the list screen's queries need. They are
+        // ADDITIVE: an index is a derived structure, and dropping one loses
+        // no data.
+        db.execSQL(
+            "CREATE INDEX package_received_idx " +
+                "ON messages(package_name, received_at DESC, id DESC)"
+        )
+        db.execSQL(
+            "CREATE INDEX conversation_received_idx " +
+                "ON messages(conversation_key, received_at DESC, id DESC)"
+        )
+        db.execSQL(
+            "CREATE INDEX kind_received_idx " +
+                "ON messages(message_kind, received_at DESC, id DESC)"
+        )
     }
 
     override fun onConfigure(db: SQLiteDatabase) {
@@ -69,7 +84,63 @@ class InboxDatabase(private val appContext: Context) :
             // from the package name at read time (see conversationKeyOf()).
             db.execSQL("CREATE INDEX IF NOT EXISTS conversation_idx ON messages(conversation_key)")
         }
+        if (oldVersion < 5) {
+            // The composite indexes the list screen's queries need.
+            //
+            // They are ADDITIVE: an index is a derived structure, and dropping
+            // one loses no data. The migration only creates them.
+            //
+            // The single-column indexes above are kept: the "read everything
+            // for one conversation" query and the "read the newest page" query
+            // use them, and SQLite's planner still picks the composite index
+            // for the filtered queries. The measurement is in
+            // docs/reliability/STORAGE-BENCHMARK.md.
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS package_received_idx " +
+                    "ON messages(package_name, received_at DESC, id DESC)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS conversation_received_idx " +
+                    "ON messages(conversation_key, received_at DESC, id DESC)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS kind_received_idx " +
+                    "ON messages(message_kind, received_at DESC, id DESC)"
+            )
+        }
     }
+
+    /**
+     * The query plan for a statement, for the index evaluation.
+     *
+     * `EXPLAIN QUERY PLAN` returns one row per step. The plan is returned as
+     * a single string so a test can assert on it.
+     */
+    fun queryPlan(sql: String, args: Array<String> = emptyArray()): String =
+        runCatching {
+            readableDatabase.rawQuery("EXPLAIN QUERY PLAN $sql", args).use { c ->
+                val sb = StringBuilder()
+                while (c.moveToNext()) {
+                    if (sb.isNotEmpty()) sb.append(" | ")
+                    sb.append(c.getString(3))
+                }
+                sb.toString()
+            }
+        }.getOrDefault("")
+
+    /**
+     * The indexes that exist on the messages table.
+     */
+    fun indexNames(): List<String> = runCatching {
+        readableDatabase.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='messages'",
+            null
+        ).use { c ->
+            val out = ArrayList<String>()
+            while (c.moveToNext()) out.add(c.getString(0))
+            out
+        }
+    }.getOrDefault(emptyList())
 
     /** Outcome of a single insert attempt, so callers can distinguish "stored",
      *  "deduped" and "failed" without touching the encrypted rows themselves. */
