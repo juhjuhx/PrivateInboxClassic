@@ -21,10 +21,29 @@ object CapturePolicy {
     fun allowed(packageName: String, selected: Set<String>): Boolean =
         SourceRegistry.isKnown(packageName) && packageName in selected
 
+    /**
+     * Collapse the whitespace runs in a piece of text.
+     *
+     * The pattern is COMPILED ONCE, at class-load time.
+     *
+     * It used to be `Regex("[\\t\\r ]+")` written inline, which compiled a
+     * fresh Regex object on EVERY call. The notification callback calls this
+     * twice per message -- once for the body, once for the sender -- and a
+     * group notification carries up to 25 messages, so a single notification
+     * compiled up to 50 Regex objects ON THE MAIN THREAD.
+     *
+     * A compiled Regex is immutable and thread-safe, so one shared instance
+     * is correct.
+     */
+    private val WHITESPACE_RUNS = Regex("[\\t\\r ]+")
+
+    /** The maximum length of a stored message body. */
+    private const val MAX_BODY_LENGTH = 20_000
+
     fun normalize(value: String?): String? = value
         ?.trim()
-        ?.replace(Regex("[\\t\\r ]+"), " ")
-        ?.take(20_000)
+        ?.replace(WHITESPACE_RUNS, " ")
+        ?.take(MAX_BODY_LENGTH)
         ?.takeIf { it.isNotBlank() }
 
     fun nameFor(packageName: String): String = SourceRegistry.displayName(packageName)

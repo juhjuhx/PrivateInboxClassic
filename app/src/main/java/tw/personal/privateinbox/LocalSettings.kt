@@ -20,10 +20,35 @@ object LocalSettings {
      * listener service and silently stop all capture, so the read is guarded and
      * a malformed value degrades to "no sources selected" instead of taking the
      * app down.
+     *
+     * The read is TARGETED rather than going through `.all`, because `.all`
+     * builds a map of EVERY entry in the preferences file -- including the
+     * persisted diagnostics event list, which is the largest value in there.
+     * The notification callback calls this on the main thread, once per
+     * notification, so the difference matters.
+     *
+     * A cache was tried and REMOVED: keeping one correct required a
+     * SharedPreferences change listener, and that listener would want the
+     * LocalSettings monitor while SharedPreferences held its own lock. That is
+     * a lock-ordering hazard on a path that runs on the main thread, and a
+     * deadlock there would stop ALL capture. A targeted read is safe and
+     * costs almost nothing.
      */
     fun selected(context: Context): Set<String> {
-        val raw = context.getSharedPreferences(NAME, Context.MODE_PRIVATE)
-            .all[SOURCES]
+        val prefs = context.getSharedPreferences(NAME, Context.MODE_PRIVATE)
+        // The typed read first: it is targeted and does not build the whole
+        // preferences map.
+        val typed = try {
+            prefs.getStringSet(SOURCES, null)
+        } catch (_: ClassCastException) {
+            // The stored value has the wrong type. Fall through to the
+            // tolerant path below.
+            null
+        }
+        if (typed != null) return typed.filterIsInstance<String>().toSet()
+
+        // The tolerant path: inspect the raw value without throwing.
+        val raw = prefs.all[SOURCES]
         return when (raw) {
             is Set<*> -> raw.filterIsInstance<String>().toSet()
             is String -> raw.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()

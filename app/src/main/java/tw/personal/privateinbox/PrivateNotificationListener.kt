@@ -80,11 +80,56 @@ class PrivateNotificationListener : NotificationListenerService() {
      *
      * It runs one task at a time so the database writes stay ordered.
      */
+    /**
+     * The messages one notification contributed, and the context needed to
+     * report on them.
+     *
+     * The worker collects these from the queue and writes them together, in
+     * ONE transaction.
+     */
+    private class PreparedBatch(
+        val messages: List<InboxDatabase.PendingMessage>,
+        val packageName: String,
+        val enqueuedAt: Long,
+        val t0: Long,
+        val startTs: Long,
+        val trace: String
+    )
+
+    /**
+     * The batches that are prepared but not yet written.
+     *
+     * The queue task PREPARES the rows and appends them here; the worker
+     * writes them in one transaction. That split is what makes the batching
+     * possible: the transaction can span several notifications.
+     */
+    private val preparedBatches = ArrayList<PreparedBatch>()
+
+    /**
+     * The worker thread.
+     *
+     * It runs one task at a time so the database writes stay ordered, but it
+     * DRAINS the queue first: several notifications' worth of messages are
+     * written in ONE transaction.
+     *
+     * The measurement that motivated it: every transaction costs an fsync,
+     * and the burst benchmark measured 59 ms per insert at the median. A
+     * 500-message burst therefore spent about 30 SECONDS waiting for the
+     * disk, and that wait IS the queue wait, because the single writer could
+     * not drain the queue.
+     */
     private val worker = Thread({
         while (true) {
-            val task = workQueue.take()
             try {
-                task.run()
+                workQueue.take().run()
+                // Drain whatever else is already waiting. The drain is
+                // NON-BLOCKING: a low-traffic notification must never wait
+                // for a batch to fill.
+                while (true) {
+                    val next = workQueue.poll() ?: break
+                    next.run()
+                }
+                flushPrepared()
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()
                 return@Thread
@@ -109,6 +154,96 @@ class PrivateNotificationListener : NotificationListenerService() {
     }
 
     /**
+     * Take the prepared batches and write them in ONE transaction.
+     *
+     * One database handle is opened for the whole group, and one transaction
+     * covers every row of every batch. The per-row results are reported
+     * exactly as they were before, so the accounting is unchanged.
+     */
+    private fun flushPrepared() {
+        val batches: List<PreparedBatch>
+        synchronized(preparedBatches) {
+            if (preparedBatches.isEmpty()) return
+            batches = ArrayList(preparedBatches)
+            preparedBatches.clear()
+        }
+        val app = applicationContext ?: return
+        var db: InboxDatabase? = null
+        try {
+            db = InboxDatabase(app)
+            val dbStart = System.nanoTime()
+            // ONE transaction for every drained group. A transaction per
+            // group would be no better than a transaction per notification:
+            // the fsync is the cost, and it is paid once per commit.
+            val groups = batches.map { it.messages }.filter { it.isNotEmpty() }
+            val allResults = if (groups.isEmpty()) emptyList() else
+                runCatching { db!!.saveBatches(groups) }
+                    .getOrElse { e ->
+                        groups.map { g -> List(g.size) { InboxDatabase.SaveResult.FAILURE(e) } }
+                    }
+            // The duration is recorded once per MESSAGE, so the sample count
+            // still matches the number of rows written. The whole flush is
+            // attributed to each message, which is the honest reading when
+            // they share one transaction: they shared one fsync.
+            val flushMillis = (System.nanoTime() - dbStart) / 1_000_000
+            val messageCount = groups.sumOf { it.size }.coerceAtLeast(1)
+            repeat(messageCount) {
+                CaptureMetrics.dbDuration.record(flushMillis)
+            }
+            var groupIndex = 0
+            for (batch in batches) {
+                if (batch.messages.isEmpty()) continue
+                val results = allResults.getOrElse(groupIndex) { emptyList() }
+                groupIndex++
+                // T5: the SQLite commit is done. The difference from T0 is the
+                // DURABLE latency: how long it took for the message to be on
+                // disk. That is NOT the enqueue time.
+                PipelineLatency.record(
+                    PipelineLatency.Stage.COMMITTED,
+                    android.os.SystemClock.elapsedRealtimeNanos() - batch.t0
+                )
+                for (outcome in results) {
+                    when (outcome) {
+                        InboxDatabase.SaveResult.NEW -> {
+                            CaptureMetrics.dbCommitted.incrementAndGet()
+                            CaptureMetrics.endToEnd.record(
+                                (System.nanoTime() - batch.enqueuedAt) / 1_000_000
+                            )
+                            CaptureDiagnostics.note(
+                                app, batch.packageName, "DATABASE_COMMIT",
+                                CaptureDiagnostics.DB_INSERT_SUCCESS, null,
+                                batch.startTs, batch.trace)
+                        }
+                        InboxDatabase.SaveResult.DUPLICATE -> {
+                            CaptureMetrics.dbDuplicated.incrementAndGet()
+                            CaptureMetrics.endToEnd.record(
+                                (System.nanoTime() - batch.enqueuedAt) / 1_000_000
+                            )
+                            CaptureDiagnostics.note(
+                                app, batch.packageName, "DATABASE_COMMIT",
+                                CaptureDiagnostics.DB_DUPLICATE, null,
+                                batch.startTs, batch.trace)
+                        }
+                        is InboxDatabase.SaveResult.FAILURE -> {
+                            CaptureMetrics.dbFailed.incrementAndGet()
+                            CaptureDiagnostics.note(
+                                app, batch.packageName, "DATABASE_COMMIT",
+                                CaptureDiagnostics.DB_INSERT_FAILED,
+                                outcome.cause.javaClass.simpleName,
+                                batch.startTs, batch.trace)
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // No private content is logged; the type name alone is diagnostic.
+            CaptureDiagnostics.note(app, batches.firstOrNull()?.packageName,
+                "DATABASE_COMMIT", CaptureDiagnostics.DB_OPEN_FAILED,
+                e.javaClass.simpleName)
+        } finally { db?.close() }
+    }
+
+    /**
      * Submit a task to the worker.
      *
      * @return true when the task was queued, false when the queue was full and
@@ -116,6 +251,7 @@ class PrivateNotificationListener : NotificationListenerService() {
      *         never silent.
      */
     private fun submit(task: () -> Unit): Boolean {
+        val enqueueStart = android.os.SystemClock.elapsedRealtimeNanos()
         val queued = workQueue.offer({
             try {
                 task()
@@ -134,6 +270,12 @@ class PrivateNotificationListener : NotificationListenerService() {
                 }
             }
         })
+        // T2: the enqueue succeeded. It is measured INSIDE submit(), because
+        // only here is it known whether the task was actually accepted.
+        PipelineLatency.record(
+            PipelineLatency.Stage.ENQUEUE,
+            android.os.SystemClock.elapsedRealtimeNanos() - enqueueStart
+        )
         if (queued) {
             CaptureMetrics.queued.incrementAndGet()
             CaptureMetrics.observeQueueDepth(workQueue.size)
@@ -234,9 +376,12 @@ class PrivateNotificationListener : NotificationListenerService() {
         // the MAIN thread: a slow callback delays every other notification,
         // and the platform may coalesce or drop what arrives meanwhile.
         val callbackStart = System.nanoTime()
+        // The latency stages use the MONOTONIC clock, so a user changing the
+        // system clock cannot make a latency negative.
+        val t0 = android.os.SystemClock.elapsedRealtimeNanos()
         CaptureMetrics.callbacksEntered.incrementAndGet()
         try {
-            capture(ctx, sbn)
+            capture(ctx, sbn, t0)
         } catch (e: Throwable) {
             runCatching {
                 CaptureDiagnostics.note(ctx, sbn?.packageName,
@@ -254,7 +399,11 @@ class PrivateNotificationListener : NotificationListenerService() {
     /** Core capture routine. Split out from the service callback so it can be
      *  exercised directly by instrumentation tests without a bound system service.
      *  [appContext] must be a usable application context. */
-    fun capture(appContext: android.content.Context, sbn: StatusBarNotification?) {
+    fun capture(
+        appContext: android.content.Context,
+        sbn: StatusBarNotification?,
+        t0: Long = android.os.SystemClock.elapsedRealtimeNanos()
+    ) {
         val startTs = System.currentTimeMillis()
         if (sbn == null) {
             CaptureDiagnostics.note(appContext, null, "NOTIFICATION_PARSER",
@@ -267,6 +416,10 @@ class PrivateNotificationListener : NotificationListenerService() {
         val trace = CaptureDiagnostics.newTraceId()
         CaptureDiagnostics.note(appContext, pkg, "SYSTEM_NOTIFICATION",
             CaptureDiagnostics.NOTIFICATION_RECEIVED, null, startTs, trace)
+        // The stage trace is written to the log, NOT to the diagnostics ring:
+        // the ring does a SharedPreferences write per event, and this line is
+        // on the MAIN thread. The benchmark reads the latency stages through
+        // the provider instead.
         if (!LocalSettings.isRecording(appContext)) {
             CaptureMetrics.policyRejected.incrementAndGet()
             CaptureDiagnostics.note(appContext, pkg, "RECORDING_POLICY",
@@ -432,15 +585,38 @@ class PrivateNotificationListener : NotificationListenerService() {
         // database accounting adds up against.
         CaptureMetrics.messagesSubmitted.addAndGet(newItems.size)
         val enqueuedAt = System.nanoTime()
+        // T1: the snapshot is complete. Everything before this point happens
+        // on the MAIN thread, so it is the number that matters most.
+        PipelineLatency.record(
+            PipelineLatency.Stage.SNAPSHOT,
+            android.os.SystemClock.elapsedRealtimeNanos() - t0
+        )
         val accepted = submit {
             if (!LocalSettings.isRecording(appContext)) return@submit
             if (!CapturePolicy.allowed(pkg, LocalSettings.selected(appContext))) return@submit
             val dequeuedAt = System.nanoTime()
             CaptureMetrics.dequeued.incrementAndGet()
             CaptureMetrics.queueWait.record((dequeuedAt - enqueuedAt) / 1_000_000)
-            var db: InboxDatabase? = null
+            // T3: the worker started on this task. The difference from the
+            // enqueue is the queue wait, and the difference from T0 is the
+            // total time the event spent waiting.
+            PipelineLatency.record(
+                PipelineLatency.Stage.WORKER_START,
+                dequeuedAt - t0
+            )
             try {
-                db = InboxDatabase(appContext)
+                // The rows are PREPARED first, then written in ONE transaction.
+                //
+                // Every save() is its own transaction, and every transaction
+                // costs an fsync. The burst benchmark measured 59 ms per insert
+                // at the median, so a 500-message burst spent roughly 30 SECONDS
+                // waiting for the disk -- and that wait IS the queue wait,
+                // because the single writer could not drain the queue.
+                //
+                // Preparing first also keeps the CPU work (the image decode)
+                // OUT of the transaction, so the transaction is held for the
+                // shortest possible time.
+                val pending = ArrayList<InboxDatabase.PendingMessage>(newItems.size)
                 for ((p, rawBytes, discriminator) in newItems) {
                     var photo: ByteArray? = null
                     var mediaNote: String? = null
@@ -457,57 +633,36 @@ class PrivateNotificationListener : NotificationListenerService() {
                     val body = CapturePolicy.normalize(p.body)
                         ?: if (photo != null) "📷 照片" else null
                     if (body == null && photo == null) continue
-                    // runCatching returns Result<SaveResult>: unwrap, THEN classify.
-                    // save() reports insert problems itself as SaveResult.FAILURE, so a
-                    // null value here means the call threw — record that type, never a
-                    // fake success.
-                    val dbStart = System.nanoTime()
-                    val result = runCatching {
-                        db!!.save(pkg, received, p.time, conversationTitle, p.sender,
-                            body ?: "", photo, identity.key, kind.name, discriminator)
-                    }
-                    CaptureMetrics.dbDuration.record(
-                        (System.nanoTime() - dbStart) / 1_000_000
+                    pending.add(
+                        InboxDatabase.PendingMessage(
+                            packageName = pkg,
+                            receivedAt = received,
+                            sourceTimestamp = p.time,
+                            title = conversationTitle,
+                            sender = p.sender,
+                            body = body ?: "",
+                            image = photo,
+                            conversationKey = identity.key,
+                            messageKind = kind.name,
+                            messageDiscriminator = discriminator
+                        )
                     )
-                    when (val outcome = result.getOrNull()) {
-                        InboxDatabase.SaveResult.NEW -> {
-                            CaptureMetrics.dbCommitted.incrementAndGet()
-                            CaptureMetrics.endToEnd.record(
-                                (System.nanoTime() - enqueuedAt) / 1_000_000
-                            )
-                            CaptureDiagnostics.note(
-                                appContext, pkg, "DATABASE_COMMIT",
-                                CaptureDiagnostics.DB_INSERT_SUCCESS, null, startTs, trace)
-                        }
-                        InboxDatabase.SaveResult.DUPLICATE -> {
-                            CaptureMetrics.dbDuplicated.incrementAndGet()
-                            CaptureMetrics.endToEnd.record(
-                                (System.nanoTime() - enqueuedAt) / 1_000_000
-                            )
-                            CaptureDiagnostics.note(
-                                appContext, pkg, "DATABASE_COMMIT",
-                                CaptureDiagnostics.DB_DUPLICATE, null, startTs, trace)
-                        }
-                        is InboxDatabase.SaveResult.FAILURE -> {
-                            CaptureMetrics.dbFailed.incrementAndGet()
-                            CaptureDiagnostics.note(
-                                appContext, pkg, "DATABASE_COMMIT",
-                                CaptureDiagnostics.DB_INSERT_FAILED,
-                                outcome.cause.javaClass.simpleName, startTs, trace)
-                        }
-                        null -> CaptureDiagnostics.note(
-                            appContext, pkg, "DATABASE_COMMIT",
-                            CaptureDiagnostics.DB_INSERT_FAILED,
-                            result.exceptionOrNull()?.javaClass?.simpleName ?: "insert_exception",
-                            startTs, trace)
-                    }
+                }
+                if (pending.isEmpty()) return@submit
+                // The rows are PREPARED, not written. The worker writes the
+                // batches of several notifications in ONE transaction, which
+                // is what removes the per-notification fsync.
+                synchronized(preparedBatches) {
+                    preparedBatches.add(
+                        PreparedBatch(pending, pkg, enqueuedAt, t0, startTs, trace)
+                    )
                 }
             } catch (e: Exception) {
                 // No private content is logged; the type name alone is diagnostic.
                 CaptureDiagnostics.note(appContext, pkg, "DATABASE_COMMIT",
                     CaptureDiagnostics.DB_OPEN_FAILED,
                     e.javaClass.simpleName, startTs, trace)
-            } finally { db?.close() }
+            }
         }
     }
 

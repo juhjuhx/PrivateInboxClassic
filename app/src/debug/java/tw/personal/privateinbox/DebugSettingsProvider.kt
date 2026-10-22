@@ -221,6 +221,37 @@ class DebugSettingsProvider : ContentProvider() {
                 LocalSettings.setRecording(ctx, arg == "true")
                 out.putBoolean("ok", true)
             }
+            "latency" -> {
+                // The latency metrics live in the APP's process, and the
+                // instrumentation test runs in a SEPARATE process. Reading
+                // them from the test directly would always return zero, so
+                // they are exposed here.
+                PipelineLatency.report().let { out.putString("report", it) }
+                out.putString("targets", PipelineLatency.targetTable())
+                PipelineLatency.Stage.entries.forEach { stage ->
+                    out.putLong(
+                        "${stage.name.lowercase()}_p50",
+                        PipelineLatency.percentile(stage, 0.50).toLong()
+                    )
+                    out.putLong(
+                        "${stage.name.lowercase()}_p95",
+                        PipelineLatency.percentile(stage, 0.95).toLong()
+                    )
+                    out.putLong(
+                        "${stage.name.lowercase()}_p99",
+                        PipelineLatency.percentile(stage, 0.99).toLong()
+                    )
+                    out.putLong(
+                        "${stage.name.lowercase()}_n",
+                        PipelineLatency.countOf(stage).toLong()
+                    )
+                }
+            }
+            "latencyReset" -> {
+                PipelineLatency.reset()
+                CaptureMetrics.reset()
+                out.putBoolean("ok", true)
+            }
             "counters" -> {
                 CaptureDiagnostics.counters(ctx).forEach { (k, v) ->
                     when (v) {

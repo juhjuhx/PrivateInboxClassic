@@ -1,0 +1,110 @@
+perf: the notification callback no longer does disk I/O, and the writer batches
+
+Three changes, each measured, and one of them was a regression I introduced
+and then had to find.
+
+THE MEASUREMENT THAT PROMOTED THIS.
+
+The burst benchmark measures the pipeline in stages, with a MONOTONIC clock
+(SystemClock.elapsedRealtimeNanos), because a latency measured with a wall
+clock is not a latency. The enqueue time is NOT treated as the durability
+time: the commit stage is measured separately, and the difference from the
+callback entry is the durable latency.
+
+BEFORE (v0.4.3 behaviour, measured by stashing this change and re-running):
+
+  snapshot p50 = 623 ms      <- the callback itself
+  enqueue  p50 = 0.09 ms
+  queue_wait p50 = 33,945 ms
+  db_ms    p50 = 59 ms, n = 651 transactions for 500 messages
+
+AFTER:
+
+  snapshot p50 = 4 ms        <- 155x better
+  enqueue  p50 = 0.02 ms
+  queue_wait p50 = 3,520 ms  <- 9.6x better
+  transactions for 500 messages: 40  <- 16x fewer
+
+CHANGE 1: THE CALLBACK NO LONGER DOES DISK I/O.
+
+CaptureDiagnostics.note() ran on the MAIN thread and did a
+SharedPreferences read-modify-write PER EVENT: four reads, a list
+deserialisation, a list serialisation and an apply(). The callback path
+called it twenty times per notification, so one notification cost twenty
+synchronous disk writes on the main thread. That is where the 623 ms
+callback went.
+
+The counters and the events are now kept in memory and written on a
+background thread. The observable content is unchanged -- the same events,
+the same counters, the same export -- and counters() merges the in-memory
+values with the persisted ones so a reader never sees a number that is a
+flush behind.
+
+Two things had to be right, and the first attempt got both wrong:
+
+  - The flush must NOT hold the object monitor across the disk write.
+    note() is @Synchronized on the same object and the capture worker calls
+    it twenty times per message, so holding the monitor across the write
+    blocked every one of them. The commit latency went to FORTY SECONDS.
+    The snapshot of the pending state is taken under the monitor, the write
+    happens outside it, and the state is updated under the monitor again.
+
+  - The flushes must be COALESCED. Submitting one task per event was a
+    regression: a burst of a hundred notifications submitted two thousand
+    tasks, each taking the SharedPreferences write lock, and the measured
+    cost of posting a hundred notifications went from 130 ms to 116
+    SECONDS. At most one flush task is in flight.
+
+  The trade-off, stated plainly: a process death loses the events that had
+  not been flushed. That is DIAGNOSTIC data, not the user's messages --
+  those are in the encrypted database, which is committed separately -- and
+  the diagnostics already have a retention window. Blocking the main thread
+  to persist diagnostics was the wrong trade.
+
+CHANGE 2: TWO HOT-PATH ALLOCATIONS.
+
+  - CapturePolicy.normalize() compiled a fresh Regex on EVERY call. It is
+    called twice per message, and a group notification carries up to 25
+    messages, so one notification compiled up to 50 Regex objects on the
+    main thread. The pattern is now compiled once.
+
+  - LocalSettings.selected() went through getSharedPreferences(...).all,
+    which builds a map of EVERY entry in the preferences file -- including
+    the persisted diagnostics event list, which is the largest value in
+    there. It is now a targeted getStringSet with a guarded fallback for
+    the malformed-value case.
+
+    A cache was tried and REMOVED: keeping one correct required a
+    SharedPreferences change listener, and that listener would want the
+    LocalSettings monitor while SharedPreferences held its own lock. That
+    is a lock-ordering hazard on a path that runs on the main thread, and a
+    deadlock there would stop ALL capture. A targeted read is safe and
+    costs almost nothing.
+
+CHANGE 3: THE WRITER BATCHES.
+
+Every save() was its own transaction, and every transaction costs an fsync.
+The worker now PREPARES the rows and writes every drained group in ONE
+transaction: one database handle, one commit, N rows.
+
+The first attempt at this was WRONG and the measurement caught it: the
+batching was applied per group, so there were 648 transactions for 500
+messages and the per-insert duration went from 40 ms to 6,982 ms. One
+transaction for the WHOLE drain turned 500 transactions into 40.
+
+The drain is NON-BLOCKING, so a low-traffic notification never waits for a
+batch to fill.
+
+ALSO FIXES A REAL MEASUREMENT BUG.
+
+The metrics live in the app's process and every instrumentation test runs
+against that same process, so resetting them in one test's setUp wiped the
+counters of a test that was measuring at the same time. The burst matrix
+now captures a baseline and reports the difference.
+
+The latency stages are exposed through the debug provider, because the
+listener runs in the app's process and the instrumentation test in another:
+reading the metrics directly from the test always returned zero.
+
+VERIFIED: unit 72/72, instrumentation 122/122 in the isolated variant, and
+every burst case still reports saved == expected_rows with unaccounted = 0.

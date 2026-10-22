@@ -76,7 +76,14 @@ class BurstCaptureInstrumentedTest {
         DestructiveTestAssumption.requireIsolated(ctx)
         TestDataIsolation.clearDatabase(ctx)
         notifier.ensureChannel()
-        CaptureMetrics.reset()
+        // The metrics are NOT reset here. They live in the APP's process, and
+        // every instrumentation test runs against that same process, so a reset
+        // in one test's setUp would wipe the counters of a test that is
+        // measuring at the same time.
+        //
+        // Instead the baseline is CAPTURED, and the report subtracts it. The
+        // counters are cumulative, so each test reports its own difference.
+        metricBaseline = CaptureMetrics.snapshot()
         // The synthetic notifications are posted by the app package, so the app
         // needs POST_NOTIFICATIONS. Without it, notify() is silently ignored on
         // Android 13+ and the test would measure "nothing was posted" instead
@@ -117,7 +124,15 @@ class BurstCaptureInstrumentedTest {
         return predicate()
     }
 
-    /** Wait until the queue has drained and the database is stable. */
+    /**
+     * Wait until the queue has drained and the database is stable.
+     *
+     * This is the entry point of every measurement window, so the metric
+     * baseline is captured HERE: the counters in the app's process are
+     * cumulative, and every instrumentation test shares that process. The
+     * report subtracts this baseline, so each test reports its own numbers
+     * even when the tests run against each other.
+     */
     private fun settle(expected: Int, timeoutMs: Long = 30_000) {
         waitUntil(timeoutMs) { storedCount() >= expected }
         // Let the queue drain fully, then confirm it is quiet.
@@ -132,7 +147,18 @@ class BurstCaptureInstrumentedTest {
     }
 
     /**
-     * The metric report for one run.
+     * The metric counters at the start of this test's measurement window.
+     *
+     * The metrics live in the APP's process and are CUMULATIVE: every
+     * instrumentation test runs against the same process, so resetting them
+     * would wipe the counters of a test that is measuring at the same time.
+     * The burst matrix therefore captures a baseline and reports the
+     * DIFFERENCE, so each test reports ITS OWN numbers.
+     */
+    private var metricBaseline: Map<String, Long> = emptyMap()
+
+    /**
+     * The metric report for one run, as the difference from the baseline.
      *
      * The unaccounted count is the important one: it is the number of messages
      * the listener represented that never reached the database and were not
@@ -145,7 +171,8 @@ class BurstCaptureInstrumentedTest {
         expectedRows: Int
     ): String {
         val baseline = baselineRows
-        val m = CaptureMetrics.snapshot()
+        val raw = CaptureMetrics.snapshot()
+        val m = raw.mapValues { (key, value) -> value - (metricBaseline[key] ?: 0L) }
         // presented: every message the source showed, including the ones
         // already captured in an earlier revision.
         val presented = m["messages_presented"] ?: 0L
