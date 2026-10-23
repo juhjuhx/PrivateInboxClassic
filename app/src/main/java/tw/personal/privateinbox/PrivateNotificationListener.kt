@@ -25,9 +25,6 @@ class PrivateNotificationListener : NotificationListenerService() {
     companion object {
         const val MAX_PREVIEWS = 500
 
-        /** The 2-arg removal callback has no reason; -1 maps to REMOVAL_REASON_UNKNOWN. */
-        private const val REASON_NOT_GIVEN = -1
-
         /**
          * The maximum number of notifications waiting for the worker.
          *
@@ -368,7 +365,12 @@ class PrivateNotificationListener : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
-        onNotificationRemoved(sbn, null, REASON_NOT_GIVEN)
+        sbn?.key?.let { seenDiscriminators.remove(it) }
+        runCatching {
+            val app = applicationContext ?: return@runCatching
+            CaptureDiagnostics.note(app, sbn?.packageName, "NOTIFICATION_REMOVED",
+                CaptureDiagnostics.NOTIFICATION_REMOVED, CaptureDiagnostics.REMOVAL_REASON_UNKNOWN)
+        }
     }
 
     override fun onNotificationRemoved(
@@ -844,7 +846,7 @@ class PrivateNotificationListener : NotificationListenerService() {
  * Map a platform removal reason to a stable reason class for diagnostics.
  *
  * A pure function so the JVM tests can pin the classification without an
- * Android device. The 2-arg callback passes [REASON_NOT_GIVEN] (-1), and any
+ * Android device. The 2-arg callback records REMOVAL_REASON_UNKNOWN, and any
  * reason this app does not interpret falls into REMOVAL_REASON_UNKNOWN rather
  * than being guessed.
  */
