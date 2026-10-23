@@ -66,6 +66,24 @@ object CaptureDiagnostics {
      * not bound. The error type carries the count.
      */
     const val ACTIVE_RECOVERED = "ACTIVE_RECOVERED"
+
+    /**
+     * The source app removed a notification we had already captured.
+     *
+     * A removal is observed for DIAGNOSTICS ONLY: committed rows stay
+     * immutable, because the whole point of the archive is that a message
+     * retracted in the source app remains readable here. The error type
+     * distinguishes the reason class so support can tell a user-driven
+     * dismiss (swipe) from a source-app retraction (unsend):
+     *
+     *   - SOURCE_CANCELLED: the source app itself cancelled it (REASON_APP_CANCEL*)
+     *   - USER_DISMISSED: the user swiped it away (REASON_USER_*, REASON_CANCELLED_BY_USER)
+     *   - REMOVAL_REASON_UNKNOWN: any other or unavailable reason
+     */
+    const val NOTIFICATION_REMOVED = "NOTIFICATION_REMOVED"
+    const val REMOVAL_SOURCE_CANCELLED = "SOURCE_CANCELLED"
+    const val REMOVAL_USER_DISMISSED = "USER_DISMISSED"
+    const val REMOVAL_REASON_UNKNOWN = "REMOVAL_REASON_UNKNOWN"
     const val ENCRYPT_FAILED = "ENCRYPT_FAILED"
     const val DB_OPEN_FAILED = "DB_OPEN_FAILED"
     const val DB_INSERT_FAILED = "DB_INSERT_FAILED"

@@ -25,6 +25,9 @@ class PrivateNotificationListener : NotificationListenerService() {
     companion object {
         const val MAX_PREVIEWS = 500
 
+        /** The 2-arg removal callback has no reason; -1 maps to REMOVAL_REASON_UNKNOWN. */
+        private const val REASON_NOT_GIVEN = -1
+
         /**
          * The maximum number of notifications waiting for the worker.
          *
@@ -365,12 +368,28 @@ class PrivateNotificationListener : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
+        onNotificationRemoved(sbn, null, REASON_NOT_GIVEN)
+    }
+
+    override fun onNotificationRemoved(
+        sbn: StatusBarNotification?,
+        rankingMap: NotificationListenerService.RankingMap?,
+        reason: Int
+    ) {
         // The notification is gone, so its memory of which messages were
         // captured is no longer needed. A later notification with the same key
         // would be a NEW message set anyway.
         sbn?.key?.let { seenDiscriminators.remove(it) }
         runCatching {
             val app = applicationContext ?: return@runCatching
+            // Retraction semantics (v0.4.5): a removal is OBSERVED, never
+            // acted on. Committed rows stay immutable — the archive exists
+            // precisely so a message retracted in the source app remains
+            // readable here. Only the reason class is recorded, and the
+            // package name only; never any message content.
+            val reasonClass = removalReasonClassOf(reason)
+            CaptureDiagnostics.note(app, sbn?.packageName, "NOTIFICATION_REMOVED",
+                CaptureDiagnostics.NOTIFICATION_REMOVED, reasonClass)
             CaptureDiagnostics.markDisconnected(app)
         }
     }
@@ -797,9 +816,13 @@ class PrivateNotificationListener : NotificationListenerService() {
             }
             if (compat.isNotEmpty()) return compat
         }
+        // The InboxStyle lines are NOT truncated here. An earlier version took
+        // the last 15 lines, which silently dropped the earlier lines of a long
+        // digest; anything over MAX_PREVIEWS (500) is bounded by the shared
+        // window above, which records every drop it makes.
         val lines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
             ?.mapNotNull { CapturePolicy.normalize(it?.toString()) }
-            ?.takeLast(15).orEmpty()
+            .orEmpty()
         if (lines.isNotEmpty()) return lines.map { Preview(it, "", 0L) }
         val text = CapturePolicy.normalize(
             extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
@@ -814,5 +837,30 @@ class PrivateNotificationListener : NotificationListenerService() {
         // is what stops it.
         worker.interrupt()
         super.onDestroy()
+    }
+}
+
+/**
+ * Map a platform removal reason to a stable reason class for diagnostics.
+ *
+ * A pure function so the JVM tests can pin the classification without an
+ * Android device. The 2-arg callback passes [REASON_NOT_GIVEN] (-1), and any
+ * reason this app does not interpret falls into REMOVAL_REASON_UNKNOWN rather
+ * than being guessed.
+ */
+internal fun removalReasonClassOf(reason: Int): String {
+    return when (reason) {
+        // The source app itself withdrew the notification: the closest
+        // signal we get for an unsend/retraction in the source app.
+        NotificationListenerService.REASON_APP_CANCEL,
+        NotificationListenerService.REASON_APP_CANCEL_ALL,
+        NotificationListenerService.REASON_CHANNEL_BANNED
+        -> CaptureDiagnostics.REMOVAL_SOURCE_CANCELLED
+        // The user acted on it (swipe, clear-all, stop the app).
+        NotificationListenerService.REASON_CANCEL,
+        NotificationListenerService.REASON_CANCEL_ALL,
+        NotificationListenerService.REASON_USER_STOPPED
+        -> CaptureDiagnostics.REMOVAL_USER_DISMISSED
+        else -> CaptureDiagnostics.REMOVAL_REASON_UNKNOWN
     }
 }
