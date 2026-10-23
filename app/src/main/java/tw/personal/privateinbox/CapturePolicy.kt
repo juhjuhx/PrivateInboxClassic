@@ -22,29 +22,25 @@ object CapturePolicy {
         SourceRegistry.isKnown(packageName) && packageName in selected
 
     /**
-     * Collapse the whitespace runs in a piece of text.
+     * Normalize a notification field for STORAGE.
      *
-     * The pattern is COMPILED ONCE, at class-load time.
+     * The contract (v0.4.5):
      *
-     * It used to be `Regex("[\\t\\r ]+")` written inline, which compiled a
-     * fresh Regex object on EVERY call. The notification callback calls this
-     * twice per message -- once for the body, once for the sender -- and a
-     * group notification carries up to 25 messages, so a single notification
-     * compiled up to 50 Regex objects ON THE MAIN THREAD.
+     *   - NO silent truncation. Android may have already truncated the source;
+     *     that is reported separately as SOURCE_TRUNCATED. This app never
+     *     truncates.
+     *   - NO semantic alteration. Whitespace, tabs, newlines, control
+     *     characters, zero-width characters, surrogate pairs, combining marks
+     *     and emoji are all preserved verbatim. Normalization is a DISPLAY
+     *     concern and lives in the UI layer, not here.
+     *   - A blank or null input yields null, so the caller can fall back to
+     *     the next field or drop the row.
      *
-     * A compiled Regex is immutable and thread-safe, so one shared instance
-     * is correct.
+     * Only the null/blank check remains. Everything else is the caller's
+     * responsibility, and the caller must treat the result as the ORIGINAL
+     * content.
      */
-    private val WHITESPACE_RUNS = Regex("[\\t\\r ]+")
-
-    /** The maximum length of a stored message body. */
-    private const val MAX_BODY_LENGTH = 20_000
-
-    fun normalize(value: String?): String? = value
-        ?.trim()
-        ?.replace(WHITESPACE_RUNS, " ")
-        ?.take(MAX_BODY_LENGTH)
-        ?.takeIf { it.isNotBlank() }
+    fun normalize(value: String?): String? = value?.takeIf { it.isNotBlank() }
 
     fun nameFor(packageName: String): String = SourceRegistry.displayName(packageName)
 }
