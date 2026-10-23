@@ -18,7 +18,20 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
+      - name: Set up the Android command-line tools
+        # Installed directly with a pinned version, as android.yml does.
+        # android-actions/setup-android@v3 currently fails on the hosted
+        # runner because its bundled sdkmanager cannot resolve "tools".
+        run: |
+          set -euo pipefail
+          ANDROID_TOOLS_VERSION="11076708"
+          ANDROID_TOOLS_URL="https://dl.google.com/android/repository/commandlinetools-mac-${ANDROID_TOOLS_VERSION}_latest.zip"
+          curl -fsSL -o /tmp/cmdline-tools.zip "$ANDROID_TOOLS_URL"
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+          unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tools-extract
+          rm -rf "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+          mv /tmp/cmdline-tools-extract/cmdline-tools "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
 
       - name: Accept SDK licenses
         run: yes | sdkmanager --licenses >/dev/null || true
@@ -46,14 +59,14 @@ jobs:
 
       - name: Record APK fingerprint
         run: |
-          APK=app/build/outputs/apk/debug/app-debug.apk
+          APK=app/build/outputs/apk/prod/debug/app-prod-debug.apk
           test -f "$APK" || { echo "APK was not produced" >&2; exit 1; }
           echo "APK: $APK"; sha256sum "$APK" | tee apk-sha256.txt; stat -c '%s bytes' "$APK"
 
       # Inspect the ACTUAL installed APK, not just the source manifest
       - name: Inspect final APK permissions
         run: |
-          APK=app/build/outputs/apk/debug/app-debug.apk
+          APK=app/build/outputs/apk/prod/debug/app-prod-debug.apk
           AAPT="$ANDROID_HOME/build-tools/36.0.0/aapt"
           "$AAPT" dump permissions "$APK" | tee /tmp/permissions.txt
           if grep -E '(android.permission.INTERNET|READ_SMS|READ_CONTACTS|QUERY_ALL_PACKAGES|READ_EXTERNAL_STORAGE|FOREGROUND_SERVICE|ACCESS_NETWORK_STATE)' /tmp/permissions.txt; then
@@ -76,6 +89,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: PrivateInboxClassic-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/prod/debug/app-prod-debug.apk
           if-no-files-found: error
           retention-days: 14
