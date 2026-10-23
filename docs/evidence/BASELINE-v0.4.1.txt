@@ -1,0 +1,25 @@
+=== BASELINE EVIDENCE 2026年10月21日 週三 06時30分39秒 CST ===
+HEAD: 6436fec423fc43e981c64e37712457f41cf121e7
+branch: integration/dsh-v040
+
+APK: $HOME/PrivateInboxClassic-v0.4.1-debug.apk
+APK_SHA256: 8303816dc06c9022b36e56b0745e6047c1395cd72d5e5597d83ff57b850a0e66
+APK_SIZE: 5870733
+
+SIGNING:
+Signer #1 certificate DN: CN=Android Debug, O=Android, C=US
+Signer #1 certificate SHA-256 digest: c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4
+
+SCHEMA:
+18:class InboxDatabase(context: Context) : SQLiteOpenHelper(context, "inbox.db", null, 4) {
+30:        db.execSQL("""CREATE TABLE messages (
+31-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+32-            package_name TEXT NOT NULL,
+33-            received_at INTEGER NOT NULL,
+34-            source_ts INTEGER NOT NULL DEFAULT 0,
+35-            conversation_key TEXT NOT NULL DEFAULT '',
+36-            message_kind TEXT NOT NULL DEFAULT 'UNKNOWN',
+37-            fingerprint BLOB NOT NULL UNIQUE,
+38-            sealed_content BLOB NOT NULL,
+39-            sealed_image BLOB
+40-        )""".trimIndent())

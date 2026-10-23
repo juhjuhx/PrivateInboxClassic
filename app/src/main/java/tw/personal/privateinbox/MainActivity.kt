@@ -25,6 +25,8 @@ import android.widget.*
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
+import tw.personal.privateinbox.dhc.DhcExportPlan
+import tw.personal.privateinbox.dhc.DhcExportService
 import java.util.Date
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -41,6 +43,16 @@ class MainActivity : ComponentActivity() {
         const val SECONDARY = 0xff757575.toInt()
         const val BG = 0xffE7EBF0.toInt()
         const val LINE = 0xffE0E0E0.toInt()
+
+        /**
+         * The number of messages loaded per page.
+         *
+         * A page is decrypted in full, so this is the cost of the first
+         * screen. The measurement: a page read is a CONSTANT ~89 ms whether the
+         * table holds 100 rows or 10,000, because the query is indexed and
+         * only the page is decrypted.
+         */
+        const val PAGE_SIZE = 50
     }
 
     private var unlocked = false
@@ -61,6 +73,50 @@ class MainActivity : ComponentActivity() {
     private var keyState: CryptoStore.KeyState = CryptoStore.KeyState.KEY_AVAILABLE
     /** Number of rows that could not be decrypted during the last read. */
     private var unreadableRows: Int = 0
+
+    /**
+     * The cursor for the next page.
+     *
+     * It is the (received_at, id) pair of the last loaded row. The list is
+     * loaded a page at a time, so the first screen only decrypts what it
+     * shows instead of the whole table.
+     */
+    private var nextPageCursor: Pair<Long, Long>? = null
+
+    /** True when another page can be loaded. */
+    private var hasMorePages: Boolean = false
+
+    /** True while a page is being loaded, so the load is not started twice. */
+    private var loadingPage: Boolean = false
+
+    /** The number of pages loaded so far, for the diagnostics panel. */
+    private var pagesLoaded: Int = 0
+
+    /**
+     * The plan the user is about to export.
+     *
+     * It is built first and shown, so the export is always an informed,
+     * explicit action. Nothing is written before the user has seen it.
+     */
+    private var pendingExportPlan: tw.personal.privateinbox.dhc.DhcExportPlan.Plan? = null
+
+    /**
+     * The Storage Access Framework picker.
+     *
+     * The user chooses the destination. The app never picks a path itself, so
+     * it can only write where the user pointed it.
+     */
+    private val exportDestination = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri ->
+        val plan = pendingExportPlan
+        pendingExportPlan = null
+        if (uri == null || plan == null) {
+            Toast.makeText(this, "已取消匯出", Toast.LENGTH_SHORT).show()
+            return@registerForActivityResult
+        }
+        askExportPassphrase(plan, uri)
+    }
     /** Guard so the recovery dialog is not shown repeatedly. */
     private var keyRecoveryShown = false
     private val io: ExecutorService = Executors.newFixedThreadPool(2)
@@ -263,11 +319,17 @@ class MainActivity : ComponentActivity() {
             var loaded: List<InboxDatabase.Entry>
             var readState = CryptoStore.KeyState.KEY_AVAILABLE
             var unreadable = 0
+            var cursor: Pair<Long, Long>? = null
+            var more = false
             try {
-                val res = db.recentWithState(1500)
+                // The FIRST page only. The rest is loaded when the user asks
+                // for it, so the first screen never decrypts the whole table.
+                val res = db.readPage(limit = PAGE_SIZE)
                 loaded = res.entries
                 readState = res.keyState
                 unreadable = res.unreadableRows
+                cursor = res.nextCursor()
+                more = res.hasMore
                 val days = LocalSettings.retentionDays(this)
                 if (days > 0) runCatching { db.pruneOlderThanDays(days) }
             } catch (_: Exception) {
@@ -278,6 +340,9 @@ class MainActivity : ComponentActivity() {
                 entries = loaded
                 keyState = readState
                 unreadableRows = unreadable
+                nextPageCursor = cursor
+                hasMorePages = more
+                pagesLoaded = 1
                 when (page) {
                     "inbox" -> showInbox(false)
                     "chat" -> showChat()
@@ -297,35 +362,106 @@ class MainActivity : ComponentActivity() {
      * must confirm before anything is removed.
      */
     private fun offerKeyRecovery() {
-        if (keyState != CryptoStore.KeyState.RECOVERY_REQUIRED) return
         if (keyRecoveryShown) return
-        keyRecoveryShown = true
-        val message = buildString {
-            append("加密金鑰已失效（例如變更螢幕鎖或重新註冊生物辨識）。\n\n")
-            append("受影響的 $unreadableRows 則訊息已永久無法解密。")
-            append("金鑰無法復原 —— 重新設定螢幕鎖也不會讓舊資料回來。\n\n")
-            append("這些資料仍留在本機。你可以先保留它們，或明確清除它們並重新開始。")
+        // A key that is only TEMPORARILY unavailable must not raise a dialog
+        // offering to delete anything: the device simply has not been unlocked
+        // yet, and nothing is lost.
+        if (keyState == CryptoStore.KeyState.KEY_AVAILABLE ||
+            keyState == CryptoStore.KeyState.KEY_TEMPORARILY_UNAVAILABLE
+        ) {
+            return
         }
+        if (keyState == CryptoStore.KeyState.DECRYPT_FAILED && unreadableRows == 0) return
+
+        val description = KeyRecovery.describe(keyState, unreadableRows, entries.size)
+        if (description.action == KeyRecovery.Action.NONE) {
+            // Nothing the user can do about it right now; the state is shown in
+            // the diagnostics panel instead.
+            keyRecoveryShown = true
+            return
+        }
+        keyRecoveryShown = true
         AlertDialog.Builder(this@MainActivity)
-            .setTitle("需要處理：加密金鑰已失效")
-            .setMessage(message)
+            .setTitle(description.title)
+            .setMessage(description.message)
             .setNegativeButton("保留資料") { _, _ -> keyRecoveryShown = false }
             .setPositiveButton("清除無法解密的資料") { _, _ ->
                 keyRecoveryShown = false
-                io.execute {
-                    val db = InboxDatabase(this@MainActivity)
-                    val removed = runCatching { db.purgeUndecryptableRows() }.getOrDefault(0)
-                    db.close()
-                    runOnUiThread {
-                        if (isFinishing || isDestroyed) return@runOnUiThread
-                        Toast.makeText(this@MainActivity,
-                            "已清除 $removed 則無法解密的資料", Toast.LENGTH_LONG).show()
-                        loadEntries()
-                    }
+                // A SECOND, explicit confirmation before anything is deleted.
+                KeyRecovery.confirmClear(this@MainActivity, unreadableRows) {
+                    purgeUndecryptable()
                 }
             }
             .setOnCancelListener { keyRecoveryShown = false }
             .show()
+    }
+
+    /**
+     * Delete the rows that cannot be decrypted.
+     *
+     * This is only ever reached after the user has confirmed twice: once that
+     * they understand the state, and once that they want the deletion. The
+     * rows that CAN be decrypted are never touched.
+     */
+    private fun purgeUndecryptable() {
+        io.execute {
+            val db = InboxDatabase(this@MainActivity)
+            val removed = runCatching { db.purgeUndecryptableRows() }.getOrDefault(0)
+            db.close()
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                Toast.makeText(this@MainActivity,
+                    "已清除 $removed 則無法解密的資料", Toast.LENGTH_LONG).show()
+                loadEntries()
+            }
+        }
+    }
+
+    /**
+     * Load the next page and append it to the list.
+     *
+     * The list is paged, so the user asks for more explicitly. That keeps the
+     * first screen fast and makes the loading visible instead of surprising.
+     */
+    private fun loadMorePages() {
+        if (loadingPage || !hasMorePages) return
+        val cursor = nextPageCursor ?: return
+        loadingPage = true
+        io.execute {
+            val db = InboxDatabase(this@MainActivity)
+            var more: List<InboxDatabase.Entry> = emptyList()
+            var next: Pair<Long, Long>? = null
+            var hasMore = false
+            try {
+                val res = db.readPage(
+                    limit = PAGE_SIZE,
+                    beforeReceivedAt = cursor.first,
+                    beforeId = cursor.second
+                )
+                more = res.entries
+                next = res.nextCursor()
+                hasMore = res.hasMore
+            } catch (_: Exception) {
+                // A failed page leaves the list as it was.
+            } finally { db.close() }
+            runOnUiThread {
+                loadingPage = false
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (more.isNotEmpty()) {
+                    entries = entries + more
+                    nextPageCursor = next
+                    hasMorePages = hasMore
+                    pagesLoaded++
+                    when (page) {
+                        "inbox" -> showInbox(false)
+                        "chat" -> showChat()
+                        else -> Unit
+                    }
+                } else {
+                    hasMorePages = false
+                }
+            }
+        }
     }
 
     /** Stable conversation identity: the platform conversation key when available,
@@ -470,6 +606,18 @@ class MainActivity : ComponentActivity() {
                     showChat()
                 }, LinearLayout.LayoutParams(-1, 76.dp()))
                 data.addView(divider())
+            }
+            // The list is paged. Another page is loaded only when the user
+            // asks for it, so the first screen never decrypts the whole table.
+            if (hasMorePages) {
+                data.addView(txt(
+                    if (loadingPage) "載入中…" else "載入更多",
+                    15f, BLUE
+                ).apply {
+                    gravity = Gravity.CENTER
+                    setPadding(0, 18.dp(), 0, 22.dp())
+                    setOnClickListener { loadMorePages() }
+                })
             }
         }
         val content = FrameLayout(this)
@@ -801,12 +949,153 @@ class MainActivity : ComponentActivity() {
         show(root)
     }
 
+    /**
+     * The export section of the settings screen.
+     *
+     * The export is an explicit, local action: the user chooses what to
+     * export, where to put it, and a passphrase. Nothing is sent anywhere,
+     * and the app has no INTERNET permission to send it with.
+     */
+    private fun exportSection(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        addView(txt("加密匯出", 18f, INK, true).apply { setPadding(0, 22.dp(), 0, 4.dp()) })
+        addView(txt(
+            "把已保存的訊息匯出成一個加密檔案，供離線工具讀取。" +
+                "檔案由你提供的密碼加密，密碼不會被儲存。" +
+                "本程式沒有網路權限，匯出的檔案不會離開這台裝置，除非你把它交出去。",
+            13f, SECONDARY
+        ).apply { setPadding(0, 4.dp(), 0, 12.dp()) })
+
+        addView(Button(this@MainActivity).apply {
+            text = "匯出全部私人訊息"
+            setOnClickListener { startExport(DhcExportPlan.Scope.ALL) }
+        }.apply { layoutParams = LinearLayout.LayoutParams(-1, 46.dp()) })
+
+        addView(Button(this@MainActivity).apply {
+            text = "選擇來源後匯出"
+            setOnClickListener { startExport(DhcExportPlan.Scope.SELECTED_SOURCES) }
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(-1, 46.dp())
+            setPadding(0, 8.dp(), 0, 0)
+        })
+    }
+
+    /**
+     * Start an export: build the plan, then ask for the destination.
+     *
+     * The plan is built on the worker thread because it reads and decrypts the
+     * database. The user sees the plan before anything is written.
+     */
+    private fun startExport(scope: DhcExportPlan.Scope) {
+        io.execute {
+            val db = InboxDatabase(this@MainActivity)
+            val filter = when (scope) {
+                DhcExportPlan.Scope.ALL -> DhcExportPlan.Filter()
+                DhcExportPlan.Scope.SELECTED_SOURCES -> DhcExportPlan.Filter(
+                    scope = scope,
+                    packages = LocalSettings.selected(this@MainActivity).toSet()
+                )
+                DhcExportPlan.Scope.DATE_RANGE -> DhcExportPlan.Filter(scope = scope)
+            }
+            val plan = runCatching { DhcExportPlan.build(this@MainActivity, filter, db) }
+                .getOrNull()
+            db.close()
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (plan == null) {
+                    Toast.makeText(this@MainActivity, "無法建立匯出計畫", Toast.LENGTH_LONG).show()
+                    return@runOnUiThread
+                }
+                if (plan.messages.isEmpty()) {
+                    Toast.makeText(this@MainActivity, "沒有符合條件的訊息", Toast.LENGTH_LONG).show()
+                    return@runOnUiThread
+                }
+                pendingExportPlan = plan
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("確認匯出")
+                    .setMessage(plan.summary())
+                    .setNegativeButton("取消") { _, _ -> pendingExportPlan = null }
+                    .setPositiveButton("選擇儲存位置") { _, _ ->
+                        exportDestination.launch("private-inbox-export-${System.currentTimeMillis()}.picbox")
+                    }
+                    .show()
+            }
+        }
+    }
+
+    /**
+     * Ask for the passphrase that protects the export.
+     *
+     * The passphrase is held in a CharArray that is zeroed as soon as the
+     * export finishes. It is never stored and never logged.
+     */
+    private fun askExportPassphrase(plan: DhcExportPlan.Plan, destination: android.net.Uri) {
+        val input = android.widget.EditText(this).apply {
+            hint = "匯出密碼"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setPadding(20.dp(), 14.dp(), 20.dp(), 14.dp())
+        }
+        val wrapper = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(18.dp(), 8.dp(), 18.dp(), 0)
+            addView(txt(
+                "請輸入一個匯出密碼。這個密碼之後是讀取檔案的唯一方式，" +
+                    "忘記了就無法復原。",
+                13f, SECONDARY
+            ))
+            addView(input)
+        }
+        AlertDialog.Builder(this@MainActivity)
+            .setTitle("設定匯出密碼")
+            .setView(wrapper)
+            .setNegativeButton("取消", null)
+            .setPositiveButton("匯出") { _, _ ->
+                val passphrase = input.text.toString().toCharArray()
+                input.text?.clear()
+                if (passphrase.isEmpty()) {
+                    Toast.makeText(this@MainActivity, "密碼不能是空的", Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+                runExport(plan, destination, passphrase)
+            }
+            .show()
+    }
+
+    /** Run the export and report the outcome. */
+    private fun runExport(
+        plan: DhcExportPlan.Plan,
+        destination: android.net.Uri,
+        passphrase: CharArray
+    ) {
+        io.execute {
+            val result = DhcExportService.export(this@MainActivity, destination, plan, passphrase)
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                when (result) {
+                    is DhcExportService.Result.Written -> Toast.makeText(
+                        this@MainActivity,
+                        "已匯出 ${result.messages} 則訊息（${result.bytes} bytes）",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    is DhcExportService.Result.Cancelled -> Toast.makeText(
+                        this@MainActivity, "已取消匯出", Toast.LENGTH_SHORT
+                    ).show()
+                    is DhcExportService.Result.Failed -> Toast.makeText(
+                        this@MainActivity, "匯出失敗：${result.reason}", Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
+
     private fun showSettings() {
         if (!unlocked) return
         page = "settings"
         val root = column()
         root.addView(toolbar("來源與隱私", { showInbox(true) }))
         val panel = column().apply { setPadding(18.dp(), 18.dp(), 18.dp(), 25.dp()) }
+        panel.addView(exportSection())
         panel.addView(txt("擷取設定", 20f, INK, true))
         panel.addView(txt("Android 通知監聽權限可以接收多種通知。本程式只保存你勾選的通訊 App，預設完全關閉。", 13f, SECONDARY).apply {
             setPadding(0, 8.dp(), 0, 14.dp())
@@ -836,7 +1125,8 @@ class MainActivity : ComponentActivity() {
         }
         panel.addView(permission, LinearLayout.LayoutParams(-1, 52.dp()))
         panel.addView(txt("選擇訊息來源", 18f, INK, true).apply { setPadding(0, 25.dp(), 0, 8.dp()) })
-        for (source in SourceRegistry.all) {
+        // The self-test and burst-test fixtures are not offered to the user.
+        for (source in SourceRegistry.all.filterNot { it.isSelfTest }) {
             panel.addView(CheckBox(this).apply {
                 text = source.displayName
                 buttonTintList = ColorStateList.valueOf(BLUE)
@@ -948,6 +1238,38 @@ class MainActivity : ComponentActivity() {
         panel.addView(diagRow("最後收到通知", if (lastReceived > 0) time(lastReceived, true) else "（尚無）"))
         panel.addView(diagRow("最後成功保存", if (lastSuccess > 0) time(lastSuccess, true) else "（尚無）"))
         panel.addView(diagRow("最後診斷事件", if (lastEvent > 0) time(lastEvent, true) else "（尚無）"))
+        panel.addView(divider().apply { setPadding(0, 14.dp(), 0, 4.dp()) })
+
+        // The encryption key's own state. This is what tells a temporary lock
+        // apart from a permanent loss, which the message list alone cannot.
+        panel.addView(txt("加密金鑰", 16f, INK, true).apply { setPadding(0, 8.dp(), 0, 6.dp()) })
+        val keyDescription = KeyRecovery.describe(keyState, unreadableRows, entries.size)
+        panel.addView(diagRow("金鑰狀態", keyState.name))
+        panel.addView(diagRow("無法解密的訊息", "$unreadableRows 則"))
+        panel.addView(diagRow("金鑰診斷", KeyRecovery.diagnose(this)))
+        panel.addView(divider().apply { setPadding(0, 14.dp(), 0, 4.dp()) })
+
+        // The capture pipeline's quantitative counters. They are in-memory, so
+        // they are reset when the process dies.
+        panel.addView(txt("擷取管線（本次行程）", 16f, INK, true).apply { setPadding(0, 8.dp(), 0, 6.dp()) })
+        val metrics = CaptureMetrics.snapshot()
+        panel.addView(diagRow("通知回呼", "${metrics["callbacks_entered"] ?: 0}"))
+        panel.addView(diagRow("通過來源政策", "${metrics["policy_accepted"] ?: 0}"))
+        panel.addView(diagRow("呈現的訊息", "${metrics["messages_presented"] ?: 0}"))
+        panel.addView(diagRow("送去寫入", "${metrics["messages_submitted"] ?: 0}"))
+        panel.addView(diagRow("入庫", "${metrics["db_committed"] ?: 0}"))
+        panel.addView(diagRow("重複", "${metrics["db_duplicated"] ?: 0}"))
+        panel.addView(diagRow("寫入失敗", "${metrics["db_failed"] ?: 0}"))
+        panel.addView(diagRow("佇列最大深度", "${metrics["queue_high_watermark"] ?: 0}"))
+        panel.addView(diagRow("佇列溢出", "${metrics["queue_overflow"] ?: 0}"))
+        panel.addView(diagRow("Worker 例外", "${metrics["worker_failures"] ?: 0}"))
+        panel.addView(diagRow("截斷的訊息", "${metrics["messages_truncated"] ?: 0}"))
+        panel.addView(diagRow("回呼耗時 p95/p99",
+            "${CaptureMetrics.callbackDuration.snapshot().p95} / " +
+                "${CaptureMetrics.callbackDuration.snapshot().p99} ms"))
+        panel.addView(diagRow("佇列等待 p95/p99",
+            "${CaptureMetrics.queueWait.snapshot().p95} / " +
+                "${CaptureMetrics.queueWait.snapshot().p99} ms"))
         panel.addView(divider().apply { setPadding(0, 14.dp(), 0, 4.dp()) })
         val diagActions = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL

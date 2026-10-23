@@ -1,0 +1,67 @@
+name: Feature request
+description: Suggest an improvement
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting something.
+
+        **Never include message content, sender names, or real chat
+        screenshots.** Synthetic content only.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What is hard or impossible today? Describe the situation, not the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like to happen
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you have considered
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which area does this touch?
+      options:
+        - Capture and storage
+        - Search and filtering
+        - Export and the DHC connector
+        - Settings and privacy
+        - UI and accessibility
+        - Build, test, or CI
+        - Documentation
+        - Not sure
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints
+      description: |
+        This project has hard rules. Please confirm your idea does not need
+        any of them to be broken.
+      options:
+        - label: This does not require network access or an INTERNET permission.
+          required: true
+        - label: This does not require Root, Accessibility Service, or disabling Android security.
+          required: true
+        - label: This does not require Google Play Services.
+          required: true
+        - label: This does not delete or rewrite the user's existing messages.
+          required: true

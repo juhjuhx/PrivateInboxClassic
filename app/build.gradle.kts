@@ -76,9 +76,53 @@ android {
         applicationId = "tw.personal.privateinbox"
         minSdk = 28
         targetSdk = 36
-        versionCode = 7
-        versionName = "0.4.1"
+        // v0.4.4: performance and portability.
+        //
+        // The version code is monotonic: 8 was v0.4.2, 9 was v0.4.3, so this
+        // is 10. The version is asserted by scripts/audit-release.sh, which
+        // also checks that the release bundle is not signed with the debug key.
+        versionCode = 10
+        versionName = "0.4.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    // ---------------------------------------------------------------------
+    // The devtest variant: an ISOLATED application id for the destructive
+    // instrumentation tests.
+    //
+    // The problem this solves: the instrumentation tests open the TARGET
+    // application's database and clear it. The target package is
+    // `tw.personal.privateinbox` — the SAME package the user installs — so
+    // running the suite on a phone that has the real app would DELETE THE
+    // USER'S SAVED MESSAGES.
+    //
+    // The devtest variant has the application id
+    // `tw.personal.privateinbox.devtest`. Android gives each application id its
+    // own data directory, so the test variant has its own `inbox.db` and
+    // physically cannot reach the real one.
+    //
+    // The production variant keeps the real id, and
+    // DestructiveOperationGuard refuses to destroy data when the target
+    // package is the production one. The guard is by PACKAGE ID, not by build
+    // type, so a release build installed on a phone is protected too.
+    //
+    // The permission names are suffixed per variant so the two variants
+    // cannot impersonate each other's providers.
+    // ---------------------------------------------------------------------
+    flavorDimensions += "isolation"
+    productFlavors {
+        create("prod") {
+            dimension = "isolation"
+            applicationId = "tw.personal.privateinbox"
+            // The suffix distinguishes the permission from the devtest one.
+            manifestPlaceholders["permissionSuffix"] = ""
+        }
+        create("devtest") {
+            dimension = "isolation"
+            applicationId = "tw.personal.privateinbox.devtest"
+            manifestPlaceholders["permissionSuffix"] = ".devtest"
+            versionNameSuffix = "-devtest"
+        }
     }
 
     compileOptions {
@@ -95,8 +139,13 @@ android {
     signingConfigs {
         // A deterministic debug key keeps `adb install -r` working across
         // rebuilds and across machines.
+        //
+        // AGP pre-creates the "debug" and "release" signing configs, so the
+        // existing ones are MODIFIED with named() rather than re-created:
+        // create("debug") fails with "a SigningConfig with that name already
+        // exists".
         if (debugSigning != null) {
-            create("debug") {
+            named("debug") {
                 storeFile = debugSigning.storeFile
                 storePassword = debugSigning.storePassword
                 keyAlias = debugSigning.keyAlias
@@ -171,6 +220,54 @@ android {
     // AGP 8 removed `bundle { signingConfig }`; the bundle is signed with the
     // release build type's key by default. Configuring a distinct upload key is
     // done through the androidComponents API below.
+    //
+    // The release APK sets `signingConfig = null` when no release key exists,
+    // so it can never carry the debug identity. The BUNDLE had no such
+    // protection: with no upload key configured, AGP signed the release
+    // bundle with the DEBUG key, so a file named "...-v0.4.1.aab" was in fact
+    // a debug-signed artifact. The bundle's signing config is therefore
+    // cleared as well when no release key is available.
+}
+
+// ---------------------------------------------------------------------------
+// Release bundle signing.
+//
+// The release APK already refuses to fall back to the debug key. The bundle
+// did not: AGP signs a release bundle with the release build type's signing
+// config, and when that config is null AGP falls back to the debug key. A
+// release AAB was therefore produced carrying the DEBUG certificate, which
+// looked like a distributable artifact but was not.
+//
+// When no release or upload keystore is configured, the bundle is left
+// UNSIGNED and the build says so loudly. It must never carry the debug
+// identity under a release name.
+// ---------------------------------------------------------------------------
+if (releaseSigning == null && uploadSigning == null) {
+    androidComponents {
+        onVariants(selector().withBuildType("release")) { variant ->
+            val bundleTaskName = "bundle${variant.name.replaceFirstChar { it.uppercase() }}"
+            // The bundle task is created lazily by AGP, so it is matched by
+            // name at EXECUTION time rather than looked up at configuration
+            // time (tasks.named() fails because the task does not exist yet).
+            tasks.matching { it.name == bundleTaskName }.configureEach {
+                // Clear the signing config so the debug identity cannot leak
+                // into a release artifact.
+                val signing = this.javaClass.methods.firstOrNull { it.name == "getSigningConfig" }
+                    ?.invoke(this) as? com.android.build.api.dsl.SigningConfig
+                if (signing != null) {
+                    signing.storeFile = null
+                    signing.storePassword = null
+                    signing.keyAlias = null
+                    signing.keyPassword = null
+                    logger.warn(
+                        "SIGNING: no release or upload keystore configured. The release BUNDLE " +
+                            "will be UNSIGNED and is NOT distributable. It will NOT be signed " +
+                            "with the debug key. See docs/SIGNING.md."
+                    )
+                }
+            }
+        }
+    }
 }
 
 dependencies {
@@ -180,6 +277,11 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
 
     // Instrumentation test only. These never ship inside the app APK.
+    //
+    // The destructive instrumentation tests run against the devtest variant,
+    // which has its own application id and therefore its own data directory.
+    // That is what makes `db.clear()` in a test SAFE: it cannot reach the
+    // production app's database.
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:rules:1.6.1")

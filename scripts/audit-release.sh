@@ -23,8 +23,11 @@ SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/opt/homebrew/share/android-commandline
 BT="$SDK/build-tools/36.0.0"
 AAPT="$BT/aapt"
 APKSIGNER="$BT/apksigner"
-APKDEBUG="app/build/outputs/apk/debug/app-debug.apk"
-APKRELEASE="app/build/outputs/apk/release/app-release-unsigned.apk"
+# The build uses the `prod` flavor, so the flavored output paths are the ones
+# that actually exist. The unflavored paths are stale leftovers from before the
+# flavor split and would audit an old artifact (or none at all).
+APKDEBUG="app/build/outputs/apk/prod/debug/app-prod-debug.apk"
+APKRELEASE="app/build/outputs/apk/prod/release/app-prod-release-unsigned.apk"
 
 fail=0
 ok()   { printf '  OK   %s\n' "$*"; }
@@ -203,6 +206,83 @@ PY
   fi
 else
   bad "data_extraction_rules.xml is missing"
+fi
+
+echo ""
+echo "=== 7. Release bundle: identity, version and signing ==="
+# The release AAB is the artifact a Play upload would use. A previous release
+# shipped an AAB that was (a) still carrying the v0.4.0 version inside and
+# (b) signed with the DEBUG certificate, under a v0.4.1 file name. Neither is
+# visible from the file name, so both are checked here.
+AAB="app/build/outputs/bundle/prodRelease/app-prod-release.aab"
+EXPECTED_VERSION_NAME="0.4.4"
+EXPECTED_VERSION_CODE="10"
+if [ -f "$AAB" ]; then
+  tmp="$(mktemp -d)"
+  unzip -o -q "$AAB" -d "$tmp" 2>/dev/null
+
+  # -- the signing identity ---------------------------------------------
+  cert_file="$(find "$tmp" -name '*.RSA' -o -name '*.DSA' -o -name '*.EC' 2>/dev/null | head -1)"
+  if [ -n "$cert_file" ]; then
+    cert_sha="$("$BT/../../../../../../opt/homebrew/opt/openjdk@17/bin/keytool" -printcert \
+      -file "$cert_file" 2>/dev/null | grep -i 'SHA256:' | head -1 | \
+      sed 's/.*SHA256: //' | tr -d ':' | tr 'A-Z' 'a-z')"
+    if [ -z "$cert_sha" ]; then
+      cert_sha="$(keytool -printcert -file "$cert_file" 2>/dev/null | grep -i 'SHA256:' | head -1 | \
+        sed 's/.*SHA256: //' | tr -d ':' | tr 'A-Z' 'a-z')"
+    fi
+    debug_sha="c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4"
+    if [ "$cert_sha" = "$debug_sha" ]; then
+      bad "the release AAB is signed with the DEBUG certificate — it must never carry the debug identity"
+    else
+      ok "the release AAB is not signed with the debug certificate"
+    fi
+  else
+    ok "the release AAB is unsigned (no release or upload keystore configured)"
+  fi
+
+  # -- the version inside the bundle ------------------------------------
+  # The manifest is a protobuf; the version strings live in its string pool.
+  version_name="$(python3 - "$tmp" <<'PY'
+import re, sys, os
+root = sys.argv[1]
+path = os.path.join(root, "base", "manifest", "AndroidManifest.xml")
+if not os.path.exists(path):
+    print(""); raise SystemExit
+data = open(path, "rb").read()
+strings = [m.group().decode("utf-8", "replace") for m in re.finditer(rb"[ -~]{2,}", data)]
+out = []
+for i, s in enumerate(strings):
+    if s == "versionName" and i + 1 < len(strings):
+        out.append(strings[i + 1])
+    if s == "versionCode" and i + 1 < len(strings):
+        out.append(strings[i + 1])
+print(" ".join(out))
+PY
+)"
+  case "$version_name" in
+    *"$EXPECTED_VERSION_NAME"*) ok "the AAB contains versionName $EXPECTED_VERSION_NAME" ;;
+    *) bad "the AAB does not contain versionName $EXPECTED_VERSION_NAME (found: '${version_name:-<unreadable>}') — it may be a stale artifact" ;;
+  esac
+
+  # -- the application id ------------------------------------------------
+  if grep -rq "tw.personal.privateinbox" "$tmp/base/manifest" 2>/dev/null ||
+     python3 - "$tmp" <<'PY' 2>/dev/null
+import sys, os, re
+root = sys.argv[1]
+path = os.path.join(root, "base", "manifest", "AndroidManifest.xml")
+data = open(path, "rb").read()
+raise SystemExit(0 if b"tw.personal.privateinbox" in data else 1)
+PY
+  then
+    ok "the AAB contains the expected application id"
+  else
+    bad "the AAB does not contain tw.personal.privateinbox"
+  fi
+
+  rm -rf "$tmp"
+else
+  skip "release AAB not built"
 fi
 
 echo ""

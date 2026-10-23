@@ -40,7 +40,11 @@ class NotificationPipelineInstrumentedTest {
         LocalSettings.setCaptureImages(context, true)
         LocalSettings.updateSources(context, setOf("org.telegram.messenger", "jp.naver.line.android"))
         val db = InboxDatabase(context)
-        db.clear()
+        // This test destroys the database, so it only runs against the
+        // ISOLATED variant. On the production package it is SKIPPED
+        // with a reason, and nothing is deleted.
+        DestructiveTestAssumption.requireIsolated(context)
+        TestDataIsolation.clearDatabase(context)
         db.close()
     }
 
@@ -228,7 +232,11 @@ class NotificationPipelineInstrumentedTest {
         db.save("org.telegram.messenger", System.currentTimeMillis(), 0, "E", "E", "b", null)
         db.save("jp.naver.line.android", System.currentTimeMillis(), 0, "F", "F", "b", null)
         assertEquals(2, db.recent(10).size)
-        db.clear()
+        // This test destroys the database, so it only runs against the
+        // ISOLATED variant. On the production package it is SKIPPED
+        // with a reason, and nothing is deleted.
+        DestructiveTestAssumption.requireIsolated(context)
+        TestDataIsolation.clearDatabase(context)
         assertEquals(0, db.recent(10).size)
         db.close()
     }

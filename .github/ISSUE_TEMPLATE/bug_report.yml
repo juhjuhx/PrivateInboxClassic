@@ -1,0 +1,121 @@
+name: Bug report
+description: Something does not work the way it should
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting this.
+
+        **Never include message content, sender names, conversation titles,
+        images, or an unredacted diagnostics export.** Synthetic content only.
+        A real chat screenshot is a privacy incident, not a test asset.
+
+  - type: input
+    id: app-version
+    attributes:
+      label: App version
+      description: Settings -> About -> Version name
+      placeholder: "0.4.4"
+    validations:
+      required: true
+
+  - type: input
+    id: android-version
+    attributes:
+      label: Android version
+      description: Settings -> About -> Android version
+      placeholder: "14"
+    validations:
+      required: true
+
+  - type: input
+    id: oem
+    attributes:
+      label: OEM / ROM
+      description: The manufacturer and the ROM name, for example "vivo OriginOS" or "Samsung One UI 6"
+      placeholder: "vivo OriginOS 4"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: source
+    attributes:
+      label: Notification source
+      description: Which app posted the notification
+      options:
+        - LINE
+        - Telegram
+        - WhatsApp
+        - Instagram
+        - Messenger
+        - Threads
+        - KakaoTalk
+        - Other
+        - Not applicable
+    validations:
+      required: true
+
+  - type: dropdown
+    id: listener-state
+    attributes:
+      label: Listener state
+      description: What does Settings -> Diagnostics -> Listener state say?
+      options:
+        - CONNECTED
+        - PERMISSION_DENIED
+        - PERMISSION_GRANTED_NOT_CONNECTED
+        - I do not know
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Numbered steps to reproduce. Use synthetic content.
+      placeholder: |
+        1. Open a group chat with a synthetic name
+        2. Send a message
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics
+      description: |
+        The output of Settings -> Diagnostics -> Export, if you have it.
+        It contains package names, stage codes, timestamps and error TYPE NAMES only.
+        Review it before pasting: it still shows your usage times and which
+        apps you use.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: This report contains no message content, names, or screenshots.
+          required: true
+        - label: I have read the "Known Android limitations" section in the README.
+          required: false

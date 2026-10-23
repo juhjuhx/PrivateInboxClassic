@@ -35,7 +35,7 @@ class DebugProviderAccessControlInstrumentedTest {
         )
         val perms = info.permissions ?: emptyArray()
         val declared = perms.firstOrNull {
-            it.name == "tw.personal.privateinbox.permission.DEBUG_SETTINGS"
+            it.name == VariantNames.debugSettingsPermission(ctx)
         }
         assertNotNull(
             "the debug settings permission must be declared by the app",
@@ -58,7 +58,7 @@ class DebugProviderAccessControlInstrumentedTest {
         assertNotNull("the debug provider must exist in the debug build", info)
         assertEquals(
             "the debug provider must require the signature permission on reads",
-            "tw.personal.privateinbox.permission.DEBUG_SETTINGS",
+            VariantNames.debugSettingsPermission(ctx),
             info.readPermission
         )
     }
@@ -71,18 +71,18 @@ class DebugProviderAccessControlInstrumentedTest {
         // Verify the *permission protection level* is what enforces it, and
         // that a caller without it cannot obtain it.
         val pm = ctx.packageManager
-        val testPkg = "tw.personal.privateinbox.test"
+        val testPkg = VariantNames.instrumentationPackage(ctx)
         // The instrumentation APK REQUESTS the permission; it does not declare
         // it, so it shows up in requestedPermissions, not in permissions.
         val testInfo = pm.getPackageInfo(testPkg, PackageManager.GET_PERMISSIONS)
         val requested = testInfo.requestedPermissions ?: emptyArray()
         assertTrue(
             "the instrumentation package must request the debug settings permission",
-            "tw.personal.privateinbox.permission.DEBUG_SETTINGS" in requested
+            VariantNames.debugSettingsPermission(ctx) in requested
         )
         // And it must actually hold the grant.
         val granted = pm.checkPermission(
-            "tw.personal.privateinbox.permission.DEBUG_SETTINGS", testPkg
+            VariantNames.debugSettingsPermission(ctx), testPkg
         )
         assertEquals(
             "the instrumentation package must hold the grant",
@@ -101,7 +101,7 @@ class DebugProviderAccessControlInstrumentedTest {
         // An unknown method must not change anything.
         runCatching {
             ctx.contentResolver.call(
-                DebugSettingsProvider.CONTENT_URI, "notARealMethod", "x", null
+                DebugSettingsProvider.contentUriFor(ctx), "notARealMethod", "x", null
             )
         }
 
@@ -123,7 +123,7 @@ class DebugProviderAccessControlInstrumentedTest {
         assertNotNull("the debug provider must exist in the debug build", info)
         assertEquals(
             "the debug provider must be guarded",
-            "tw.personal.privateinbox.permission.DEBUG_SETTINGS",
+            VariantNames.debugSettingsPermission(ctx),
             info.readPermission
         )
     }

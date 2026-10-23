@@ -4,12 +4,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-./gradlew --no-daemon :app:testDebugUnitTest
+./gradlew --no-daemon :app:testProdDebugUnitTest
 
 echo
 echo "--- test report ---"
 shopt -s nullglob
-for f in app/build/test-results/testDebugUnitTest/*.xml; do
+for f in app/build/test-results/testProdDebugUnitTest/*.xml; do
   python3 - "$f" <<'PY'
 import sys, xml.etree.ElementTree as ET
 root = ET.parse(sys.argv[1]).getroot()

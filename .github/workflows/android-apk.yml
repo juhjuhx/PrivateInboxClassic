@@ -36,13 +36,13 @@ jobs:
         run: bash scripts/audit.sh
 
       - name: Run unit tests
-        run: ./gradlew --no-daemon :app:testDebugUnitTest
+        run: ./gradlew --no-daemon :app:testProdDebugUnitTest
 
       - name: Run Android Lint
-        run: ./gradlew --no-daemon :app:lintDebug
+        run: ./gradlew --no-daemon :app:lintProdDebug
 
       - name: Compile debug APK
-        run: ./gradlew --no-daemon :app:assembleDebug
+        run: ./gradlew --no-daemon :app:assembleProdDebug
 
       - name: Record APK fingerprint
         run: |

@@ -1,0 +1,73 @@
+=== BASELINE EVIDENCE (R0) ===
+Generated: 2026-10-21
+Worktree:  $HOME/PrivateInboxClassic-v0.2/PrivateInboxClassic-v0.4-wt
+Branch:    fix/x200pro-burst-capture
+HEAD:      8494910
+
+--- GIT ---
+status:            clean (no uncommitted changes)
+worktrees:         2 (this one + the stale v0.3.1 one)
+remote:            https://github.com/juhjuhx/PrivateInboxClassic.git
+repo visibility:   PRIVATE
+gh auth:           OK (account juhjuhx)
+git diff --check:  clean
+
+branches:
+  fix/x200pro-burst-capture        8494910  [origin/fix/x200pro-burst-capture]
+  integration/dsh-v040             6436fec  [origin/integration/dsh-v040]
+  integration/v0.3.1-notification-recovery  6ccb69f (separate worktree)
+  main                             eaafe94
+  feature/phase1-build-recovery-and-verification  6ccb69f
+
+--- CI ---
+run 39450024722  SUCCESS  head 014a8068  branch integration/dsh-v040
+run 39449479410  failure  (the SDK setup issue, fixed in 014a806)
+
+--- ENVIRONMENT ---
+disk free:   20 GiB (91% used) — enough for the emulator and Gradle
+inodes free: 41,185,160 (91% used) — not an inode problem
+devices:     emulator-5554 only. NO vivo X200 Pro attached.
+
+--- ARTIFACT INTEGRITY (§10 review) ---
+The previously reported AAB is a STALE v0.4.0 ARTIFACT:
+  file:    PrivateInboxClassic-v0.4.1.aab
+  sha256:  bc8b471f6ac436be6051ea53a431feac3211ae94ad3ee1cc7a4bf2f27feab7d1
+  built:   2026-10-20 23:18
+  versionName INSIDE the AAB: 0.4.0-alpha   <-- NOT 0.4.1
+  versionCode INSIDE the AAB:  6            <-- NOT 7
+  signing:  DEBUG certificate
+             C8:76:05:1E:28:79:D0:05:AB:F6:10:27:7E:58:F4:0B:72:8C:62:CA:C3:6A:
+             77:48:F3:35:72:00:AF:33:77:A4
+             (= the debug key c876051e...)
+
+  The file was named "v0.4.1" but was never rebuilt for v0.4.1.
+  The release AAB also fell back to the DEBUG signing config, because the
+  upload-key wiring only applies when an upload keystore is configured.
+  Both are fixed in this round.
+
+--- DATABASE SCHEMA ---
+InboxDatabase(context, "inbox.db", null, 4)
+table messages:
+  id INTEGER PRIMARY KEY AUTOINCREMENT
+  package_name TEXT NOT NULL
+  received_at INTEGER NOT NULL
+  source_ts INTEGER NOT NULL DEFAULT 0
+  conversation_key TEXT NOT NULL DEFAULT ''
+  message_kind TEXT NOT NULL DEFAULT 'UNKNOWN'
+  fingerprint BLOB NOT NULL UNIQUE
+  sealed_content BLOB NOT NULL
+  sealed_image BLOB
+
+--- SIGNING ---
+debug certificate SHA-256:
+  c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4
+  (matches the certificate of the app installed on the user's device)
+
+--- TEST REPORTS (this round, freshly executed) ---
+instrumentation  67/67 PASS, 0 skipped
+unit             50/50 PASS
+python DHC       23/23 PASS
+lint             0 errors
+audit.sh         PASS
+audit-secrets.sh PASS
+audit-release.sh PASS

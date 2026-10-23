@@ -5,6 +5,103 @@
 
 ---
 
+## [0.4.4-alpha] — 未發布
+
+本輪是**效能與可攜性**。**沒有**改變資料格式，**沒有**改變 UI，
+**沒有**新增權限，**沒有**引入任何網路程式碼。
+
+### 效能
+
+- **通知回呼不再做磁碟 I/O。** `CaptureDiagnostics.note()` 原本在**主執行緒**上
+  每次事件都做一次 SharedPreferences 讀改寫，而回呼路徑每則通知呼叫它
+  20 次以上。計數器與事件改為在記憶體，並在背景執行緒上寫入。
+  **實測：回呼 p50 從 623 ms 降到 4 ms。**
+- **一次交易寫入多則訊息。** 原本每則訊息都是自己的交易，而每個交易都要
+  fsync。寫入端現在把數個通知的訊息合成**一個**交易。
+  **實測：500 則訊息的交易數從 648 降到 40；佇列等待 p50 從 33.9 秒降到 3.5 秒。**
+- **熱路徑少兩個配置。** `CapturePolicy.normalize()` 原本每次呼叫都編譯一個
+  新的 `Regex`（每則通知最多 50 個）；`LocalSettings.selected()` 原本走
+  `getSharedPreferences(...).all`，會把整個偏好設定檔載入成 map。
+- **延遲分段量測。** 新增 `PipelineLatency`，用**單調時鐘**
+  (`SystemClock.elapsedRealtimeNanos`) 分別量測 T0–T6 各階段。
+  **入列時間不再被當成持久化時間** —— 提交階段是分開量的。
+
+### 資料庫
+
+- **Schema v5**：新增三個複合索引
+  （`package_name, received_at DESC, id DESC` 等）。
+  遷移**只建立索引**，不回寫也不刪除任何一列。
+  **實測：查詢計畫變成 `USING COVERING INDEX package_received_idx`。**
+- 新增 `InboxDatabase.saveBatches()`：多組訊息寫入**一個**交易。
+
+### 測試
+
+- **去重黃金集**：32 個獨立案例，每個都有自己的預期結果與理由。
+  涵蓋跨對話不合併、無未解釋的遺失、重複不放大、重啟冪等、
+  DB 重試正確，以及**明確標記**資料本身無法分辨的模糊案例。
+- **延遲基準**：分別量測回呼、入列、佇列等待、提交、端到端。
+- **儲存基準**：100 / 500 / 1,000 / 10,000 則，量測吞吐、資料庫大小、
+  每則平均位元組與查詢計畫。
+- 修正一個**真實的量測錯誤**：指標住在 App 行程且是累計的，
+  而每個 instrumentation 測試都跑在同一個行程。
+  在一個測試的 `setUp` 裡 `reset()` 會清掉**同時正在量測的其他測試**的
+  計數器。突發矩陣改成**取 baseline 然後相減**。
+
+### 相容性
+
+- 新增 `DeviceCapabilities`：執行期偵測 Android 版本、製造商、
+  通知歷史上限與可用能力。
+- 新增**使用者可操作**的背景設定指引（小米 / vivo / OPPO / realme /
+  HONOR / 華為），依 `Build.MANUFACTURER` 推導，**不為單一品牌寫死**。
+  App **永遠不會**自動修改系統安全設定。
+- 中國版 ROM **不需要** Google Play Services，App 也沒有任何 Play 相依。
+
+### 文件
+
+- **README.md（英文，主文件）** 與 **README.zh-TW.md**，互相連結。
+  README **明說**平台的限制，並把沒實測的機型標為 `NOT TESTED`。
+- 新增 `SECURITY.md`、`CODE_OF_CONDUCT.md`、Issue / PR 範本。
+- 新增 `docs/TESTING.md`、`docs/DATABASE.md`、`docs/DHC-INTEGRATION.md`、
+  `docs/ROADMAP.md`、`docs/COMPATIBILITY.md`、
+  `docs/OPEN-SOURCE-PROVENANCE.md`、`docs/REPOSITORY-METADATA.md`。
+- 新增 Rust Core 的三份研究文件。**結論：目前不需要 Rust** ——
+  瓶頸是磁碟 I/O 與排程，不是運算。
+- 新增 `docs/GITHUB-PUSH-HANDOFF.md`：**本輪沒有推送**。
+
+### 修正的缺陷
+
+- **準備與寫入分屬不同實例時，資料不會被寫入。** 補抓路徑與測試會建立
+  自己的 listener 實例並呼叫 `capture()`；若批次只由服務實例的 worker
+  負責寫入，那些資料就**永遠不會出現**，訊息等於消失。
+  最終設計是**每個實例各自持有批次與 worker**，由同一實例寫入，
+  並且批次帶著準備時的 context —— 因為系統沒有建立的實例，
+  其 `applicationContext` 是 null。
+- 診斷的 flush 若持有物件 monitor 跨越寫入，會讓 worker 的每次 `note()`
+  都阻塞；提交延遲因此到了 **40 秒**。flush 現在在 monitor 之外寫入。
+- 每次事件都提交一個 flush 任务是**退步**：一百則通知會提交兩千個任務，
+  發佈一百則通知的耗時從 130 ms 變成 **116 秒**。flush 現在會合併。
+
+### 未變更
+
+Telegram Classic UI、`SourceRegistry` 的平台清單、SQLite 的加密格式、
+`CryptoStore`、`ConversationIdentity`、Keystore 格式、App Lock、
+既有訊息資料、DHC v0.2 的匯出格式、Debug 簽章。
+
+---
+
+## [0.4.3-alpha] — 未發布
+
+### 新增
+
+- **破壞性測試隔離**：`devtest` 變體、`DestructiveOperationGuard`、
+  `scripts/audit-test-isolation.py` 建置閘門。
+- **去重識別碼審查**：修正兩個真實缺陷。
+- **擷取計數驗證**：機器可檢查的計數關係。
+- **WAL A/B 實驗**：結論是**不啟用 WAL**。
+- **行程死亡實驗**：量到遺失視窗。
+
+---
+
 ## [0.4.0-alpha] — 未發布
 
 ### 新增

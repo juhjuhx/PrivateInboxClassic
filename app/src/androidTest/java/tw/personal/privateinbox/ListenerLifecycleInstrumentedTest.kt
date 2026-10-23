@@ -82,7 +82,10 @@ class ListenerLifecycleInstrumentedTest {
 
         val db = InboxDatabase(ctx)
         val row = try {
-            val deadline = System.currentTimeMillis() + 15_000
+            // The wait is generous because the instrumentation tests share one
+            // app process: a loaded machine makes the single writer slower,
+            // and the row has to be written by that writer.
+            val deadline = System.currentTimeMillis() + 45_000
             var found: InboxDatabase.Entry? = null
             while (System.currentTimeMillis() < deadline) {
                 found = db.recent(500).firstOrNull { it.body == "lc probe $ts" }

@@ -5,6 +5,32 @@
          POST_NOTIFICATIONS (API 33+) is used ONLY to post this app's own
          self-test notification; it is not required to capture LINE/Messenger. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
+      Package visibility (Android 11+).
+
+      The app needs to SEE which messaging packages are installed, so the source
+      list can show the correct name and so a real LINE install can be told
+      apart from an unrelated package. Without these entries the app can only
+      see its own package, and the platform filter would be empty on
+      Android 11+.
+
+      This is a <queries> declaration, NOT a permission: it grants visibility
+      for the listed packages only and does not let the app read those apps'
+      data. QUERY_ALL_PACKAGES is deliberately NOT used.
+    -->
+    <queries>
+        <package android:name="jp.naver.line.android" />
+        <package android:name="com.instagram.android" />
+        <package android:name="com.instagram.barcelona" />
+        <package android:name="com.facebook.orca" />
+        <package android:name="com.whatsapp" />
+        <package android:name="org.telegram.messenger" />
+        <package android:name="org.thunderdog.challegram" />
+        <package android:name="com.microsoft.teams" />
+        <package android:name="com.kakao.talk" />
+    </queries>
+
     <application
         android:label="Private Inbox Classic"
         android:icon="@drawable/ic_classic"

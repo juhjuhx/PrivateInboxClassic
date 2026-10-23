@@ -37,7 +37,12 @@ class SelfTestSystemNotificationInstrumentedTest {
      * the call to succeed. Retry until it answers.
      */
     private fun ensureSelfTestEnabled() {
+        // The self-test source must match the RUNNING variant: the system
+        // stamps the package of whoever posted the notification, and in the
+        // devtest variant that is not the production package.
         val sources = listOf(
+            SourceRegistry.selfTestPackage(ctx.packageName),
+            SourceRegistry.selfTestInstrumentationPackage(ctx.packageName),
             CapturePolicy.SELF_TEST,
             SourceRegistry.SELF_TEST_INSTRUMENTATION_PACKAGE
         ).joinToString(",")
@@ -46,10 +51,10 @@ class SelfTestSystemNotificationInstrumentedTest {
         while (System.currentTimeMillis() < deadline) {
             val ok = runCatching {
                 ctx.contentResolver.call(
-                    DebugSettingsProvider.CONTENT_URI, "enableSources", sources, null
+                    DebugSettingsProvider.contentUriFor(ctx), "enableSources", sources, null
                 )
                 ctx.contentResolver.call(
-                    DebugSettingsProvider.CONTENT_URI, "setRecording", "true", null
+                    DebugSettingsProvider.contentUriFor(ctx), "setRecording", "true", null
                 )
             }.isSuccess
             if (ok) return
@@ -69,7 +74,7 @@ class SelfTestSystemNotificationInstrumentedTest {
         if (Build.VERSION.SDK_INT < 33) return true
         val res = runCatching {
             ctx.contentResolver.call(
-                DebugSettingsProvider.CONTENT_URI, "canPost", null, null
+                DebugSettingsProvider.contentUriFor(ctx), "canPost", null, null
             )
         }.getOrNull()
         return res?.getBoolean("canPost") == true
@@ -150,7 +155,7 @@ class SelfTestSystemNotificationInstrumentedTest {
         while (System.currentTimeMillis() < deadline) {
             val res = runCatching {
                 ctx.contentResolver.call(
-                    DebugSettingsProvider.CONTENT_URI, "ensureListener", null, null
+                    DebugSettingsProvider.contentUriFor(ctx), "ensureListener", null, null
                 )
             }.getOrNull()
             if (res?.getBoolean("connected") == true) return true
@@ -176,7 +181,7 @@ class SelfTestSystemNotificationInstrumentedTest {
                 .getInstrumentation().uiAutomation
             val fd = uiAutomation.executeShellCommand(
                 "cmd notification allow_listener ${ctx.packageName}/" +
-                    "${ctx.packageName}.PrivateNotificationListener"
+                    VariantNames.listenerComponent(ctx.packageName)
             )
             val output = android.os.ParcelFileDescriptor.AutoCloseInputStream(fd)
                 .use { it.readBytes().toString(Charsets.UTF_8) }
@@ -202,7 +207,7 @@ class SelfTestSystemNotificationInstrumentedTest {
     /** Read the app's real listener-connection evidence through the provider. */
     private fun hasConnectedEvidence(): Boolean {
         val res = ctx.contentResolver.call(
-            DebugSettingsProvider.CONTENT_URI, "hasConnectedEvidence", null, null
+            DebugSettingsProvider.contentUriFor(ctx), "hasConnectedEvidence", null, null
         )
         return res?.getBoolean("connected") == true
     }
@@ -274,10 +279,10 @@ class SelfTestSystemNotificationInstrumentedTest {
         // The change must be applied to the APP's settings, not the test's.
         ensureAppProcessRunning()
         ctx.contentResolver.call(
-            DebugSettingsProvider.CONTENT_URI, "enableSources", "", null
+            DebugSettingsProvider.contentUriFor(ctx), "enableSources", "", null
         )
         ctx.contentResolver.call(
-            DebugSettingsProvider.CONTENT_URI, "setRecording", "true", null
+            DebugSettingsProvider.contentUriFor(ctx), "setRecording", "true", null
         )
         val marker = SelfTestNotifier.BODY + " #rejected" + System.nanoTime()
         val before = markerRowCount(marker)
@@ -296,7 +301,7 @@ class SelfTestSystemNotificationInstrumentedTest {
     private fun markerRowCount(marker: String): Int {
         val res = runCatching {
             ctx.contentResolver.call(
-                DebugSettingsProvider.CONTENT_URI,
+                DebugSettingsProvider.contentUriFor(ctx),
                 DebugSettingsProvider.METHOD_MARKER_ROWS, marker, null
             )
         }.getOrNull()

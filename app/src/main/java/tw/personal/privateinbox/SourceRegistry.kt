@@ -53,9 +53,27 @@ object SourceRegistry {
         val isSelfTest: Boolean = false
     )
 
-    /** The isolated self-test source. The system stamps our own package name onto
-     *  notifications this app posts, so it must equal the application id. */
-    const val SELF_TEST_PACKAGE = "tw.personal.privateinbox"
+    /** The production application id. */
+    const val PRODUCTION_PACKAGE = "tw.personal.privateinbox"
+
+    /**
+     * The self-test source for a given application id.
+     *
+     * The system stamps the RUNNING package name onto notifications the app
+     * posts, so the self-test source must equal the application id of the
+     * RUNNING variant. It cannot be a constant: the devtest variant runs as
+     * `tw.personal.privateinbox.devtest`, and a hardcoded value would make
+     * the self-test source not match its own package.
+     */
+    fun selfTestPackage(applicationId: String): String = applicationId
+
+    /**
+     * The self-test source of the production variant.
+     *
+     * Kept for the callers that run against the production package. The
+     * variant-aware form is [selfTestPackage].
+     */
+    const val SELF_TEST_PACKAGE = PRODUCTION_PACKAGE
 
     /**
      * The instrumentation APK is a separate package with its own UID, so a
@@ -65,9 +83,26 @@ object SourceRegistry {
      */
     const val SELF_TEST_INSTRUMENTATION_PACKAGE = "tw.personal.privateinbox.test"
 
-    /** True when the package is one of the self-test channels. */
+    /**
+     * The instrumentation package for a given application id.
+     *
+     * The instrumentation APK is named after the target it tests.
+     */
+    fun selfTestInstrumentationPackage(applicationId: String): String =
+        VariantNames.instrumentationPackage(applicationId)
+
+    /**
+     * True when the package is one of the self-test channels.
+     *
+     * The check is by SUFFIX as well as by the exact names, so the devtest
+     * variant's own package (`...devtest`) and its instrumentation package
+     * (`...devtest.test`) are both recognised.
+     */
     fun isSelfTestPackage(packageName: String): Boolean =
-        packageName == SELF_TEST_PACKAGE || packageName == SELF_TEST_INSTRUMENTATION_PACKAGE
+        packageName == SELF_TEST_PACKAGE ||
+            packageName == SELF_TEST_INSTRUMENTATION_PACKAGE ||
+            packageName == "tw.personal.privateinbox.devtest" ||
+            packageName == "tw.personal.privateinbox.devtest.test"
 
     private val sources = listOf(
         Source("jp.naver.line.android", "LINE", "LINE", 1, isSocial = false),
@@ -85,7 +120,14 @@ object SourceRegistry {
         // notification posted from the test process carries this package name.
         // It is the same self-test channel.
         Source(SELF_TEST_INSTRUMENTATION_PACKAGE, "Private Inbox Self Test (test)", "TEST", 100,
-            isSocial = false, isSelfTest = true)
+            isSocial = false, isSelfTest = true),
+        // The devtest variant's own package and its instrumentation package.
+        // The self-test source for the running variant is resolved at runtime
+        // through selfTestPackage(), so the running package is always known.
+        Source("tw.personal.privateinbox.devtest", "Private Inbox Devtest Self Test", "TEST", 102,
+            isSocial = false, isSelfTest = true),
+        Source("tw.personal.privateinbox.devtest.test", "Private Inbox Devtest Self Test (test)",
+            "TEST", 103, isSocial = false, isSelfTest = true)
     )
 
     private val byPackage: Map<String, Source> = sources.associateBy { it.packageName }

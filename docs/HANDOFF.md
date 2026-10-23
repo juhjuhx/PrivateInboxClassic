@@ -1,154 +1,135 @@
-# Private Inbox Classic — 交接文件（HANDOFF）
+# HANDOFF — Private Inbox Classic v0.4.4
 
-**CURRENT_PHASE**：PHASE 8 — APK 交付與驗收
+> 交給下一位接手者。這份文件說明**現在的狀態**、**這輪做了什麼**、
+> **還沒做什麼**。
 
 ---
 
-## 1. 狀態摘要
+## 1. 快速索引
 
-| 項目 | 狀態 |
+| 文件 | 內容 |
 |------|------|
-| 分支 | `integration/dsh-v040`（工作樹 `../PrivateInboxClassic-v0.4-wt`） |
-| BASELINE_SHA | `6ccb69f`（接手時的 HEAD） |
-| 本輪分支 HEAD | 見 `git log -1` |
-| 版本 | 0.4.0-alpha (versionCode 6) |
-| Build | ✅ BUILD SUCCESSFUL |
-| 單元測試 | ✅ 42/42 PASS |
-| Python DHC 連接器 | ✅ 23/23 PASS |
-| Instrumentation | ✅ 60/60（0 skip）— Android 16 模擬器 |
-| Lint | ✅ 0 error |
-| 秘密稽核 | ✅ PASS（工作樹 + 完整 Git 歷史） |
-| APK | ✅ 已產出，權限與簽章已驗證，Debug 版已安裝並啟動 |
-| 遠端 | `https://github.com/juhjuhx/PrivateInboxClassic`（**PRIVATE**） |
-| 推送分支 | `integration/dsh-v040` |
-| CI | ✅ **GREEN** — run 39450024722，全部步驟成功，含 APK 與測試報告 artifact |
+| `AGENT_STATE.md` | 給 agent 的狀態摘要與下一個動作 |
+| **GITHUB-PUSH-HANDOFF.md** | **本輪的交付：怎麼推送、怎麼跑 CI** |
+| `TEST-REPORT.md` | 所有測試的結果 |
+| `COMPATIBILITY.md` | Android / OEM 相容性矩陣 |
+| `OPEN-SOURCE-PROVENANCE.md` | 授權與來源稽核 |
+| `REPOSITORY-METADATA.md` | GitHub About 與 Topics |
+| `reliability/STORAGE-BENCHMARK.md` | 儲存與吞吐的實測 |
+| `reliability/DEDUP-IDENTITY-AUDIT.md` | 去重識別碼審查 |
+| `reliability/WAL-EXPERIMENT.md` | 為什麼不啟用 WAL |
+| `reliability/INTAKE-JOURNAL.md` | 行程死亡量測與 journal 契約 |
+| `reliability/X200PRO-NON-DESTRUCTIVE-QA.md` | 真機驗收程序 |
+| `roadmap/RUST-*.md` | Rust Core 的三份研究文件 |
 
 ---
 
-## 2. 本輪實際修正的缺陷
+## 2. 這一輪是效能與可攜性
 
-每個都先在裝置上重現，再修正，再回歸測試。
+| 項目 | 修正前 | 修正後 |
+|------|--------|--------|
+| 回呼 p50 | **623 ms** | **4 ms** |
+| 入列 p50 | 0.09 ms | **0.02 ms** |
+| 佇列等待 p50（500 則）| **33,945 ms** | **3,520 ms** |
+| 500 則訊息的交易數 | **648** | **40** |
+| 每則訊息的磁碟 | — | **511 bytes** |
 
-### 2.1 P0 — 會讓擷取靜默停止的崩潰
+**瓶頸是磁碟 I/O，不是運算。** 這是 Rust 研究得出「目前不需要 Rust」的依據。
 
-| # | 缺陷 | 根因 | 影響 |
-|---|------|------|------|
-| 1 | `ClassCastException` in `LocalSettings.selected()` | 偏好設定值型別錯誤（String 而非 Set）時 `getStringSet` 拋例外 | **`NotificationListenerService` 被系統殺掉，所有擷取靜默停止**直到重新綁定 |
-| 2 | `onNotificationPosted` 未受保護 | 監聽器拋例外會被系統殺掉 | 單一畸形通知即可停止全部擷取 |
-| 3 | `NPE` in `MainActivity.showSettings()` | `c["last_ts"] as Long` 讀取不存在的 key | **整個設定畫面崩潰** |
-| 4 | `applicationContext` 為 null 時 NPE | 非系統建立的 service 實例 | 直接呼叫 `onNotificationPosted` 會崩潰 |
+### 修了什麼
 
-### 2.2 P0 — 自我測試長期 SKIP
-
-三個 SYSTEM E2E 測試先前**永遠被跳過**。逐項找出根因：
-
-| # | 根因 | 修正 |
-|---|------|------|
-| a | 連線檢查用 `isListenerConnectedInProcess()`（App 行程的 static），但 instrumentation 跑在**另一個行程**，該 flag 永遠不可能為 true | 改為透過 debug provider 讀取 App 行程的真實連線證據 |
-| b | instrumentation APK 是**獨立套件、有自己的 UID**，無法寫入 App 的 SharedPreferences，也無法讀 App 的資料庫與診斷 | 新增 debug-only `DebugSettingsProvider`（`app/src/debug/`，release 不存在） |
-| c | 從測試行程發出的通知會被蓋上**測試套件**的套件名，不是 App 套件，因此被來源政策拒絕 | 把 instrumentation 套件也註冊為自我測試來源 |
-| d | 從測試行程檢查 `POST_NOTIFICATIONS`，但該權限屬於 **App 套件** | 改為查詢 App 套件的權限，並用 `UiAutomation` 授權 |
-
-**結果：0 skip，34/34 通過。** 一則通知真的走過
-Android 系統 → 監聽器 → 解析 → 加密入庫 → UI，且重啟後仍在。
-
-### 2.3 P1 — 其他真實缺陷
-
-| # | 缺陷 | 修正 |
-|---|------|------|
-| 5 | 搜尋畫面的來源與日期篩選器是區域變數，每次重新繪製都會**無聲重置** | 改為 Activity 狀態，與平台篩選共用 |
-| 6 | 「失敗事件」計數器把**政策決定**（記錄關閉、來源未勾選）也算成失敗 | 失敗只統計真正的失敗 |
-| 7 | `@Synchronized` 用在有 backing field 的 property 上 | 移除（所有存取都在同一物件的 `@Synchronized` 方法內，monitor 仍序列化） |
-
----
-
-## 3. 新增功能
-
-| 功能 | 位置 |
+| 缺陷 | 後果 |
 |------|------|
-| 平台來源註冊表（唯一來源） | `SourceRegistry.kt` |
-| Threads 支援 + 訊息分類 | `SourceRegistry.classify()` |
-| 平台篩選列 | `MainActivity.platformFilterBar()` |
-| 穩定的對話識別 | `ConversationIdentity.kt` |
-| 資料庫 schema v4（非破壞性遷移） | `InboxDatabase.kt` |
-| 可重現簽章（debug/release/upload 三種身分） | `app/build.gradle.kts`、`keystore/` |
-| 秘密稽核（工作樹 + 完整歷史） | `scripts/audit-secrets.sh` |
-| 診斷 JSON schema 版本 + 最後成功保存時間 | `CaptureDiagnostics.kt` |
-| Debug-only 設定橋接（僅 debug 組態） | `app/src/debug/.../DebugSettingsProvider.kt` |
-| GitHub Actions CI | `.github/workflows/android.yml` |
-| 開源文件集 | `README.md`、`LICENSE`、`PRIVACY.md`、`CONTRIBUTING.md`、`AGENTS.md`、`CHANGELOG.md`、`docs/` |
+| 診斷寫入在主執行緒做磁碟 I/O | 每則通知 20 次同步寫入，回呼 623 ms |
+| 每則訊息一個交易 | 每個交易一次 fsync，500 則 = 648 次 |
+| flush 持有 monitor 跨越寫入 | worker 阻塞，提交延遲 40 秒 |
+| 每個事件一個 flush 任務 | 發佈 100 則從 130 ms 變 116 秒 |
+| `normalize()` 每次編譯 Regex | 每則通知最多 50 個 |
+| `selected()` 走 `.all` | 每則通知載入整個偏好設定檔 |
+| 準備與寫入分屬不同實例 | 其他實例的訊息**永遠不會被寫入**；改為每個實例各自持有批次與 worker |
 
 ---
 
-## 4. 簽章狀態
+## 3. 驗證結果
 
-| 身分 | 憑證 SHA-256 | 位置 |
-|------|--------------|------|
-| Debug（本專案採用） | `c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4` | `keystore/debug.keystore`（git-ignored） |
-| Debug（另一份，未採用） | `46488e99...` | `~/.android/debug.keystore` |
-
-**採用前者，因為它是裝置上實際安裝的那一份**（以 `apksigner` 對裝置上的
-`base.apk` 實測確認）。**不得輪替**，否則無法覆蓋更新既有安裝。
-
-Release / Upload 金鑰**尚未建立** — 需要使用者在自己機器上建立並保管
-（見 `docs/SIGNING.md`）。
+| 項目 | 結果 |
+|------|------|
+| 單元測試 | **84/84 PASS** |
+| Instrumentation（隔離的 devtest 變體）| **126/126 PASS**，0 skip |
+| Instrumentation（正式的 prod 變體）| 126 項，**0 失敗**，破壞性測試 skip |
+| Android Lint | 0 error |
+| 四個稽核腳本 | 全部 PASS |
+| DHC 連接器 / 跨語言 fixture | 23/23、7/7 PASS |
+| 突發矩陣 | 10 個案例，`unaccounted` 全為 0 |
+| 儲存基準 | 100 / 500 / 1,000 / 10,000 列，全部入庫 |
 
 ---
 
-## 5. 已知阻塞
+## 4. 保留未動
+
+- Telegram Classic UI
+- `SourceRegistry` 的平台清單
+- SQLite 的**加密格式**（schema 版本變了，格式沒變）
+- `CryptoStore`、`ConversationIdentity`
+- Keystore 格式、App Lock
+- 既有訊息資料
+- DHC v0.2 的匯出格式
+- Debug 簽章
+
+本輪**沒有**進行：Rust 正式核心、通知鏡像實作、圖片擷取重構、
+雲端同步、公開上架、推送。
+
+---
+
+## 5. 尚未完成（誠實列出）
 
 | 項目 | 狀態 | 原因 |
 |------|------|------|
-| 實體手機上的 LINE / Messenger / Instagram / Threads 驗證 | **NOT TESTED** | 本次無實體裝置；計畫見 `docs/REAL-DEVICE-TEST-PLAN.md` |
-| Release 正式簽章 | **BLOCKED** | 需使用者建立並保管金鑰 |
-| AAB 產出 | 可建置但未簽章 | 需 upload 金鑰 |
-| 推送至 GitHub | **未執行** | 未取得使用者授權；且 `juhjuhx/PrivateInboxClassic` 是否存在尚未查證 |
-| Keystore 金鑰失效的明確 UI 提示 | 未實作 | 目前只做到「不 Crash、跳過無法解密的列」 |
+| **vivo X200 Pro / OriginOS** | **NOT_TESTED** | 沒有連接實機 |
+| Android 9–15 | **NOT TESTED** | 沒有那些版本的設備 |
+| 行程被殺的實際遺失 | **未量測** | 需要在真機上真的被殺 |
+| Intake Journal | **設計文件，未接入** | 證據不足以證明值得 |
+| WAL | **未啟用** | 實驗顯示沒有改善 |
+| 正式 release 簽章 | **BLOCKED** | 金鑰必須由擁有者保管 |
+| 永久保存 / 按日期封存 | 未實作 | 需要資料模型 + UI 支援 |
+| 全文搜尋 | 未實作，**刻意不做** | 明文索引會洩漏整個訊息歷史 |
+| GPL 來源的逐行比對 | **需要人工** | 要人看 git 歷史 |
+| 圖示與截圖授權 | **需要人工** | 要人確認來源 |
+| 推送 | **本輪不做** | 交由 Codex / Hermes |
+
+**模擬器的結果不能冒充真機結果。**
 
 ---
 
-## 6. 下一個可執行的具體動作
+## 6. 下一步
+
+### 6.1 推送（交給 Codex / Hermes）
+
+依 **`docs/GITHUB-PUSH-HANDOFF.md`** 執行。**先檢查，再推送。**
+
+### 6.2 需要真機
 
 ```bash
-# 1. 在本工作樹驗證一切
-cd ../PrivateInboxClassic-v0.4-wt
-export JAVA_HOME="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
-export GRADLE_USER_HOME="<workspace>/gradle_home"
-export ANDROID_SDK_ROOT="<workspace>/android-sdk"
-export ANDROID_HOME="$ANDROID_SDK_ROOT"
-export ANDROID_USER_HOME="<workspace>/.android-home"
-export PATH="$JAVA_HOME/bin:$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/emulator:$PATH"
-
-./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
-./gradlew --no-daemon :app:connectedDebugAndroidTest
-bash scripts/audit.sh && bash scripts/audit-secrets.sh
-
-# 2. 產出交付物
-cp app/build/outputs/apk/debug/app-debug.apk \
-   ../PrivateInboxClassic-v0.4.0-alpha-debug.apk
-shasum -a 256 ../PrivateInboxClassic-v0.4.0-alpha-debug.apk
-
-# 3. 需要使用者授權才能做的事
-#    - 建立正式 release / upload 金鑰
-#    - 建立或推送 GitHub repository
-#    - 在實體手機上執行 REAL-DEVICE-TEST-PLAN.md
+adb install -r <v0.4.4-debug.apk>   # 先備份！不要卸載
+# vivo 三項：允許自啟動 + 允許後台高耗電 + 最近任務鎖定
+bash scripts/run-burst-tests.sh --repeat 3
 ```
 
-**建議的下一個工程項目**（依優先序）：
+詳細步驟見 `docs/reliability/X200PRO-NON-DESTRUCTIVE-QA.md`。
 
-1. Keystore 金鑰失效的明確處理（偵測 → UI 提示 → 清理無法解密的列）。
-2. 聊天室列表分頁（現在一次載入 1500 筆並全數解密）。
-3. 實體手機相容性矩陣（依 `docs/REAL-DEVICE-TEST-PLAN.md`）。
+### 6.3 建議的工程項目
+
+1. **在真機上量測實際的行程死亡遺失** —— 那是決定 Intake Journal
+   是否值得實作的依據。
+2. 若「擷取時 UI 卡住」真的發生，重做 WAL 實驗，這次量**讀取**延遲。
 
 ---
 
-## 7. 環境限制速查
+## 7. 不要做的事
 
-| 症狀 | 解法 |
-|------|------|
-| `libnative-platform.dylib` 載入失敗 | `export GRADLE_USER_HOME=<workspace>/gradle_home` |
-| Kotlin daemon 無法連線 | 已由 `gradle.properties` 的 `in-process` 策略處理 |
-| debug keystore 無法建立 | `export ANDROID_USER_HOME=<workspace>/.android-home` |
-| emulator 無法開機 | `export HOME=<workspace>/emulator-home` |
-| `not encryption aware!` | 裝置被鎖屏；`adb shell locksettings clear` |
-| instrumentation 找不到 provider | App 未安裝；測試會自動啟動 App 行程 |
+1. **不要**在正式套件上執行破壞性測試。守衛會拒絕，稽核腳本會讓建置失敗。
+2. **不要**用 `uninstall` 更新 App —— 會刪掉資料。
+3. **不要**宣稱 OriginOS 的行為已驗證 —— 沒有實機就是 NOT_TESTED。
+4. **不要**把記憶體佇列的可靠性說成「不丟失」—— 行程被殺時會遺失。
+5. **不要**用 debug keystore 簽署 release 產物。
+6. **不要**把入列時間當成持久化時間。

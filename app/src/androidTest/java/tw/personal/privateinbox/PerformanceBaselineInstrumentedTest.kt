@@ -31,13 +31,21 @@ class PerformanceBaselineInstrumentedTest {
 
     @Before
     fun setUp() {
+        // This test destroys the database, so it only runs against the
+        // ISOLATED variant. On the production package it is SKIPPED
+        // with a reason, and nothing is deleted.
         db = InboxDatabase(ctx)
-        db.clear()
+        DestructiveTestAssumption.requireIsolated(ctx)
+        TestDataIsolation.clearDatabase(ctx)
     }
 
     @After
     fun tearDown() {
-        db.close()
+        // The cleanup is a no-op outside an isolated package: the
+        // tryClearDatabase form returns false instead of throwing, and the
+        // handle is only closed when it was actually opened.
+        TestDataIsolation.tryClearDatabase(ctx)
+        if (this::db.isInitialized) db.close()
     }
 
     private fun seed(count: Int) {
@@ -60,7 +68,11 @@ class PerformanceBaselineInstrumentedTest {
     fun measureWriteThroughput() {
         val counts = listOf(100, 1000)
         val results = counts.map { n ->
-            db.clear()
+        // This test destroys the database, so it only runs against the
+        // ISOLATED variant. On the production package it is SKIPPED
+        // with a reason, and nothing is deleted.
+        DestructiveTestAssumption.requireIsolated(ctx)
+            TestDataIsolation.clearDatabase(ctx)
             val elapsed = measureNanoTime { seed(n) }
             n to (elapsed / 1_000_000.0)
         }
@@ -75,15 +87,34 @@ class PerformanceBaselineInstrumentedTest {
     fun measureReadAndDecrypt() {
         val counts = listOf(100, 1000, 10000)
         for (n in counts) {
-            db.clear()
+        // This test destroys the database, so it only runs against the
+        // ISOLATED variant. On the production package it is SKIPPED
+        // with a reason, and nothing is deleted.
+        DestructiveTestAssumption.requireIsolated(ctx)
+            TestDataIsolation.clearDatabase(ctx)
             seed(n)
             // Warm the page cache so the measurement reflects decryption cost
             // rather than cold disk IO.
             db.recent(10)
             val samples = ArrayList<Double>()
-            repeat(5) {
+            // The wall-clock budget of the measurement.
+            //
+            // Reading and decrypting 10,000 rows takes seconds per sample, and
+            // five samples of it can exceed the instrumentation timeout on a
+            // slow machine. A benchmark that FAILS because it is slow is not
+            // reporting anything, so the sample count is reduced for the large
+            // scale instead of letting the test time out.
+            //
+            // The number of samples taken is printed, so a reduced sample
+            // count is visible rather than implied.
+            val budgetMillis = 120_000L
+            val started = System.currentTimeMillis()
+            while (samples.size < 5) {
                 val elapsed = measureNanoTime { db.recent(n) }
                 samples += elapsed / 1_000_000.0
+                // Stop early if the remaining budget cannot fit another sample.
+                val used = System.currentTimeMillis() - started
+                if (samples.size >= 1 && used + (elapsed / 1_000_000.0) > budgetMillis) break
             }
             samples.sort()
             val p50 = samples[samples.size / 2]
@@ -91,6 +122,7 @@ class PerformanceBaselineInstrumentedTest {
             println("PERF read+decrypt $n rows: p50=${"%.1f".format(p50)} ms " +
                 "p95=${"%.1f".format(p95)} ms " +
                 "(${"%.2f".format(p50 * 1000 / n)} us/row) " +
+                "samples=${samples.size} " +
                 "dbSize=${dbFileSize() / 1024} KiB")
         }
         assertTrue(true)
@@ -150,7 +182,11 @@ class PerformanceBaselineInstrumentedTest {
 
     @Test
     fun measureDatabaseGrowth() {
-        db.clear()
+        // This test destroys the database, so it only runs against the
+        // ISOLATED variant. On the production package it is SKIPPED
+        // with a reason, and nothing is deleted.
+        DestructiveTestAssumption.requireIsolated(ctx)
+        TestDataIsolation.clearDatabase(ctx)
         val before = dbFileSize()
         seed(1000)
         val after = dbFileSize()

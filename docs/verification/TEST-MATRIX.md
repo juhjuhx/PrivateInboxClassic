@@ -9,9 +9,9 @@
 
 | 層級 | 指令 | 需要裝置 |
 |------|------|----------|
-| JVM 單元測試 | `./gradlew :app:testDebugUnitTest` | 否 |
-| Android Lint | `./gradlew :app:lintDebug` | 否 |
-| Instrumentation | `./gradlew :app:connectedDebugAndroidTest` | **是** |
+| JVM 單元測試 | `./gradlew :app:testProdDebugUnitTest` | 否 |
+| Android Lint | `./gradlew :app:lintProdDebug` | 否 |
+| Instrumentation | `./gradlew :app:connectedDevtestDebugAndroidTest` | **是** |
 | Python 連接器 | `python3 integrations/dhc/tests/test_connector.py` | 否 |
 | 封裝產物稽核 | `bash scripts/audit-release.sh` | 否 |
 | 秘密稽核 | `bash scripts/audit-secrets.sh` | 否 |
@@ -64,7 +64,7 @@
 
 ---
 
-## 3. Instrumentation 測試（60 項）
+## 3. Instrumentation 測試（105 項）
 
 ### 3.1 通知擷取管線（13 項）
 
@@ -138,13 +138,58 @@ AES-GCM 成本、資料庫成長、記憶體佔用、Activity 啟動。
 
 ### 3.7 DHC 匯出（7 項）
 
-### 3.8 DHC 匯出（7 項）
+### 3.9 群組突發擷取（7 項）
+
+`BurstCaptureInstrumentedTest` — 合成通知驅動的突發擷取回歸測試。
+詳見 `docs/engineering/X200PRO-BURST-FIX.md` 與 `TEST-REPORT.md` 附錄。
+
+| 案例 | 驗證內容 |
+|------|----------|
+| A | 單一群組 20 次更新，每則都入庫且不重複 |
+| B | 5 群組 100 則訊息，零遺失 |
+| C | 5 群組交錯更新，各對話不串台 |
+| D | 兩則相同文字的不同訊息都要保留 |
+| D2 | 同一通知重複更新只產生一列 |
+| E | 只能補回仍 active 的通知 |
+| F | 照片開關不影響文字擷取數量 |
+
+### 3.10 DHC 匯出（7 項）
 
 訊息 id 穩定性、bundle 結構、容器 magic 與 header、每次匯出新 salt/nonce、
 **Android 產生的封包可被主機端 Python 匯入器讀取**、
 **錯誤密碼被拒絕**。
 
 ---
+
+## 3.11 去重鍵語意（8 項）
+
+`FingerprintIdentityTest` — 去重鍵必須識別**訊息**而非通知修訂。
+可以在 JVM 上執行（指紋輸入的建構是純函式）。
+
+| 測試 | 驗證內容 |
+|------|----------|
+| `twoDistinctMessagesWithoutTimestampGetDifferentKeys` | 兩則不同位置的訊息鍵不同 |
+| `theSameMessageKeepsItsKeyAcrossNotificationRevisions` | 同一則訊息跨修訂鍵不變 |
+| `theDiscriminatorIsAppendedOnlyWhenItIsPresent` | 有時間戳時不混入識別碼 |
+| `theHistoricalFingerprintFormatIsPreservedWhenNoDiscriminatorIsGiven` | 舊格式位元級保留 |
+| `differentPackagesNeverShareAKey` | 跨 App 不共用鍵 |
+| `differentConversationsNeverShareAKey` | 跨對話不共用鍵 |
+| `differentSendersNeverShareAKey` | 跨寄件者不共用鍵 |
+| `theComponentsAreSeparatedByAFieldSeparator` | 欄位分隔不會造成碰撞 |
+
+### 3.12 併發寫入者（3 項）
+
+ConcurrentWriterInstrumentedTest — 證明兩個寫入者並存時不會失敗或遺失資料。
+
+| 測試 | 驗證內容 |
+|------|----------|
+| theJournalModeIsRecorded | 記錄實際的 journal mode（實測為 truncate，不是 WAL）|
+| twoWritersDoNotFailAndDoNotLoseRows | 2 個 writer x 150 列 = 300 列，0 失敗，0 遺失 |
+| aReaderDoesNotBlockAWriter | 讀取與寫入同時進行，寫入 0 失敗 |
+
+為什麼重要：listener 用單一 writer 執行緒，但 UI 另開 2 執行緒池的
+資料庫 handle，兩者可能同時寫入。這個測試把那個風險量化，
+而不是假設它不存在。
 
 ## 4. Python 連接器測試（23 項）
 

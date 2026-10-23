@@ -80,7 +80,11 @@ class KeyStateInstrumentedTest {
     fun aCorruptRowDoesNotHideTheOtherRows() {
         val db = InboxDatabase(ctx)
         try {
-            db.clear()
+        // This test destroys the database, so it only runs against the
+        // ISOLATED variant. On the production package it is SKIPPED
+        // with a reason, and nothing is deleted.
+        DestructiveTestAssumption.requireIsolated(ctx)
+            TestDataIsolation.clearDatabase(ctx)
             db.save("org.telegram.messenger", 1_700_000_000_000L, 0,
                 "Alice", "Alice", "good body", null)
             db.save("org.telegram.messenger", 1_700_000_001_000L, 0,
@@ -98,10 +102,14 @@ class KeyStateInstrumentedTest {
     fun purgeRemovesNothingWhenEveryRowIsReadable() {
         val db = InboxDatabase(ctx)
         try {
-            db.clear()
+        // This test destroys the database, so it only runs against the
+        // ISOLATED variant. On the production package it is SKIPPED
+        // with a reason, and nothing is deleted.
+        DestructiveTestAssumption.requireIsolated(ctx)
+            TestDataIsolation.clearDatabase(ctx)
             db.save("org.telegram.messenger", 1_700_000_000_000L, 0,
                 "Alice", "Alice", "keep me", null)
-            val removed = db.purgeUndecryptableRows()
+            val removed = TestDataIsolation.purgeUndecryptableRows(ctx)
             assertEquals("readable rows must never be purged", 0, removed)
             assertEquals("the row must still be there", 1, db.recent(10).size)
         } finally {

@@ -1,5 +1,11 @@
 # 測試報告（TEST-REPORT）
 
+> **歷史文件。** 本文記錄的是 **v0.4.0-alpha** 那一輪的測試結果。
+> 目前版本（**v0.4.4**）的新鮮結果在
+> [`STATUS-REPORT-v0.4.4.md`](STATUS-REPORT-v0.4.4.md) §11 與
+> [`GITHUB-PUSH-HANDOFF.md`](GITHUB-PUSH-HANDOFF.md) §4。
+> 不要把本文的 66/119 等數字當成 v0.4.4 的結果。
+
 **版本**：0.4.0-alpha (versionCode 6)
 **測試日期**：本次交付
 **環境**：macOS 15.8.1 (aarch64)｜JDK 17.0.20.1 (Homebrew)｜Gradle 8.13（wrapper）｜
@@ -18,8 +24,8 @@ AGP 8.13.2｜Kotlin 2.2.20｜Android SDK 36｜Build Tools 36.0.0
 |------|------|
 | Debug Build | **PASS** |
 | Release Build + AAB | **PASS**（未以正式金鑰簽署） |
-| JVM 單元測試 | **PASS**（42/42） |
-| Instrumentation 測試 | **PASS**（60/60，**0 skip**） |
+| JVM 單元測試 | **PASS**（66/66） |
+| Instrumentation 測試（隔離的 devtest 變體） | **PASS**（119/119，**0 skip**） |
 | Android Lint | **PASS**（0 error） |
 | Python DHC 連接器測試 | **PASS**（23/23） |
 | 封裝產物資安稽核 | **PASS**（scripts/audit-release.sh） |
@@ -34,7 +40,7 @@ AGP 8.13.2｜Kotlin 2.2.20｜Android SDK 36｜Build Tools 36.0.0
 
 ---
 
-## 2. JVM 單元測試（42/42 PASS）
+## 2. JVM 單元測試（50/50 PASS）
 
 ```
 $ bash scripts/test-core.sh
@@ -257,3 +263,127 @@ crash buffer: 0
 | 推送至 GitHub | **未執行** | 未取得使用者授權 |
 
 **這些項目沒有被執行，因此不宣稱通過。**
+
+
+---
+
+## 附錄：群組突發擷取測試（X200 Pro P0 修復）
+
+獨立的合成測試：`BurstCaptureInstrumentedTest`（7 項），
+以合法的 `NotificationManager` 發送合成通知，驗證系統真的把通知
+綁定到 listener。
+
+執行方式：
+
+```bash
+bash scripts/run-burst-tests.sh --repeat 3
+```
+
+### 分母（依 brief 要求分開計算）
+
+| 名稱 | 意義 |
+|------|------|
+| `post_attempts` | 測試呼叫 `notify()` 的次數 |
+| `listener_callbacks` | listener 被呼叫的次數 |
+| `logical_messages_exposed_to_listener` | listener 實際看到的**相異**訊息數 |
+| `db_saved` | 資料庫中的列數 |
+
+**不變條件**：`logical_messages_exposed_to_listener == db_saved + db_duplicate`。
+`post_attempts` **不**作為期望值 —— 平台有權在高頻更新時合併通知。
+
+### 結果（模擬器 Android 16 / API 36 / arm64-v8a，3 次連續執行）
+
+| 案例 | 內容 | post_attempts | db_saved | 結果 |
+|------|------|---------------|----------|------|
+| A | 單一群組，20 次更新 | 20 | 20 | PASS |
+| B | 5 群組，100 則訊息 | 100 | 100 | PASS |
+| C | 5 群組交錯更新 | 100 | 100 | PASS |
+| D | 兩則相同文字 | — | 2 | PASS |
+| D2 | 同一通知重複更新 10 次 | 10 | 1 | PASS |
+| E | 取消後的 active 清單 | — | 10 | PASS |
+| F | 照片開 / 關 | 20 | 20 / 20 | PASS |
+
+**沒有無法解釋的遺失。**
+
+### 修復前的對照
+
+同一個 CASE B 在修復前：
+
+```
+stored=20 expected=100  received=121  parse_ok=120  db_ok=1260
+```
+
+1260 次寫入嘗試只留下 20 列 —— 這是去重鍵識別通知而非訊息造成的。
+
+### 真機
+
+**NOT TESTED** —— 本輪沒有連接 vivo X200 Pro。
+詳見 `docs/engineering/X200PRO-BURST-FIX.md` §5。
+
+
+---
+
+## 附錄二：v0.4.2 的新增測試
+
+| 群組 | 數量 | 內容 |
+|------|------|------|
+| 群組突發矩陣（TEST-A..TEST-J） | 10 | 見 `docs/reliability/BURST-CAPTURE-ROOT-CAUSE.md` |
+| Keystore 復原 | 10 | 見 `docs/reliability/BURST-CAPTURE-ROOT-CAUSE.md` 與 `KeyRecovery` |
+| 分頁契約 | 10 | 首頁、下一頁、末頁、空列表、刪除後、篩選後、搜尋、抵達時更新 |
+| 效能基準 | 3 | 讀取路徑、資料庫成長、分頁 vs 全量 |
+| 跨語言 fixture | 7 | Python 匯出 → Android 驗證（含竄改、錯誤密碼、未知版本）|
+
+**本輪新增的缺陷（由新測試找到）**：
+
+1. 寫入放大 → 佇列飽和 → 3,821 則訊息遺失。
+2. 去重識別碼用索引 → 平台 25 則上限讓索引位移。
+3. Release AAB 帶 debug 簽章。
+4. 回報的 AAB 是舊的 v0.4.0 產物。
+5. 跨語言 base64 換行 → 匯入不冪等。
+
+**真機（vivo X200 Pro / OriginOS）：NOT TESTED。** 本輪沒有連接實機。
+
+
+---
+
+## 附錄三：v0.4.3 的測試結果
+
+### 兩個變體
+
+| 變體 | 套件 ID | 結果 |
+|------|---------|------|
+| **prod**（正式 App）| `tw.personal.privateinbox` | 119 項，**0 失敗**，66 skip |
+| **devtest**（隔離）| `tw.personal.privateinbox.devtest` | 119 項，**0 失敗**，**0 skip** |
+
+正式套件上的破壞性測試是**帶原因的 skip**，不是失敗：
+
+```
+SKIPPED: this test destroys the database, so it only runs against the
+ISOLATED variant (tw.personal.privateinbox.devtest). The target here is
+tw.personal.privateinbox, and nothing was deleted.
+```
+
+### 新增的測試
+
+| 群組 | 數量 | 內容 |
+|------|------|------|
+| 破壞性操作守衛 | 8 | 守衛必須拒絕正式套件、必須允許隔離套件、拒絕訊息必須說明資料沒被刪 |
+| 去重識別碼審查 | 8 | brief 的 A–E 五個案例 |
+| 擷取計數驗證 | 8 | 每個計數關係；不一致就是失敗 |
+| WAL A/B 基準 | 3 | 兩種模式的對照；三個 writer |
+| 行程死亡實驗 | 3 | 狀態機、遺失視窗、進行中事件 |
+| 跨語言 fixture | 7 | Python 匯出 → Android 驗證 |
+| 突發矩陣 | 10 | TEST-A..TEST-J |
+
+### 驗證腳本
+
+| 腳本 | 結果 |
+|------|------|
+| `scripts/audit.sh` | PASS |
+| `scripts/audit-secrets.sh` | PASS |
+| `scripts/audit-release.sh` | PASS |
+| `scripts/audit-test-isolation.py` | PASS（27 個測試檔）|
+
+### 真機
+
+**NOT TESTED。** 見 `docs/reliability/X200PRO-NON-DESTRUCTIVE-QA.md`。

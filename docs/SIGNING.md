@@ -75,7 +75,7 @@ debug.keyPassword=android
 也可以完全用命令列參數覆寫，不必建立檔案：
 
 ```bash
-./gradlew :app:assembleRelease \
+./gradlew :app:assembleProdRelease \
   -Prelease.storeFile=/secure/path/release.keystore \
   -Prelease.storePassword=... \
   -Prelease.keyAlias=... \
@@ -103,10 +103,10 @@ keytool -genkeypair -v \
 
 ```bash
 # Debug（本機測試）
-./gradlew :app:assembleDebug
+./gradlew :app:assembleProdDebug
 
 # Release APK
-./gradlew :app:assembleRelease
+./gradlew :app:assembleProdRelease
 
 # Release AAB（Google Play）
 ./gradlew :app:bundleRelease
