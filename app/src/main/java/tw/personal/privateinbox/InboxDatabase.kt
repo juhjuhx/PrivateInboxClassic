@@ -69,16 +69,56 @@ class InboxDatabase(private val appContext: Context) :
         // Additive, non-destructive migrations. Each step only adds columns and
         // back-fills neutral defaults; no row is ever deleted or rewritten with
         // data the user would lose.
+        //
+        // P0-A fix (v0.4.5 reliability review): `ADD COLUMN` is NOT idempotent
+        // in SQLite — a repeated `ADD COLUMN source_ts` crashes with
+        // "duplicate column name". The historical v0.4.4 code added source_ts
+        // in BOTH the <2 and the <3 step, so a v1 database hit it twice and
+        // every open crashed until reinstall. Two guards make this safe:
+        //
+        //   1. Steps are kept version-disjoint: each ALTER runs for exactly
+        //      one historical layout (the <3 step adds source_ts alone, so a
+        //      v1 database gets it exactly once through the two-step chain).
+        //   2. columnExists() double-checks before every ALTER, so a partially
+        //      upgraded database (a previous update crashed midway) re-runs
+        //      without crashing — recovery stays predictable instead of
+        //      wedging the open path forever.
+        fun columnExists(db: SQLiteDatabase, table: String, column: String): Boolean {
+            var found = false
+            db.rawQuery("PRAGMA table_info($table)", null).use { c ->
+                val nameIdx = c.getColumnIndex("name")
+                while (c.moveToNext()) {
+                    if (c.getString(nameIdx) == column) found = true
+                }
+            }
+            return found
+        }
+
+        fun addColumnIfMissing(db: SQLiteDatabase, table: String, column: String, ddl: String) {
+            if (!columnExists(db, table, column)) db.execSQL(ddl)
+        }
+
         if (oldVersion < 2) {
-            db.execSQL("ALTER TABLE messages ADD COLUMN sealed_image BLOB")
-            db.execSQL("ALTER TABLE messages ADD COLUMN source_ts INTEGER NOT NULL DEFAULT 0")
+            addColumnIfMissing(
+                db, "messages", "sealed_image",
+                "ALTER TABLE messages ADD COLUMN sealed_image BLOB"
+            )
         }
         if (oldVersion < 3) {
-            db.execSQL("ALTER TABLE messages ADD COLUMN source_ts INTEGER NOT NULL DEFAULT 0")
+            addColumnIfMissing(
+                db, "messages", "source_ts",
+                "ALTER TABLE messages ADD COLUMN source_ts INTEGER NOT NULL DEFAULT 0"
+            )
         }
         if (oldVersion < 4) {
-            db.execSQL("ALTER TABLE messages ADD COLUMN conversation_key TEXT NOT NULL DEFAULT ''")
-            db.execSQL("ALTER TABLE messages ADD COLUMN message_kind TEXT NOT NULL DEFAULT 'UNKNOWN'")
+            addColumnIfMissing(
+                db, "messages", "conversation_key",
+                "ALTER TABLE messages ADD COLUMN conversation_key TEXT NOT NULL DEFAULT ''"
+            )
+            addColumnIfMissing(
+                db, "messages", "message_kind",
+                "ALTER TABLE messages ADD COLUMN message_kind TEXT NOT NULL DEFAULT 'UNKNOWN'"
+            )
             // Back-fill the conversation key for rows captured before v4. The title is
             // encrypted, so it cannot be read here; the key is reconstructed lazily
             // from the package name at read time (see conversationKeyOf()).
