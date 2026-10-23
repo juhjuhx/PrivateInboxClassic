@@ -40,6 +40,34 @@ class SourceRegistryTest {
     }
 
     @Test
+    fun `v045 expanded sources are registered with verified package ids`() {
+        val v045 = listOf(
+            "org.thoughtcrime.securesms" to "Signal",
+            "com.discord" to "Discord",
+            "com.tencent.mm" to "WeChat",
+            "com.tencent.mobileqq" to "QQ"
+        )
+        v045.forEach { (pkg, name) ->
+            assertTrue("$pkg must be a known source", SourceRegistry.isKnown(pkg))
+            assertEquals(name, SourceRegistry.displayName(pkg))
+        }
+    }
+
+    @Test
+    fun `expanded sources are pure messengers not social networks`() {
+        // A message container on these must classify as a private message,
+        // never be routed through the social-activity filter.
+        listOf(
+            "org.thoughtcrime.securesms",
+            "com.discord",
+            "com.tencent.mm",
+            "com.tencent.mobileqq"
+        ).forEach { pkg ->
+            assertFalse("$pkg must not be marked social", SourceRegistry.isSocial(pkg))
+        }
+    }
+
+    @Test
     fun `unknown package is not a known source`() {
         assertFalse(SourceRegistry.isKnown("com.example.bank"))
         assertFalse(SourceRegistry.isKnown("com.android.shell"))

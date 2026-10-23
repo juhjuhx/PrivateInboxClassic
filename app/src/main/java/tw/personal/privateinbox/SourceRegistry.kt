@@ -114,6 +114,22 @@ object SourceRegistry {
         Source("org.thunderdog.challegram", "Telegram X", "TGX", 7, isSocial = false),
         Source("com.microsoft.teams", "Teams", "MSFT", 8, isSocial = false),
         Source("com.kakao.talk", "KakaoTalk", "KAKAO", 9, isSocial = false),
+        // v0.4.5 additions. Every package id below was verified against at
+        // least one authoritative source before being registered; none is
+        // guessed. See docs/v045-research.md for the verification trail.
+        // Signal: reproducible-builds docs in signalapp/Signal-Android use
+        //   `adb shell pm path org.thoughtcrime.securesms`; NVD CPE refs point
+        //   at the same Play Store id.
+        Source("org.thoughtcrime.securesms", "Signal", "SIG", 10, isSocial = false),
+        // Discord: Play Store link id=com.discord (flytrap.dev catalog and
+        //   Exodus reports both index the app under this id).
+        Source("com.discord", "Discord", "DC", 11, isSocial = false),
+        // WeChat: NVD CPE refs for Tencent WeChat point at Play Store
+        //   id=com.tencent.mm.
+        Source("com.tencent.mm", "WeChat", "WECHAT", 12, isSocial = false),
+        // QQ: NVD CPE refs for Tencent QQ point at Play Store
+        //   id=com.tencent.mobileqq.
+        Source("com.tencent.mobileqq", "QQ", "QQ", 13, isSocial = false),
         Source(SELF_TEST_PACKAGE, "Private Inbox Self Test", "TEST", 99,
             isSocial = false, isSelfTest = true),
         // The instrumentation APK is a different package with its own UID, so a
