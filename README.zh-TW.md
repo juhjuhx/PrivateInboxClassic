@@ -227,6 +227,11 @@ app/src/main/java/tw/personal/privateinbox/
 | `PrivateInboxClassic-v0.4.4-release-unsigned.apk` | 5,003,975 B | `0e1eb4458f34e4826eb8debcadbc5a683ac0f3e422ebf180e09fcc1b853fad79` | **未簽署**，需正式金鑰 |
 | `PrivateInboxClassic-v0.4.4.aab` | 1,748,739 B | `2370bfe102fffa26a14ddbcc5c5a80cc15eb8ffb1aae0a77d9d77c15899165a5` | **未簽署**，需正式金鑰 |
 
+**已發布的 Release 資產**：[`v0.4.4-alpha`](https://github.com/juhjuhx/PrivateInboxClassic/releases/tag/v0.4.4-alpha)
+（**pre-release**，2026-10-23）是同檔名的另一次建置，5,986,817 B，SHA-256
+`6c6def174902a192cf5f65846261c517ff42edff62bde8ee9c72104ddd8c1556`。
+版本、套件、簽章與權限與上表相同；上表的 `d4410fe6…` 是本輪受測的乾淨重建。
+
 Debug APK 的簽章憑證 SHA-256：
 `c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4`
 （與既有安裝相容，因此 `adb install -r` 可覆蓋更新）。
