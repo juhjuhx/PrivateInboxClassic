@@ -33,8 +33,9 @@ class CapturePolicyTest {
     }
 
     @Test
-    fun `whitespace and line feeds are collapsed to single spaces`() {
-        assertEquals("你好 世界", CapturePolicy.normalize("  你好   世界 \r\n"))
+    fun `whitespace and line feeds are preserved (raw capture)`() {
+        // normalize() only filters null/blank; it does NOT alter content
+        assertEquals("  你好   世界 \r\n", CapturePolicy.normalize("  你好   世界 \r\n"))
     }
 
     @Test
@@ -44,9 +45,10 @@ class CapturePolicyTest {
     }
 
     @Test
-    fun `overlong bodies are capped`() {
-        val normalized = CapturePolicy.normalize("x".repeat(30_000))
-        assertEquals(20_000, normalized!!.length)
+    fun `overlong bodies are NOT capped (no silent truncation)`() {
+        val long = "x".repeat(30_000)
+        val normalized = CapturePolicy.normalize(long)
+        assertEquals(30_000, normalized!!.length)
     }
 
     @Test
