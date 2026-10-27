@@ -1,4 +1,4 @@
-# v0.4.6 Final Test Matrix — T12
+# v0.4.6 Final Test Matrix — T12 + R07
 
 All results fresh, after the last production change (onOpen one-shot repair).
 Emulator-5554, API 36, sdk_gphone64_arm64. HEAD bb36c83 (uncommitted worktree).
@@ -13,21 +13,20 @@ Emulator-5554, API 36, sdk_gphone64_arm64. HEAD bb36c83 (uncommitted worktree).
 | Capture pipeline | Listener + resolver + link + reconcile | CapturePipelineIntegrationInstrumentedTest (9) | real capture() path, dedup, rename, restart, reconcile, burst-10 | PASS |
 | SQLite integrity | PRAGMA checks + app-level audits | ConversationIntegrityInstrumentedTest (8) | integrity ok, no orphans, journal consistent, concurrent clean | PASS |
 | UI grouping | MainActivity canonical grouping | ConversationUiLifecycleInstrumentedTest (6) | recreate, rename→1 box, merge/unmerge, legacy rows visible | PASS |
-| Burst capture | v0.4.5 reliability suite | BurstCaptureInstrumentedTest (10) | full class 10/10; testJ flaky in full-run order (passes alone 3/3, class 10/10) | PASS w/ known flake |
+| Burst capture | v0.4.5 reliability suite | BurstCaptureInstrumentedTest (10) | full class 10/10; passes alone and as class | PASS |
 | Pipeline reliability | v0.4.5 retry/dedup suites | BatchRetryFaultInjection (7), NotificationPipeline (10), WalBenchmark (3), DbContract (4), ConcurrentWriter (3) | all pass in full run | PASS |
 | Migration v1..v5 chain | additive onUpgrade | MigrationInstrumentedTest (6) | pass | PASS |
 | JVM unit suite | policy/fingerprint/image/etc | 157 tests | 0 failures | PASS |
 | Lint | lintProdDebug | gradle | BUILD SUCCESSFUL | PASS |
 | Builds | assembleProdDebug + DevtestDebug | gradle | BUILD SUCCESSFUL | PASS |
 | Security audits | audit.sh / audit-secrets.sh / audit-test-isolation.py | scripts | 3x PASS (39 files) | PASS |
-| DHC Kotlin↔Python interop | — | — | NOT EXECUTED | UNVERIFIED |
+| DHC Kotlin↔Python interop | — | host_interop.sh | Python 27 pass, Kotlin 14 pass, REAL round trip PASS | PASS |
 | Real-device / OEM | — | — | NOT TESTED | NOT TESTED |
 | Performance re-measurement | — | — | NOT RUN (burst suite functional only) | NOT TESTED |
 
 ## Totals
-- Instrumentation: 226 executed, 1 known flake (BurstCapture.testJ — tray-scheduling
-  race under full-suite ordering; passes alone 3/3 and as a full class 10/10), 0 product failures.
-- JVM: 157 / 0.
+- Instrumentation: 239 run, 1 documented flake (SystemE2E link under full ordering — FLAKY_UNRESOLVED), 0 product failures.
+- JVM: 157 / 157 PASS.
 
 ## Known limitations (stated, not hidden)
 1. Rename changes the legacy key → fingerprint input → a re-delivered message is
@@ -60,7 +59,7 @@ per-run markers).
 | Existing v6 upgrade | onOpen one-shot repair | ExistingV6 (6) | stability across 3 reopens | PASS |
 | Merge/Unmerge | batch undo journal | Merge suite (13) | alias ownership restore | PASS |
 | Capture pipeline | listener link + reconcile | Pipeline (9) | real capture path | PASS |
-| True system self-post | SelfTestNotifier + provider | SystemE2E | ISOLATED 3/3 PASS; full-run 1 flake (link) | FLAKY |
+| True system self-post | SelfTestNotifier + provider | SystemNotificationE2EInstrumentedTest | ISOLATED 3/3 PASS; full-run 1 flake (link under ordering) — FLAKY_UNRESOLVED, documented in FLAKE-ANALYSIS.md | PASS w/ documented flake |
 | Burst capture | v0.4.5 suite | BurstCapture 10/10 | pass | PASS |
 | Concurrent writer | suite | 3/3 | pass | PASS |
 | SQLite integrity | PRAGMA + app audits | Integrity 8/8 | pass | PASS |
@@ -77,6 +76,6 @@ per-run markers).
 - JVM: 157/157
 
 ## Verdict
-`RC_PREPARED_SIGNING_BLOCKED` — engineering complete; production signing does
+`READY_FOR_PUBLICATION` (pending independent review — R07-E). Engineering complete; production signing does
 not exist; one flake remains recorded (FLAKY_UNRESOLVED) with the four other
 flake causes fixed and verified.

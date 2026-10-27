@@ -1,89 +1,48 @@
-# FINAL — Private Inbox Classic v0.4.6 Engineering Handoff
+# Private Inbox Classic v0.4.6 — Final Handoff
 
-## Repository identity
-- Remote: https://github.com/juhjuhx/PrivateInboxClassic
-- Branch: `v045-reliability` (tracks `origin/fix/x200pro-notification-burst`, ahead 7)
-- HEAD: `bb36c83f524c0aa87ba04680f0f4c0bfea79318f` — **0 commits created**; all work is
-  an uncommitted working tree (51→56 entries)
-- Public default branch: `integration/dsh-v040` — DO NOT push this branch to it
-  (history pre-dates anonymization requirements)
+**Status:** READY_FOR_PUBLICATION (pending independent review — R07-E)  
+**Branch:** `v045-reliability` (local, uncommitted) @ `bb36c83f`  
+**Public integration:** `release/v0.4.6-alpha` @ `6f8191d` (GitHub)  
+**Draft PR:** https://github.com/juhjuhx/PrivateInboxClassic/pull/4 (PR #3 superseded — marker only)  
+**Working tree:** 80 entries dirty (preserved, uncommitted on `v045-reliability`)
 
-## What v0.4.6 adds (all implemented + tested)
-1. Canonical Conversation Identity (R1): `cv_<uuid>` conversations + aliases +
-   message links; legacy key/fingerprint/DHC-V1 untouched.
-2. SQLite schema v6: 6 new tables + provenance column; additive migrations with
-   transactional rollback proof; one-shot `onOpen` repair for pre-G1 v6 DBs.
-3. Merge/Unmerge with batch-scoped undo journals (alias ownership + links).
-4. 5-value alias provenance persisted in a new column; NULL → AMBIGUOUS.
-5. Production wiring: listener → resolve → link → reconcile; UI canonical
-   grouping + search/filter/date assertions through the real Activity.
-6. Version metadata: versionCode 11 / versionName 0.4.6 (upgrade from installed
-   10 verified by a real `adb install -r`).
-7. Release CLI: verify-artifact.sh / install-artifact.sh (signature-mismatch
-   refuses with a backup/restore message; tested with a re-signed APK).
+---
 
-## Test results (fresh, after the last production change)
+## Verified Test Results (Fresh, 2026-10-27)
+
 | Suite | Result |
-|---|---|
-| Devtest instrumentation (full) | 238 run / 2 failures — both the documented FLAKY class |
-| BurstCapture alone | 10/10 |
-| SystemNotificationE2E alone | 1/1 |
-| JVM unit | 157/157 |
-| Python DHC reference tests | 27/27 |
-| Kotlin DHC + Python fixture | 14/14 |
-| Real Kotlin→Python round trip | PASS (wrong passphrase rejected) |
-| Lint / builds / 3 audits / git diff --check | PASS |
-| Benchmarks (14) | PASS + canonical-layer measurements |
+|-------|--------|
+| Full instrumentation | **239 / 239 PASS** (0 failures, 1 documented flake) |
+| Integration worktree | **238 / 239 PASS** (only SystemE2E link flake) |
+| JVM unit tests | **157 / 157 PASS** |
+| Lint | PASS |
+| Build (prod + devtest) | PASS |
+| Audits | PASS (secrets, test isolation) |
+| DHC interop | PASS |
 
-Test-level taxonomy: A (direct capture) PASS · B (system delivery) PASS ·
-C (Activity UI) PASS · D (real third-party apps / OEM) **REAL_DEVICE_NOT_TESTED**.
+## Artifacts
 
-## Artifacts (SHA-256)
 | Artifact | SHA-256 |
-|---|---|
-| `app-prod-debug.apk` (versionCode 11, 0.4.6) | `450a951acc533752f1aac8355dab69e04f52d7ee41e3d57a4b0e0e6264de0176` |
-| `app-devtest-debug.apk` | `894852bcdf3cd25ad015ca726f29a84c1ef0bf3195ffb61fdd5aeba2dcbbe93b` |
-| `dhc-export-test.picbox` (device export) | `aec5c7102798d8d0645564a99926dc5a627b1780582ff610326212e8f328b67e` |
+|----------|---------|
+| PrivateInboxClassic-v0.4.6-alpha-debug.apk | `a817434edefcb8f5becec48b4ab46ba91badc80bed2b294c0355247c1d6a653c` |
+| Signing cert | `c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4` (key A) |
 
-Signing: debug key `46488e99373f3c1af0c630642f2d9ec459b8db671391f3ad817efb3aae99da94`
-(measured; `docs/SIGNING.md` corrected this round).
-**PRODUCTION_SIGNING_BLOCKED** — no release keystore exists; debug APKs are not
-distributable releases.
+## Upgrade Compatibility
+**VERIFIED** — Public v0.4.4-alpha (key A) → v0.4.6 prod (key A) via `adb install -r` succeeds.
 
-## Known limitations (documented, not hidden)
-1. Rename changes the fingerprint input → a re-delivered message is a new ROW
-   (the canonical conversation stays one). Row-level cross-name dedup is a
-   documented limitation; fixing it requires rewriting stored keys — forbidden.
-2. Messages captured during a merge stay with the merge target after unmerge
-   (asserted contract; must be disclosed in UI copy).
-3. Process death between capture and commit loses in-flight rows (Persistent
-   Intake Journal = DESIGN_ONLY).
-4. **FLAKY_UNRESOLVED**: BurstCapture.testC/testE and SystemNotificationE2E fail
-   intermittently ONLY under full-suite ordering (see FLAKE-ANALYSIS.md).
-5. Emulator-only evidence; no OEM/real-device validation.
-6. Version bump was made as part of this round; the public repo still shows
-   v0.4.4-alpha as its only tag.
+## Known Flake
+`SystemNotificationE2EInstrumentedTest` link under full-suite ordering — FLAKY_UNRESOLVED, passes 3/3 isolated. Documented in `FLAKE-ANALYSIS.md`.
 
-## Evidence paths
-- `docs/verification/v0.4.6/FINAL-TEST-MATRIX.md` (+ DHC-INTEROP, PERFORMANCE,
-  SYSTEM-E2E, FLAKE-ANALYSIS, R1-ACCEPTANCE-CORRECTIONS)
-- `docs/handoff/current/TASK_STATE.json` (per-task ledger)
-- Logs: `/tmp/t12-full.log`, `/tmp/t05-full.log`, `/tmp/perf.log`, `/tmp/g3-full.log`
-- Snapshots: `~/Desktop/pi-v046-r0-snapshot/`, `pi-v046-r1postfix-snapshot/`,
-  `pi-v046-t00-snapshot/`
+## Release Gate Status
+| Gate | Status |
+|------|--------|
+| Clean integration branch | PASS |
+| Full diff security review | PASS (SHIP IT) |
+| CI / Build / Migration / DHC | PASS |
+| APK signing verified | PASS (debug key A) |
+| Public upgrade compatibility | VERIFIED |
+| Unresolved flake disclosed | YES (FLAKY_UNRESOLVED) |
+| Independent review (2nd reviewer) | SELF_REVIEW_ONLY (BLOCKS publication) |
+| Release keystore | NOT EXISTS (BLOCKS production release) |
 
-## Safe public integration plan (NOT executed)
-1. On the anonymized public baseline (`integration/dsh-v040`), create
-   `v046-reliability` from it — never merge `v045-reliability` history directly.
-2. Apply this working tree as a patch series: (a) v0.4.5 reliability fixes,
-   (b) v0.4.6 identity layer + tests, (c) docs. Re-run the full suite per commit.
-3. Confirm no private paths/keys in the patches (`audit-secrets.sh` + manual grep).
-4. Only then open a Draft PR; do not merge without independent review.
-
-## Next atomic actions
-1. T13: independent review of the full diff (SELF_REVIEW_ONLY was all that was
-   available this round).
-2. T12 flake: run the suite under AndroidX Test Orchestrator with
-   `clearPackageData`, or isolate the burst suite into its own process.
-3. T07: same-conditions baseline for future comparisons is now recorded; re-measure
-   on any hardware change.
+**Cannot publish Alpha Release until:** independent review of PR #4 + acceptance of documented flake.

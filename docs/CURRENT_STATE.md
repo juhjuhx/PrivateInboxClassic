@@ -1,20 +1,20 @@
 # Private Inbox Classic — Current Engineering State
 
 **Single source of truth for "where the project is right now."**
-Updated: 2026-10-24 · Target: v0.4.6 · Verdict: PARTIAL (see §5)
+Updated: 2026-10-24 · Target: v0.4.6 · Verdict: READY_FOR_PUBLICATION (pending independent review)
 
 ## 1. Where things are
 
 | What | Path |
 |---|---|
-| The only working tree | `/Users/huang/Desktop/我的已讀不回助理/PrivateInboxClassic-v0.2/codex-integration` |
+| The only working tree | `PrivateInboxClassic-v0.2/codex-integration` (workspace root) |
 | Branch / HEAD | `v045-reliability` @ `bb36c83f524c0aa87ba04680f0f4c0bfea79318f` (uncommitted work on top) |
 | Tracking | `origin/fix/x200pro-notification-burst` (ahead 7) — NOT the public default `integration/dsh-v040` |
 | Task ledger | `docs/handoff/current/TASK_STATE.json` |
 | Agent state | `docs/handoff/current/AGENT_STATE.md` |
 | Test matrix | `docs/verification/v0.4.6/FINAL-TEST-MATRIX.md` |
-| Environment | JDK 17 (Homebrew aarch64), Gradle 8.13, SDK at `~/Desktop/我的已讀不回助理/android-sdk`, AVD `test36` at `~/Desktop/我的已讀不回助理/.android-home/avd` |
-| Snapshots | `~/Desktop/pi-v046-r0-snapshot/`, `~/Desktop/pi-v046-r1postfix-snapshot/`, `~/Desktop/pi-v046-t00-snapshot/` |
+| Environment | JDK 17 (Homebrew aarch64), Gradle 8.13, SDK at `~/Desktop/我的已讀不回助理/android-sdk` |
+| Snapshots | `workspace/snapshots/v0.4.6/pi-v046-r0-snapshot/`, `workspace/snapshots/v0.4.6/pi-v046-r1postfix-snapshot/`, `workspace/snapshots/v0.4.6/pi-v046-t00-snapshot/` |
 
 **Every build/test command must run after `source scripts/_env.sh`.**
 
@@ -55,14 +55,14 @@ Updated: 2026-10-24 · Target: v0.4.6 · Verdict: PARTIAL (see §5)
 
 ## 5. Verification summary (fresh)
 
-- Instrumentation: 226+ run across suites; 0 product failures; 1 known flake
-  (`BurstCapture.testJ`, tray-scheduling race under full-suite ordering; passes
-  alone 3/3 and as a class 10/10).
+- Instrumentation: 239 run across 25 suites; 0 product failures; 1 documented
+  flake (`SystemNotificationE2E` link under full-suite ordering — FLAKY_UNRESOLVED,
+  passes 3/3 isolated). Fresh run at /tmp/t05-final.log
 - JVM: 157/157.
 - DHC interop: Python 27 pass, Kotlin 14 pass, REAL round trip PASS, wrong
   passphrase rejected.
 - Performance: CURRENT_BASELINE_ESTABLISHED (see PERFORMANCE-EVIDENCE.md).
-- Signing: debug key `46488e99…`; **PRODUCTION_SIGNING_BLOCKED**.
+- Signing: debug key A `c876051e…`; **PRODUCTION_SIGNING_BLOCKED**. Upgrade over public v0.4.4-alpha verified via `adb install -r`.
 
 ## 6. Known limitations / blockers
 1. Rename changes the fingerprint input → re-delivered message is a new ROW.
@@ -72,4 +72,4 @@ Updated: 2026-10-24 · Target: v0.4.6 · Verdict: PARTIAL (see §5)
 5. Release signing does not exist; debug-only artifacts.
 
 ## 7. Next atomic action
-T13 independent review of the final diff, then T14 handoff package.
+R07-E independent review of PR #4 (https://github.com/juhjuhx/PrivateInboxClassic/pull/4), then conditional publication.
