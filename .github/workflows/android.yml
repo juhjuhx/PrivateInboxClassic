@@ -104,7 +104,6 @@ jobs:
 
       - name: Assemble release APK (unsigned until a release key is configured)
         run: ./gradlew --no-daemon :app:assembleProdRelease
-        continue-on-error: true
 
       - name: Audit the built artifacts
         run: bash scripts/audit-release.sh
@@ -126,13 +125,22 @@ jobs:
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify \
             --print-certs app/build/outputs/apk/prod/debug/app-prod-debug.apk
 
+      - name: Set up Android Emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: arm64-v8a
+          force-avd-creation: true
+          disable-animations: true
+          snapshot: true
+
       - name: Instrumentation on the ISOLATED devtest variant
         # The destructive tests (the ones that clear the database) run against
         # the devtest variant, whose application id has its own data directory.
         # They physically cannot reach the production app's database, which is
         # what makes running them on a device safe.
         run: ./gradlew --no-daemon :app:connectedDevtestDebugAndroidTest
-        continue-on-error: true
 
       - name: Upload test reports
         if: always()
