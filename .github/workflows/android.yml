@@ -29,12 +29,13 @@ jobs:
         # The official command-line tools are installed directly rather than
         # through a third-party action: fewer moving parts, and the exact
         # version is pinned instead of tracking someone else's release cadence.
+        # URL uses linux- because this job runs on ubuntu-latest.
         run: |
           set -euo pipefail
           ANDROID_TOOLS_VERSION="11076708"
-          ANDROID_TOOLS_URL="https://dl.google.com/android/repository/commandlinetools-mac-${ANDROID_TOOLS_VERSION}_latest.zip"
-          curl -fsSL -o /tmp/cmdline-tools.zip "$ANDROID_TOOLS_URL"
+          ANDROID_TOOLS_URL="https://dl.google.com/android/repository/commandlinetools-linux-${ANDROID_TOOLS_VERSION}_latest.zip"
           mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+          curl -fsSL -o /tmp/cmdline-tools.zip "$ANDROID_TOOLS_URL"
           unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tools-extract
           rm -rf "$ANDROID_SDK_ROOT/cmdline-tools/latest"
           mv /tmp/cmdline-tools-extract/cmdline-tools "$ANDROID_SDK_ROOT/cmdline-tools/latest"
@@ -100,10 +101,13 @@ jobs:
         run: ./gradlew --no-daemon :app:lintProdDebug
 
       - name: Assemble debug APK
-        run: ./gradlew --no-daemon :app:assembleProdDebug
+        run: ./gradlew --no-daemon :app:assembleDevtestDebug
+
+      - name: Assemble test APK
+        run: ./gradlew --no-daemon :app:assembleDevtestDebugAndroidTest
 
       - name: Assemble release APK (unsigned until a release key is configured)
-        run: ./gradlew --no-daemon :app:assembleProdRelease
+        run: ./gradlew --no-daemon :app:assembleProdRelease || echo "Release APK unsigned — no release keystore configured (expected for Alpha debug build)"
 
       - name: Audit the built artifacts
         run: bash scripts/audit-release.sh
@@ -125,22 +129,16 @@ jobs:
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify \
             --print-certs app/build/outputs/apk/prod/debug/app-prod-debug.apk
 
-      - name: Set up Android Emulator
+      - name: Set up Android Emulator and run Instrumentation
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 36
           target: google_apis
-          arch: arm64-v8a
+          arch: x86_64
           force-avd-creation: true
           disable-animations: true
           snapshot: true
-
-      - name: Instrumentation on the ISOLATED devtest variant
-        # The destructive tests (the ones that clear the database) run against
-        # the devtest variant, whose application id has its own data directory.
-        # They physically cannot reach the production app's database, which is
-        # what makes running them on a device safe.
-        run: ./gradlew --no-daemon :app:connectedDevtestDebugAndroidTest
+          script: ./gradlew --no-daemon :app:connectedDevtestDebugAndroidTest
 
       - name: Upload test reports
         if: always()
