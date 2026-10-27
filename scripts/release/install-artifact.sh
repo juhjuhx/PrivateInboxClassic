@@ -7,9 +7,10 @@
 # Safety model (the whole point of this script):
 #   * 'adb install -r' is used ONLY when the installed package's signature
 #     matches the artifact's signature.
-#   * When the signatures differ, the script STOPS and tells the user to use
-#     the encrypted backup/restore flow. It never uninstalls, never wipes,
-#     and never force-installs.
+#   * When the signatures differ, the script STOPS and reports a certificate
+#     mismatch. It never uninstalls, never wipes, and never force-installs.
+#   * No cross-signature backup/restore is available (Portable Archive Import
+#     is not complete). Data on the existing install cannot be migrated.
 #   * The app has no INTERNET permission and this script performs no network
 #     access of its own.
 #
@@ -79,11 +80,13 @@ if adb shell pm path "$PKG_NAME" 2>/dev/null | grep -q '^package:'; then
     echo "  'adb install -r' would be rejected by Android, and uninstalling"
     echo "  would PERMANENTLY DELETE the user's archived messages."
     echo ""
-    echo "  Safe path:"
-    echo "    1. Export an encrypted backup from the installed app."
-    echo "    2. Uninstall it (this is destructive — confirm first)."
-    echo "    3. Install this artifact."
-    echo "    4. Restore from the backup."
+    echo "  No supported in-place upgrade path exists yet."
+    echo "  1. The Portable Archive Import feature is NOT complete — encrypted"
+    echo "     backup/restore across signature changes is not available."
+    echo "  2. Do NOT uninstall the installed app — its data cannot be recovered"
+    echo "     without the archive import feature."
+    echo "  3. Keep the currently installed version. To use this artifact, use a"
+    echo "     separate device/emulator, or wait for the archive import feature."
     exit 1
   fi
   echo "  installed package found but could not be read for comparison — refusing."

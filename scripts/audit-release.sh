@@ -215,8 +215,8 @@ echo "=== 7. Release bundle: identity, version and signing ==="
 # (b) signed with the DEBUG certificate, under a v0.4.1 file name. Neither is
 # visible from the file name, so both are checked here.
 AAB="app/build/outputs/bundle/prodRelease/app-prod-release.aab"
-EXPECTED_VERSION_NAME="0.4.4"
-EXPECTED_VERSION_CODE="10"
+EXPECTED_VERSION_NAME="0.4.6"
+EXPECTED_VERSION_CODE="11"
 if [ -f "$AAB" ]; then
   tmp="$(mktemp -d)"
   unzip -o -q "$AAB" -d "$tmp" 2>/dev/null
