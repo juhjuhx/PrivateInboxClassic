@@ -16,7 +16,7 @@ import org.json.JSONObject
  *  Migration is additive: existing rows keep their data and get a neutral
  *  conversation_key derived from their package + title, so no user data is lost. */
 class InboxDatabase(private val appContext: Context) :
-    SQLiteOpenHelper(appContext, "inbox.db", null, 5) {
+    SQLiteOpenHelper(appContext, "inbox.db", null, 6) {
     data class Entry(
         val id: Long, val packageName: String, val receivedAt: Long,
         val sourceTimestamp: Long,
@@ -56,6 +56,68 @@ class InboxDatabase(private val appContext: Context) :
             "CREATE INDEX kind_received_idx " +
                 "ON messages(message_kind, received_at DESC, id DESC)"
         )
+        // v0.4.6: the canonical conversation layer. Additive side tables; the
+        // `messages` schema is deliberately NOT changed (see ConversationStore).
+        ConversationStore.createSchema(db)
+    }
+
+    /**
+     * Repair the canonical layer on every open.
+     *
+     * ## Why this exists
+     *
+     * `ConversationStore.createSchema()` is called from `onCreate` and from
+     * `onUpgrade(oldVersion < 6)`. A database created by an EARLIER v0.4.6 build
+     * already reports `user_version = 6`, so neither hook runs — and the tables
+     * added later (the merge journal) would be missing forever, making the first
+     * merge/unmerge throw "no such table".
+     *
+     * `onOpen` runs on every open, after the upgrade path, so a single idempotent
+     * `CREATE TABLE IF NOT EXISTS` pass repairs any such database. This is
+     * deliberately NOT a version bump: bumping `user_version` would run the
+     * back-fill again on every existing database, and the whole point is to leave
+     * `messages` untouched. The DDL is idempotent, so opening a healthy database
+     * does no work.
+     */
+    /**
+     * Whether the canonical schema was verified present in this process.
+     *
+     * G1.5 regression note: running `createSchema()` (6 DDL statements plus a
+     * `PRAGMA table_info`) on EVERY connection open starved the burst writer —
+     * the 500-message burst test hit `SQLITE_BUSY` because every pooled
+     * connection took the write lock briefly at open. The repair therefore runs
+     * ONCE per process, guarded by this flag, and by a cheap
+     * `user_version`/table check that does not take a write lock.
+     */
+    private val schemaRepaired = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    override fun onOpen(db: SQLiteDatabase) {
+        super.onOpen(db)
+        if (schemaRepaired.compareAndSet(false, true)) {
+            // Fast, read-only probe: are the journal tables already there?
+            val haveTables = runCatching {
+                db.rawQuery(
+                    "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN " +
+                        "('conversations','conversation_aliases','message_conversation'," +
+                        "'message_conversation_undo','conversation_alias_undo','conversation_merge_log')",
+                    null
+                ).use { c -> c.moveToFirst(); c.getInt(0) }
+            }.getOrDefault(6)
+            if (haveTables < 6) {
+                // An older v6 (or a fresh file): run the full idempotent repair.
+                runCatching { ConversationStore.createSchema(db) }
+                    .onFailure {
+                        CaptureDiagnostics.note(
+                            appContext, null, "DATABASE_OPEN",
+                            CaptureDiagnostics.SCHEMA_REPAIR_FAILED,
+                            it.javaClass.simpleName
+                        )
+                    }
+                // The repair may have created the canonical tables for the first
+                // time; make sure pre-existing rows are linked.
+                runCatching { ConversationStore.backfillAliases(db) }
+            }
+        }
     }
 
     override fun onConfigure(db: SQLiteDatabase) {
@@ -63,22 +125,72 @@ class InboxDatabase(private val appContext: Context) :
         // PRAGMA statements are queries, not updates: execSQL() rejects them with
         // "Queries can be performed using SQLiteDatabase query or rawQuery methods only".
         runCatching { db.rawQuery("PRAGMA secure_delete=ON", null).use { it.moveToFirst() } }
+        // H02: the OPEN path itself reads `user_version` (SQLiteDatabase.getVersion),
+        // which hits SQLITE_BUSY when the capture worker holds a long write
+        // transaction (the 500-message burst test reproduces it deterministically
+        // under suite ordering). A busy timeout makes the open WAIT instead of
+        // failing immediately — the same contract every other statement already
+        // has via the clear()/retry paths. 5 s covers the longest observed
+        // transaction; longer contention is a real error and still throws.
+        runCatching {
+            db.rawQuery("PRAGMA busy_timeout=5000", null).use { it.moveToFirst() }
+        }
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         // Additive, non-destructive migrations. Each step only adds columns and
         // back-fills neutral defaults; no row is ever deleted or rewritten with
         // data the user would lose.
+        //
+        // P0-A fix (v0.4.5 reliability review): `ADD COLUMN` is NOT idempotent
+        // in SQLite — a repeated `ADD COLUMN source_ts` crashes with
+        // "duplicate column name". The historical v0.4.4 code added source_ts
+        // in BOTH the <2 and the <3 step, so a v1 database hit it twice and
+        // every open crashed until reinstall. Two guards make this safe:
+        //
+        //   1. Steps are kept version-disjoint: each ALTER runs for exactly
+        //      one historical layout (the <3 step adds source_ts alone, so a
+        //      v1 database gets it exactly once through the two-step chain).
+        //   2. columnExists() double-checks before every ALTER, so a partially
+        //      upgraded database (a previous update crashed midway) re-runs
+        //      without crashing — recovery stays predictable instead of
+        //      wedging the open path forever.
+        fun columnExists(db: SQLiteDatabase, table: String, column: String): Boolean {
+            var found = false
+            db.rawQuery("PRAGMA table_info($table)", null).use { c ->
+                val nameIdx = c.getColumnIndex("name")
+                while (c.moveToNext()) {
+                    if (c.getString(nameIdx) == column) found = true
+                }
+            }
+            return found
+        }
+
+        fun addColumnIfMissing(db: SQLiteDatabase, table: String, column: String, ddl: String) {
+            if (!columnExists(db, table, column)) db.execSQL(ddl)
+        }
+
         if (oldVersion < 2) {
-            db.execSQL("ALTER TABLE messages ADD COLUMN sealed_image BLOB")
-            db.execSQL("ALTER TABLE messages ADD COLUMN source_ts INTEGER NOT NULL DEFAULT 0")
+            addColumnIfMissing(
+                db, "messages", "sealed_image",
+                "ALTER TABLE messages ADD COLUMN sealed_image BLOB"
+            )
         }
         if (oldVersion < 3) {
-            db.execSQL("ALTER TABLE messages ADD COLUMN source_ts INTEGER NOT NULL DEFAULT 0")
+            addColumnIfMissing(
+                db, "messages", "source_ts",
+                "ALTER TABLE messages ADD COLUMN source_ts INTEGER NOT NULL DEFAULT 0"
+            )
         }
         if (oldVersion < 4) {
-            db.execSQL("ALTER TABLE messages ADD COLUMN conversation_key TEXT NOT NULL DEFAULT ''")
-            db.execSQL("ALTER TABLE messages ADD COLUMN message_kind TEXT NOT NULL DEFAULT 'UNKNOWN'")
+            addColumnIfMissing(
+                db, "messages", "conversation_key",
+                "ALTER TABLE messages ADD COLUMN conversation_key TEXT NOT NULL DEFAULT ''"
+            )
+            addColumnIfMissing(
+                db, "messages", "message_kind",
+                "ALTER TABLE messages ADD COLUMN message_kind TEXT NOT NULL DEFAULT 'UNKNOWN'"
+            )
             // Back-fill the conversation key for rows captured before v4. The title is
             // encrypted, so it cannot be read here; the key is reconstructed lazily
             // from the package name at read time (see conversationKeyOf()).
@@ -108,6 +220,231 @@ class InboxDatabase(private val appContext: Context) :
                     "ON messages(message_kind, received_at DESC, id DESC)"
             )
         }
+        if (oldVersion < 6) {
+            // v0.4.6: the canonical conversation layer.
+            //
+            // ADDITIVE ONLY. `messages` is never altered, no row is rewritten,
+            // and the historical `conversation_key` values are left exactly as
+            // they are — that value is an input to the dedup fingerprint and to
+            // the DHC V1 message id, so rewriting it would break deduplication
+            // for every existing row.
+            //
+            // Idempotent: every DDL is IF NOT EXISTS and the back-fill only
+            // considers legacy keys that have no alias yet, so a crash between
+            // the DDL and the commit simply re-runs on the next open.
+            ConversationStore.createSchema(db)
+            ConversationStore.backfillAliases(db)
+        }
+    }
+
+    /**
+     * One inbox thread, grouped by CANONICAL conversation id.
+     *
+     * The old UI grouped the CURRENT PAGE of messages by legacy key, which is
+     * wrong twice: a conversation whose rows span a page boundary appears twice,
+     * and a conversation that only has older rows can be missed entirely. This
+     * read model is computed by SQL over the WHOLE table, so grouping is correct
+     * at any page size.
+     *
+     * The preview is NOT decrypted here: decrypting every row to build a list
+     * would be O(n) AES operations. `latestSealedTitle` is provided so the UI can
+     * decrypt just the visible page's previews through CryptoStore.
+     */
+    data class ConversationSummary(
+        val canonicalConversationId: String,   // "cv_…" when linked, else the legacy key
+        val packageName: String,
+        val displayTitle: String,              // most recent decrypted title, set by the caller
+        val latestMessageTimestamp: Long,      // received_at of the newest row
+        val latestMessageId: Long,
+        val messageCount: Int,
+        val ambiguityState: String,            // provenance of the best alias
+        val latestSealedContent: ByteArray
+    ) {
+        override fun equals(other: Any?): Boolean = this === other
+        override fun hashCode(): Int = System.identityHashCode(this)
+    }
+
+    /**
+     * One page of conversations, newest message first.
+     *
+     * Grouping key: the canonical link when the message has one, otherwise the
+     * legacy conversation_key. Unlinked historical rows therefore stay visible
+     * under their own legacy key instead of disappearing.
+     *
+     * Stable sort: latestReceivedAt DESC, then the grouping id, so identical
+     * timestamps do not shuffle across page boundaries.
+     *
+     * No decryption happens in this query.
+     */
+    fun conversationPage(
+        limit: Int = 50,
+        offset: Int = 0,
+        packageName: String? = null,
+        search: String? = null
+    ): List<ConversationSummary> {
+        val bounded = limit.coerceIn(1, 200)
+        val db = readableDatabase
+        val args = ArrayList<String>()
+        // The grouping key: canonical when linked, legacy otherwise. The title is
+        // only decrypted for the FINAL page rows, in the caller's loop, so the
+        // SQL must carry the sealed bytes of each conversation's newest message.
+        val sql = buildString {
+            append(
+                "SELECT g.gid, g.package_name, g.message_count, g.latest_id, " +
+                "       g.latest_received, m.sealed_content, a.strength " +
+                "FROM ("
+            )
+            append(
+                "SELECT COALESCE(l.conversation_id, 'k:' || m.conversation_key) AS gid, " +
+                "       m.package_name AS package_name, " +
+                "       count(*) AS message_count, " +
+                "       MAX(m.id) AS latest_id, " +
+                "       MAX(m.received_at) AS latest_received " +
+                "FROM messages m " +
+                "LEFT JOIN message_conversation l ON l.message_id = m.id "
+            )
+            // (the sub-query is the derived table `g`)
+            if (packageName != null) { append("WHERE m.package_name = ? "); args.add(packageName) }
+            append(
+                "GROUP BY gid, m.package_name " +
+                "ORDER BY latest_received DESC, gid " +
+                "LIMIT ? OFFSET ?) AS g"
+            )
+            args.add(bounded.toString()); args.add(offset.toString())
+            append(
+                " JOIN messages m ON m.id = g.latest_id " +
+                "LEFT JOIN conversation_aliases a " +
+                "  ON a.package_name = g.package_name " +
+                " AND a.alias_type = 'SHORTCUT' " +
+                " AND a.conversation_id = g.gid " +
+                "ORDER BY g.latest_received DESC, g.gid"
+            )
+        }
+        val out = ArrayList<ConversationSummary>(bounded)
+        db.rawQuery(sql, args.toTypedArray()).use { c ->
+            while (c.moveToNext()) {
+                out.add(
+                    ConversationSummary(
+                        canonicalConversationId = c.getString(0),
+                        packageName = c.getString(1),
+                        displayTitle = "",          // decrypted by the caller
+                        latestMessageTimestamp = c.getLong(4),
+                        latestMessageId = c.getLong(3),
+                        messageCount = c.getInt(2),
+                        ambiguityState = c.getString(6) ?: "AMBIGUOUS",
+                        latestSealedContent = c.getBlob(5)
+                    )
+                )
+            }
+        }
+        return out
+    }
+
+    /** Total distinct conversations (for the "load more" affordance). */
+    fun conversationCountAll(packageName: String? = null): Int {
+        val db = readableDatabase
+        val args = ArrayList<String>()
+        val sql = buildString {
+            append(
+                "SELECT count(*) FROM (SELECT COALESCE(l.conversation_id, 'k:' || m.conversation_key) AS gid " +
+                "FROM messages m LEFT JOIN message_conversation l ON l.message_id = m.id "
+            )
+            if (packageName != null) { append("WHERE m.package_name = ? "); args.add(packageName) }
+            append("GROUP BY gid)")
+        }
+        return db.rawQuery(sql, args.toTypedArray()).use { c ->
+            c.moveToFirst(); c.getInt(0)
+        }
+    }
+
+    /**
+     * The messages of one canonical conversation, newest first, paged.
+     *
+     * Rows are matched through the canonical link when present, plus any legacy
+     * key that alias-resolves to the same conversation, so a conversation whose
+     * rows predate the linking still shows up.
+     */
+    fun readConversationMessages(
+        canonicalId: String,
+        limit: Int = 50,
+        beforeReceivedAt: Long? = null,
+        beforeId: Long? = null
+    ): ReadResult {
+        // Every legacy key that maps to this conversation.
+        // The legacy keys contain NUL separators, and SQLite's bind API truncates
+        // a bound Java String at the first NUL. Matching by HEX comparison keeps
+        // the whole byte sequence — the same trick the dedup path relies on.
+        // ONLY the LEGACY_KEY aliases can be matched against
+        // `messages.conversation_key`: they are the same string. A SHORTCUT alias
+        // holds just the shortcut id, which is a COMPONENT of the key — hex-
+        // matching it would find nothing (and must never match).
+        val keyHexes = ArrayList<String>()
+        readableDatabase.rawQuery(
+            "SELECT hex(alias_value) FROM conversation_aliases " +
+                "WHERE conversation_id = ? AND alias_type = 'LEGACY_KEY'",
+            arrayOf(canonicalId)
+        ).use { c ->
+            while (c.moveToNext()) keyHexes.add(c.getString(0))
+        }
+        val output = ArrayList<Entry>()
+        var worst = CryptoStore.KeyState.KEY_AVAILABLE
+        var unreadable = 0
+        val bounded = limit.coerceIn(1, 500)
+        val fetch = bounded + 1
+        val selection = StringBuilder()
+        val args = mutableListOf<String>()
+        if (keyHexes.isNotEmpty()) {
+            args.addAll(keyHexes)
+            selection.append("hex(conversation_key) IN (${keyHexes.joinToString(",") { "?" }})")
+        }
+        if (beforeReceivedAt != null && beforeId != null) {
+            if (selection.isNotEmpty()) selection.append(" AND ")
+            selection.append("(received_at < ? OR (received_at = ? AND id < ?))")
+            args += beforeReceivedAt.toString()
+            args += beforeReceivedAt.toString()
+            args += beforeId.toString()
+        }
+        android.util.Log.d("READMODEL", "sql=${"SELECT id FROM messages " + (if (selection.isNotEmpty()) "WHERE $selection" else "")} args=$args")
+        readableDatabase.rawQuery(
+            "SELECT id, package_name, received_at, source_ts, sealed_content, " +
+                "sealed_image, conversation_key, message_kind FROM messages " +
+                (if (selection.isNotEmpty()) "WHERE $selection " else "") +
+                "ORDER BY received_at DESC, id DESC LIMIT $fetch",
+            args.toTypedArray()
+        ).use { c ->
+            var __n = 0
+            while (c.moveToNext()) {
+                __n++
+                val pkg = c.getString(1)
+                val res = CryptoStore.openWithState(pkg, c.getBlob(4))
+                if (res.plaintext == null) {
+                    unreadable++
+                    if (res.state.isUnrecoverable) worst = res.state
+                    else if (worst == CryptoStore.KeyState.KEY_AVAILABLE) worst = res.state
+                    continue
+                }
+                try {
+                    val decoded = JSONObject(String(res.plaintext, Charsets.UTF_8))
+                    val key = c.getString(6)?.takeIf { it.isNotEmpty() }
+                        ?: legacyConversationKey(pkg, decoded.optString("title"))
+                    output += Entry(c.getLong(0), pkg, c.getLong(2), c.getLong(3),
+                        decoded.optString("title"), decoded.optString("sender"),
+                        decoded.optString("body"), !c.isNull(5),
+                        key, c.getString(7) ?: SourceRegistry.MessageKind.UNKNOWN.name)
+                } catch (_: Exception) {
+                    unreadable++
+                    if (worst == CryptoStore.KeyState.KEY_AVAILABLE) {
+                        worst = CryptoStore.KeyState.DECRYPT_FAILED
+                    }
+                }
+            }
+            android.util.Log.d("READMODEL", "rawRows=$__n output=${output.size}")
+        }
+        val finalState = if (worst.isUnrecoverable) CryptoStore.KeyState.RECOVERY_REQUIRED
+                         else worst
+        val hasMore = output.size > bounded
+        if (hasMore) output.removeAt(output.size - 1)
+        return ReadResult(output, finalState, unreadable, hasMore)
     }
 
     /**
@@ -427,7 +764,7 @@ class InboxDatabase(private val appContext: Context) :
         readableDatabase.query("messages",
             arrayOf("id", "package_name", "received_at", "source_ts", "sealed_content",
                 "sealed_image", "conversation_key", "message_kind"),
-            selection.ifEmpty { null },
+            selection.takeIf { it.isNotEmpty() }?.toString(),
             args.takeIf { it.isNotEmpty() }?.toTypedArray(),
             null, null, "received_at DESC, id DESC", fetch.toString()
         ).use { c ->
@@ -636,9 +973,47 @@ class InboxDatabase(private val appContext: Context) :
     }.getOrDefault(0L)
 
     fun clear() {
-        val db = writableDatabase
-        db.delete("messages", null, null)
-        checkpointWal(db)
+        // The clear races the capture worker: the worker may be mid-flush (or
+        // inside the retry backoff window) on ANOTHER connection when a test
+        // tears down. A plain delete then dies with SQLITE_BUSY and every
+        // later assertion in that test measures a poisoned database. The
+        // write lock is held only for the duration of one DELETE, so a short
+        // bounded retry is enough; anything longer is a real error.
+        var lastError: Exception? = null
+        repeat(10) {
+            try {
+                val db = writableDatabase
+                db.beginTransaction()
+                try {
+                    // Order matters: the link rows reference messages, so they
+                    // go first. The conversation layer is derived state — a
+                    // "delete everything" that left stale conversations behind
+                    // would make the next capture appear to join a group the
+                    // user had already erased.
+                    db.delete(ConversationStore.TABLE_MESSAGE_LINKS, null, null)
+                    db.delete(ConversationStore.TABLE_MERGE_UNDO, null, null)
+                    // The G1.5 journal tables must be wiped too, or a later
+                    // "delete everything" leaves undo rows (and merge-log rows)
+                    // behind that refer to conversations which no longer exist.
+                    db.delete(ConversationStore.TABLE_MERGE_UNDO_ALIAS, null, null)
+                    db.delete(ConversationStore.TABLE_MERGE_LOG, null, null)
+                    db.delete(ConversationStore.TABLE_ALIASES, null, null)
+                    db.delete(ConversationStore.TABLE_CONVERSATIONS, null, null)
+                    db.delete("messages", null, null)
+                    db.setTransactionSuccessful()
+                } finally {
+                    db.endTransaction()
+                }
+                checkpointWal(db)
+                lastError = null
+                return
+            } catch (e: android.database.sqlite.SQLiteDatabaseLockedException) {
+                lastError = e
+                System.err.println("PrivateInbox: clear() waiting for the write lock ($it)")
+                Thread.sleep(250)
+            }
+        }
+        lastError?.let { throw it }
     }
 
     /** Delete a single captured message (its encrypted image blob is removed with the row). */
