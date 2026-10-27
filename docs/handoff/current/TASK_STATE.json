@@ -1,0 +1,153 @@
+{
+  "project": "PrivateInboxClassic",
+  "target": "v0.4.6",
+  "head": "bb36c83f524c0aa87ba04680f0f4c0bfea79318f",
+  "branch": "v045-reliability",
+  "tracking": "origin/fix/x200pro-notification-burst",
+  "updated": "2026-10-24T22:00:00+08:00",
+  "tasks": {
+    "T00": {
+      "status": "PASS",
+      "evidence": "~/Desktop/pi-v046-t00-snapshot/"
+    },
+    "T01": {
+      "status": "PASS",
+      "evidence": "pipeline 9/9 x2, integrity 8/8",
+      "fixes": "captureAndWait stability-wait; concurrent test uses real ids + relative count + orphan audit"
+    },
+    "T02": {
+      "status": "PASS",
+      "evidence": "ConversationReadModelInstrumentedTest 11/11",
+      "impl": "InboxDatabase.conversationPage()/conversationCountAll()/readConversationMessages()",
+      "defects_fixed": [
+        "sub-query missing AS g alias (SQLiteException)",
+        "legacy keys contain NUL -> bound String truncated -> hex() matching",
+        "SHORTCUT aliases must not hex-match conversation_key (they are a key COMPONENT, not the key)"
+      ]
+    },
+    "T03": {
+      "status": "PASS",
+      "impl": "MainActivity: refreshCanonicalKeys() + threadKey canonical-first + loadEntries reconcile+refresh",
+      "files": "MainActivity.kt (entries/threads/loadEntries -> internal)"
+    },
+    "T04": {
+      "status": "PASS",
+      "evidence": "ConversationUiLifecycleInstrumentedTest 6/6",
+      "note": "ActivityScenario + reflective unlock (UiSnapshot precedent); PAGE_SIZE=50 asserted"
+    },
+    "T05": {
+      "status": "PASS",
+      "note": "A+B+C categories PASS with fresh evidence; D=REAL_DEVICE_NOT_TESTED",
+      "evidence": "docs/verification/v0.4.6/SYSTEM-E2E-EVIDENCE.md"
+    },
+    "T06": {
+      "status": "PASS",
+      "evidence": "ConversationIntegrityInstrumentedTest 8/8 + rollback/retry suites from G1/G1.5"
+    },
+    "T07": {
+      "status": "PASS",
+      "evidence": "docs/verification/v0.4.6/PERFORMANCE-EVIDENCE.md",
+      "note": "CURRENT_BASELINE_ESTABLISHED; resolve-existing 53us p50; conversationPage 878us p50 @1000 convos; existing benchmark suites 14/14"
+    },
+    "T08": {
+      "status": "PASS",
+      "evidence": "docs/CURRENT_STATE.md + docs/architecture/CONVERSATION-IDENTITY.md + docs/engineering/CLEANUP-MANIFEST.md",
+      "note": "no files deleted; superseded markers via CURRENT_STATE"
+    },
+    "T09": {
+      "status": "PASS",
+      "evidence": "docs/verification/v0.4.6/DHC-INTEROP-EVIDENCE.md",
+      "results": "pytest 27 pass; Kotlin 14 pass; real round trip PASS; wrong-pass rejected"
+    },
+    "T10": {
+      "status": "PASS",
+      "version": "11 / 0.4.6",
+      "upgrades_installed": "devtest adb install -r Success (10\u219211 same signature)",
+      "prod_apk_sha256": "450a951acc533752f1aac8355dab69e04f52d7ee41e3d57a4b0e0e6264de0176",
+      "devtest_apk_sha256": "894852bcdf3cd25ad015ca726f29a84c1ef0bf3195ffb61fdd5aeba2dcbbe93b",
+      "signing": "PRODUCTION_SIGNING_BLOCKED (debug key only)",
+      "notes": "Remote tag v0.4.4-alpha exists at e00f23c8; no release keystore in repo"
+    },
+    "T11": {
+      "status": "PASS",
+      "note": "both READMEs gained a gallery of the real synthetic screenshots (provenance stated in-text); no private data \u2014 UiSnapshot-rendered views",
+      "files": "README.md README.zh-TW.md"
+    },
+    "T12": {
+      "status": "PASS_W_FLAKY",
+      "full": "239 run / 1 flaky (SystemE2E link) / 0 product failures",
+      "isolated": "SystemE2E 3/3, Qa01 8/8, BurstCapture 10/10"
+    },
+    "T13": {
+      "status": "SELF_REVIEW_ONLY",
+      "note": "no second independent reviewer available in this harness; adversarial self-review performed across the round (7 defects caught+fixed); independent review still required before integration"
+    },
+    "T14": {
+      "status": "PASS",
+      "evidence": "docs/handoff/current/FINAL-V046-HANDOFF.md"
+    },
+    "QA01": {
+      "status": "PASS",
+      "evidence": "Qa01ReadModelAndUiTest 8/8 (tag-based exact rows, real UI search, date range)",
+      "note": "H01 fixes: view tags, exact counts, no Set collapsing"
+    },
+    "H01": {
+      "status": "PASS",
+      "evidence": "docs/verification/v0.4.6/H-ROUND-EVIDENCE.md",
+      "qa01": "8/8"
+    },
+    "H02": {
+      "status": "PARTIAL",
+      "fixed": 4,
+      "unresolved": "SystemE2E link flake under full ordering (FLAKY_UNRESOLVED)",
+      "evidence": "FLAKE-ANALYSIS.md updated"
+    },
+    "H04": {
+      "status": "PASS",
+      "snapshot": "~/Desktop/pi-v046-rc-snapshot/",
+      "audit": "0 private paths; 7 safe doc mentions"
+    },
+    "H05": {
+      "status": "PASS",
+      "full": "239/1 flaky/0 product failures"
+    },
+    "W00": {
+      "status": "PASS"
+    },
+    "W01": {
+      "status": "PASS",
+      "evidence": "workspace/manifests/SNAPSHOT-RELOCATION-MANIFEST.md"
+    },
+    "W02": {
+      "status": "PASS"
+    },
+    "R00": {
+      "status": "PASS",
+      "evidence": "docs/verification/v0.4.6/RELEASE-BASELINE-TRUTH.md",
+      "head": "bb36c83f524c0aa87ba04680f0f4c0bfea79318f",
+      "branch": "v045-reliability",
+      "dirty_files": 76,
+      "prod_apk_sha256": "a817434edefcb8f5becec48b4ab46ba91badc80bed2b294c0355247c1d6a653c",
+      "version": "11/0.4.6"
+    },
+    "R01": {
+      "status": "PASS",
+      "evidence": "Full instrumentation 239/239 PASS, JVM 157/157 PASS, Lint PASS, Audits PASS",
+      "flaky": "testJ_groupSummaryAndChildren resolved"
+    },
+    "R04": {
+      "status": "PASS",
+      "evidence": "Public v0.4.4-alpha (key A) -> local v0.4.6 prod (key A) via adb install -r SUCCESS",
+      "public_apk_sha256": "6c6def174902a192cf5f65846261c517ff42edff62bde8ee9c72104ddd8c1556",
+      "candidate_apk_sha256": "a817434edefcb8f5becec48b4ab46ba91badc80bed2b294c0355247c1d6a653c",
+      "cert_sha256": "c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4"
+    },
+    "R02": {
+      "status": "PASS",
+      "evidence": "docs/handoff/current/INDEPENDENT-REVIEW-REPORT.md",
+      "verdict": "SHIP IT",
+      "findings": "0 CRITICAL, 0 HIGH, 1 MEDIUM (link pending recovery, handled), 2 LOW (docs inconsistency, backfill contention)",
+      "health": "IMPROVES"
+    }
+  }
+}
