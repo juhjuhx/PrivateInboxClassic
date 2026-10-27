@@ -13,9 +13,9 @@
 ```bash
 ./gradlew :app:assembleProdDebug \
   -Pdebug.storeFile="${ANDROID_USER_HOME}/debug.keystore" \
-  -Pdebug.storePassword="android" \
+  -Pdebug.storePassword="${DEBUG_STORE_PASSWORD}" \
   -Pdebug.keyAlias="androiddebugkey" \
-  -Pdebug.keyPassword="android"
+  -Pdebug.keyPassword="${DEBUG_KEY_PASSWORD}"
 ```
 
 `ANDROID_USER_HOME` resolves to `$HOME/.android-home` by default via `scripts/_env.sh`. Use the absolute path to the key A keystore if it lives elsewhere.
