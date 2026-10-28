@@ -164,20 +164,17 @@ jobs:
             # isolated, see FLAKE-ANALYSIS.md). It is NOT claimed as fixed.
             # Retry only that class in isolation to avoid failing CI on a known
             # flake while keeping real failures visible.
-            # Run instrumentation tests. SystemNotificationE2E is a documented
-            # FLAKY_UNRESOLVED flake under full-suite ordering (passes 3/3
-            # isolated, see FLAKE-ANALYSIS.md). It is NOT claimed as fixed.
-            # Retry only that class in isolation to avoid failing CI on a known
-            # flake while keeping real failures visible.
-            if ! ./gradlew --no-daemon :app:connectedDevtestDebugAndroidTest; then
-              echo "=== Full suite had failures; retrying documented flaky SystemE2E in isolation ==="
-              if ! ./gradlew --no-daemon :app:connectedDevtestDebugAndroidTest \\
-                -Pandroid.testInstrumentationRunnerArguments.class=tw.personal.privateinbox.SystemNotificationE2EInstrumentedTest; then
-                echo "::error::SystemNotificationE2E also failed in isolation — not just full-ordering flake"
-                exit 1
-              fi
-              echo "::warning::CI green via isolated SystemNotificationE2E retry; flake remains FLAKY_UNRESOLVED"
-            fi
+            # Run instrumentation tests.
+            # SystemNotificationE2E is a documented FLAKY_UNRESOLVED flake under
+            # full-suite ordering (passes 3/3 isolated, see FLAKE-ANALYSIS.md).
+            # It is NOT claimed as fixed. Run all tests except SystemE2E first,
+            # then run SystemE2E alone in isolation for honest CI results.
+            echo "=== Running all instrumentation tests except SystemE2E ==="
+            ./gradlew --no-daemon :app:connectedDevtestDebugAndroidTest \\
+              -Pandroid.testInstrumentationRunnerArguments.notClass=tw.personal.privateinbox.SystemNotificationE2EInstrumentedTest
+            echo "=== Running SystemNotificationE2E in isolation (documented flake) ==="
+            ./gradlew --no-daemon :app:connectedDevtestDebugAndroidTest \\
+              -Pandroid.testInstrumentationRunnerArguments.class=tw.personal.privateinbox.SystemNotificationE2EInstrumentedTest
 
       - name: Upload test reports
         if: always()
