@@ -167,16 +167,18 @@ jobs:
             set +e
             ./gradlew --no-daemon :app:connectedDevtestDebugAndroidTest
             RC=$?
-            set -e
-            if [ $RC -ne 0 ]; then
-              echo "=== Full suite failed; retrying SystemNotificationE2E in isolation ==="
-              ./gradlew --no-daemon :app:connectedDevtestDebugAndroidTest                 -Pandroid.testInstrumentationRunnerArguments.class=tw.personal.privateinbox.SystemNotificationE2EInstrumentedTest
-              RC=$?
-              if [ $RC -ne 0 ]; then
+            if [ "$RC" -ne 0 ]; then
+              echo "=== Full suite had failures; retrying documented flaky SystemE2E in isolation ==="
+              ./gradlew --no-daemon :app:connectedDevtestDebugAndroidTest \\
+                -Pandroid.testInstrumentationRunnerArguments.class=tw.personal.privateinbox.SystemNotificationE2EInstrumentedTest
+              RC2=$?
+              if [ "$RC2" -ne 0 ]; then
                 echo "::error::SystemNotificationE2E also failed in isolation — not just full-ordering flake"
-                exit $RC
+                exit "$RC2"
               fi
-              echo "::warning::CI green via isolated SystemNotificationE2E retry; flake remains FLAKY_UNRESOLVED under full ordering"
+              echo "::warning::CI green via isolated SystemNotificationE2E retry; flake remains FLAKY_UNRESOLVED"
+            else
+              exit 0
             fi
 
       - name: Upload test reports
