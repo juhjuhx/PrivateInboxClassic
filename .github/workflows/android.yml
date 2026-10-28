@@ -148,12 +148,18 @@ jobs:
           force-avd-creation: true
           disable-animations: true
           script: |
-            # Push DHC cross-language fixtures to the emulator's devtest app cache.
-            # The instrumentation tests read python-export.picbox from:
-            # /data/user/0/tw.personal.privateinbox.devtest/cache/dhc-fixtures/
-            adb shell "run-as tw.personal.privateinbox.devtest sh -c 'mkdir -p /data/user/0/tw.personal.privateinbox.devtest/cache/dhc-fixtures'" || true
-            adb push app/build/outputs/dhc-fixtures /data/local/tmp/dhc-fixtures || true
-            adb shell "run-as tw.personal.privateinbox.devtest sh -c 'cp /data/local/tmp/dhc-fixtures/* /data/user/0/tw.personal.privateinbox.devtest/cache/dhc-fixtures/'" || true
+            # Install the app first (preserves data with -r), then push DHC fixtures.
+            ./gradlew --no-daemon :app:assembleDevtestDebug :app:assembleDevtestDebugAndroidTest
+            adb install -r app/build/outputs/apk/devtest/debug/app-devtest-debug.apk
+            # Push DHC cross-language fixtures to the devtest app's internal cache.
+            # Tests read from /data/user/0/tw.personal.privateinbox.devtest/cache/dhc-fixtures/
+            adb shell "run-as tw.personal.privateinbox.devtest mkdir -p cache/dhc-fixtures"
+            adb push app/build/outputs/dhc-fixtures/python-export.picbox /data/local/tmp/
+            adb push app/build/outputs/dhc-fixtures/python-export-v99.picbox /data/local/tmp/
+            adb shell "run-as tw.personal.privateinbox.devtest cp /data/local/tmp/python-export.picbox cache/dhc-fixtures/"
+            adb shell "run-as tw.personal.privateinbox.devtest cp /data/local/tmp/python-export-v99.picbox cache/dhc-fixtures/"
+            adb shell "run-as tw.personal.privateinbox.devtest ls -la cache/dhc-fixtures/"
+            # Run instrumentation tests; reinstall with -r preserves the pushed fixtures.
             ./gradlew --no-daemon :app:connectedDevtestDebugAndroidTest
 
       - name: Upload test reports
