@@ -147,7 +147,14 @@ jobs:
           arch: x86_64
           force-avd-creation: true
           disable-animations: true
-          script: ./gradlew --no-daemon :app:connectedDevtestDebugAndroidTest
+          script: |
+            # Push DHC cross-language fixtures to the emulator's devtest app cache.
+            # The instrumentation tests read python-export.picbox from:
+            # /data/user/0/tw.personal.privateinbox.devtest/cache/dhc-fixtures/
+            adb shell "run-as tw.personal.privateinbox.devtest sh -c 'mkdir -p /data/user/0/tw.personal.privateinbox.devtest/cache/dhc-fixtures'" || true
+            adb push app/build/outputs/dhc-fixtures /data/local/tmp/dhc-fixtures || true
+            adb shell "run-as tw.personal.privateinbox.devtest sh -c 'cp /data/local/tmp/dhc-fixtures/* /data/user/0/tw.personal.privateinbox.devtest/cache/dhc-fixtures/'" || true
+            ./gradlew --no-daemon :app:connectedDevtestDebugAndroidTest
 
       - name: Upload test reports
         if: always()
