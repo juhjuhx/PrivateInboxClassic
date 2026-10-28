@@ -100,8 +100,8 @@ jobs:
       - name: Android Lint
         run: ./gradlew --no-daemon :app:lintProdDebug
 
-      - name: Assemble debug APK
-        run: ./gradlew --no-daemon :app:assembleDevtestDebug
+      - name: Assemble debug APKs (prod + devtest)
+        run: ./gradlew --no-daemon :app:assembleProdDebug :app:assembleDevtestDebug
 
       - name: Assemble test APK
         run: ./gradlew --no-daemon :app:assembleDevtestDebugAndroidTest
