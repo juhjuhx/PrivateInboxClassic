@@ -7,6 +7,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import androidx.annotation.VisibleForTesting
 import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -783,6 +784,7 @@ class MainActivity : ComponentActivity() {
      * cannot catch a dead routing branch in `showChat()`. This drives the real
      * `currentThread`/`currentTitle` + `showChat()` path.
      */
+    @VisibleForTesting
     internal fun openThreadForTest(threadKey: String, title: String) {
         currentThread = threadKey
         currentTitle = title

@@ -233,7 +233,7 @@ class InboxDatabase(private val appContext: Context) :
             )
             // Back-fill the conversation key for rows captured before v4. The title is
             // encrypted, so it cannot be read here; the key is reconstructed lazily
-            // from the package name at read time (see conversationKeyOf()).
+            // from the package name at read time (see legacyConversationKey).
             db.execSQL("CREATE INDEX IF NOT EXISTS conversation_idx ON messages(conversation_key)")
         }
         if (oldVersion < 5) {
@@ -482,10 +482,13 @@ class InboxDatabase(private val appContext: Context) :
         // that moved links without re-writing aliases).
         //
         // P2 (independent review): this list used to be read UNBOUNDED and then
-        // turned into one `?` per id. SQLite rejects a statement with more than
-        // 999 bound variables, so a conversation with >999 messages threw. The
-        // membership test is now an EXISTS sub-select instead of an IN list, so
-        // the number of messages never affects the number of placeholders.
+        // turned into one `?` per id. SQLite's default bound-variable limit was
+        // 999 until SQLite 3.32 (2020-05-02), which ships on API 31+; minSdk=28
+        // still runs on devices where the limit is genuinely 999, so a
+        // conversation with more than the device's variable limit threw.
+        // The membership test is now an EXISTS sub-select instead of an IN
+        // list, so the number of messages never affects the number of
+        // placeholders on ANY device.
         val hasAnyLink = readableDatabase.rawQuery(
             "SELECT 1 FROM message_conversation WHERE conversation_id = ? LIMIT 1",
             arrayOf(canonicalId)
