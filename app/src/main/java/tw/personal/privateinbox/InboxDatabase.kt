@@ -422,15 +422,12 @@ class InboxDatabase(private val appContext: Context) :
         beforeReceivedAt: Long? = null,
         beforeId: Long? = null
     ): ReadResult {
-        // Every legacy key that maps to this conversation.
-        // The legacy keys contain NUL separators, and SQLite's bind API truncates
-        // a bound Java String at the first NUL. Matching by HEX comparison keeps
-        // the whole byte sequence — the same trick the dedup path relies on.
-        // ONLY the LEGACY_KEY aliases can be matched against
-        // `messages.conversation_key`: they are the same string. A SHORTCUT alias
-        // holds just the shortcut id, which is a COMPONENT of the key — hex-
-        // matching it would find nothing (and must never match).
-        // Every legacy key that maps to this conversation.
+        // Every LEGACY_KEY alias that maps to this conversation, as hex so the
+        // NUL separators inside the key survive (SQLite truncates a bound String
+        // at the first NUL). ONLY LEGACY_KEY aliases may be compared against
+        // messages.conversation_key: they are the same string. A SHORTCUT alias
+        // holds just the shortcut id, a COMPONENT of the key, and hex-matching
+        // it would find nothing (and must never match).
         val keyHexes = ArrayList<String>()
         readableDatabase.rawQuery(
             "SELECT hex(alias_value) FROM conversation_aliases " +
@@ -479,9 +476,12 @@ class InboxDatabase(private val appContext: Context) :
             linkedIds.forEach { args.add(it.toString()) }
         }
         if (beforeReceivedAt != null && beforeId != null) {
-            selection.insert(0, "(").append(")")
-            selection.append(" AND ")
-            selection.append("(received_at < ? OR (received_at = ? AND id < ?))")
+            // Wrap the membership expression in its own parentheses so the OR
+            // can never escape and combine with the cursor predicate.
+            val membership = selection.toString()
+            selection.setLength(0)
+            selection.append("(").append(membership).append(")")
+            selection.append(" AND (received_at < ? OR (received_at = ? AND id < ?))")
             args += beforeReceivedAt.toString()
             args += beforeReceivedAt.toString()
             args += beforeId.toString()
