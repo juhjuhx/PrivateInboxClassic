@@ -108,6 +108,12 @@ class MainActivity : ComponentActivity() {
      */
     private var chatConversationId: String? = null
 
+    /** IR-11D: monotonically increasing request generation for chat page fetches.
+     *  Each new request bumps the generation; in-flight callbacks from older
+     *  generations are discarded, so a stale result can never overwrite a newer
+     *  conversation's screen or a lock screen. */
+    private var chatRequestGen: Int = 0
+
     /**
      * IR-01 P2: the last conversation seen, used as a KEYSET cursor for the next
      * page. Anchoring to the last row actually rendered (rather than to an
@@ -220,6 +226,10 @@ class MainActivity : ComponentActivity() {
         entries = emptyList()
         currentThread = null
         currentTitle = null
+        // IR-11D: invalidate in-flight chat callbacks so they cannot render
+        // after the activity is stopped.
+        ++chatRequestGen
+        chatLoading = false
         showLock()
     }
 
@@ -235,7 +245,7 @@ class MainActivity : ComponentActivity() {
     private val backCallback = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() {
             when (page) {
-                "photo" -> showChat()
+                "photo" -> refreshChat()
                 "chat", "settings", "search" -> showInbox(false)
                 else -> finish()
             }
@@ -306,6 +316,10 @@ class MainActivity : ComponentActivity() {
 
     private fun showLock() {
         page = "locked"
+        // IR-11D: invalidate all in-flight chat callbacks so a stale async
+        // result cannot render private messages over the lock screen.
+        ++chatRequestGen
+        chatLoading = false
         val layout = column().apply { gravity = Gravity.CENTER; setPadding(30.dp(), 15.dp(), 30.dp(), 15.dp()) }
         val logo = txt("✉", 42f, Color.WHITE).apply {
             gravity = Gravity.CENTER
@@ -881,6 +895,7 @@ class MainActivity : ComponentActivity() {
         // clicks cannot launch overlapping queries.
         if (chatLoading) return
         chatLoading = true
+        val gen = ++chatRequestGen
         io.execute {
             val detailPage = runCatching {
                 InboxDatabase(this@MainActivity).use { db ->
@@ -904,9 +919,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
             runOnUiThread {
-                if (isFinishing || isDestroyed) return@runOnUiThread
-                // IR-11A: re-verify conversation hasn't changed while off UI thread
-                if (currentThread != key) return@runOnUiThread
+                // IR-11D: invalidate stale callbacks — only act if this is the
+                // latest request, the activity is still alive, still unlocked,
+                // and still on the chat page for the same conversation.
+                if (gen != chatRequestGen) { chatLoading = false; return@runOnUiThread }
+                if (isFinishing || isDestroyed) { chatLoading = false; return@runOnUiThread }
+                if (!unlocked) { chatLoading = false; return@runOnUiThread }
+                if (page != "chat") { chatLoading = false; return@runOnUiThread }
+                if (currentThread != key) { chatLoading = false; return@runOnUiThread }
                 renderChatPage(detailPage.getOrNull())
                 chatLoading = false
             }
@@ -939,12 +959,17 @@ class MainActivity : ComponentActivity() {
             chatPageSize = chatEntries.size
             chatEntries
         } else {
-            // Fall back to the already-loaded conversation rows (the inbox page
-            // holds this conversation's newest message) so the screen is never
-            // blank while the detail page is unavailable.
+            // Fall back to the already-loaded chat entries (no cursor advance,
+            // no DB read — used by refreshChat() when returning from photo preview
+            // or after message deletion) or to the inbox page's rows for this
+            // conversation if nothing has been loaded yet.
             val key = currentThread ?: return
-            entries.filter { threadKey(it) == key }
-                .sortedWith(compareBy<InboxDatabase.Entry> { it.receivedAt }.thenBy { it.id })
+            if (chatConversationId == key && chatEntries.isNotEmpty()) {
+                chatEntries.sortedWith(compareBy<InboxDatabase.Entry> { it.receivedAt }.thenBy { it.id })
+            } else {
+                entries.filter { threadKey(it) == key }
+                    .sortedWith(compareBy<InboxDatabase.Entry> { it.receivedAt }.thenBy { it.id })
+            }
         }
         // Opening the thread marks everything currently stored in it as seen, so the
         // chat list badge reflects newly captured messages only.
@@ -1028,7 +1053,7 @@ class MainActivity : ComponentActivity() {
                                 runOnUiThread {
                                     if (isFinishing || isDestroyed) return@runOnUiThread
                                     entries = entries.filter { it.id != entry.id }
-                                    showChat()
+                                    refreshChat()
                                 }
                             }
                         }.show()
@@ -1057,6 +1082,18 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
+     * IR-11D: render-only refresh of the existing chat screen. Re-draws the
+     * already-loaded chatEntries without touching the database or advancing the
+     * cursor. Used when returning from photo preview or after deleting a
+     * message — never re-fetches, never changes pagination state.
+     */
+    private fun refreshChat() {
+        if (!unlocked || currentThread == null || page != "chat") return
+        val key = currentThread!!
+        renderChatPage(null)
+    }
+
+    /**
      * IR-01 P2: extend the open conversation's history backwards.
      *
      * Re-reads the conversation with a larger limit rather than paginating with
@@ -1070,6 +1107,7 @@ class MainActivity : ComponentActivity() {
         // the UI thread. This prevents blocking the UI thread with DB I/O and
         // bulk decryption while still keeping the reading position stable.
         chatLoading = true
+        val gen = ++chatRequestGen
         io.execute {
             val detailPage = runCatching {
                 InboxDatabase(this@MainActivity).use { db ->
@@ -1091,9 +1129,16 @@ class MainActivity : ComponentActivity() {
                 }
             }
             runOnUiThread {
-                if (isFinishing || isDestroyed) return@runOnUiThread
-                if (currentThread != key) return@runOnUiThread
+                // IR-11D: invalidate stale callbacks — only act if this is the
+                // latest request, the activity is still alive, still unlocked,
+                // and still on the chat page for the same conversation.
+                if (gen != chatRequestGen) { chatLoading = false; return@runOnUiThread }
+                if (isFinishing || isDestroyed) { chatLoading = false; return@runOnUiThread }
+                if (!unlocked) { chatLoading = false; return@runOnUiThread }
+                if (page != "chat") { chatLoading = false; return@runOnUiThread }
+                if (currentThread != key) { chatLoading = false; return@runOnUiThread }
                 renderChatPage(detailPage.getOrNull())
+                chatLoading = false
             }
         }
     }
@@ -1102,7 +1147,7 @@ class MainActivity : ComponentActivity() {
         if (!unlocked) return
         page = "photo"
         val root = column().apply { setBackgroundColor(Color.BLACK) }
-        root.addView(toolbar("照片預覽", { showChat() }))
+        root.addView(toolbar("照片預覽", { refreshChat() }))
         val holder = FrameLayout(this)
         val zoom = PhotoZoomView(this).apply {
             setBackgroundColor(Color.BLACK)
