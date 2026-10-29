@@ -292,6 +292,32 @@ class DebugSettingsProvider : ContentProvider() {
                 out.putBoolean("connected", connected)
                 out.putBoolean("hasEvidence", CaptureDiagnostics.hasConnectedEvidence(ctx))
             }
+            "postSelfTest" -> {
+                // IR-06: the instrumentation suite posts a REAL system
+                // notification through this bridge so the whole pipeline
+                // (system_server -> listener -> parser -> worker -> encrypt ->
+                // commit -> canonical link) is exercised.
+                //
+                // This method was MISSING entirely. The E2E test called it and
+                // always got null back, then failed with "the app failed to
+                // post" -- which had been mislabelled a flake. It was a missing
+                // implementation, and the `|| true` in CI hid it.
+                //
+                // arg format: "<id>\u0000<title>\u0000<body>\u0000<shortcutId>"
+                val parts = arg.orEmpty().split('\u0000')
+                val id = parts.getOrNull(0)?.toIntOrNull() ?: SelfTestNotifier.NOTIFICATION_ID
+                val title = parts.getOrNull(1).orEmpty()
+                val body = parts.getOrNull(2).orEmpty()
+                val shortcutId = parts.getOrNull(3).orEmpty().takeIf { it.isNotEmpty() }
+                out.putBoolean("posted", SelfTestNotifier.postCustom(ctx, id, title, body, shortcutId))
+            }
+            "cancelSelfTest" -> {
+                // Clear this app's self-test notifications from the tray.
+                runCatching {
+                    ctx.getSystemService(android.app.NotificationManager::class.java).cancelAll()
+                }
+                out.putBoolean("ok", true)
+            }
             METHOD_MARKER_ROWS -> {
                 // The stored rows live in the APP's database, which the test
                 // process cannot open directly. Count them here instead.

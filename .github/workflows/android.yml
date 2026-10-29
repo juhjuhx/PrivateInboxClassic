@@ -160,16 +160,18 @@ jobs:
             adb shell "run-as tw.personal.privateinbox.devtest cp /data/local/tmp/python-export-v99.picbox cache/dhc-fixtures/"
             adb shell "run-as tw.personal.privateinbox.devtest ls -la cache/dhc-fixtures/"
             # Run instrumentation tests.
-            # SystemNotificationE2E is a documented FLAKY_UNRESOLVED flake
-            # under full-suite ordering (passes 3/3 isolated locally).
-            # It is NOT claimed as fixed. Run all other tests first, then
-            # SystemE2E separately: if it fails in CI, it is flagged as a
-            # known warning rather than failing the whole build.
-            echo "=== Running all instrumentation tests except SystemE2E ==="
-            ./gradlew --no-daemon :app:connectedDevtestDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.notClass=tw.personal.privateinbox.SystemNotificationE2EInstrumentedTest
-            echo "=== Running SystemNotificationE2E in isolation (documented flake) ==="
-            ./gradlew --no-daemon :app:connectedDevtestDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=tw.personal.privateinbox.SystemNotificationE2EInstrumentedTest || true
-            echo "::warning::SystemNotificationE2E isolated run completed; see FLAKE-ANALYSIS.md for FLAKY_UNRESOLVED status"
+            #
+            # IR-06: this step is AUTHORITATIVE. There is no `|| true` and no
+            # blanket continue-on-error, so a red CI run means a real test
+            # failure. The SystemNotificationE2E suite used to be masked with
+            # `|| true`, which meant a green check could not prove it passed --
+            # and it never did, because DebugSettingsProvider.postSelfTest was
+            # missing entirely. That is fixed in this commit, so the suite is
+            # required again.
+            #
+            # The whole devtest instrumentation suite runs in ONE invocation so
+            # the JUnit XML contains every test, including the E2E suite.
+            ./gradlew --no-daemon :app:connectedDevtestDebugAndroidTest
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
