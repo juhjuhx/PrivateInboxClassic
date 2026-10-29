@@ -53,6 +53,9 @@ class MainActivity : ComponentActivity() {
          * only the page is decrypted.
          */
         const val PAGE_SIZE = 50
+
+        /** IR-01: messages per page on the conversation DETAIL screen. */
+        const val CHAT_PAGE_SIZE = 100
     }
 
     private var unlocked = false
@@ -75,13 +78,15 @@ class MainActivity : ComponentActivity() {
     private var unreadableRows: Int = 0
 
     /**
-     * The cursor for the next page.
-     *
-     * It is the (received_at, id) pair of the last loaded row. The list is
-     * loaded a page at a time, so the first screen only decrypts what it
-     * shows instead of the whole table.
+     * IR-01: the (latestReceivedAt, latestMessageId) of the last conversation on
+     * the current page. Kept for diagnostics only — paging itself is by
+     * conversation OFFSET, because a timestamp cursor over conversations is not
+     * stable when several conversations share a timestamp.
      */
-    private var nextPageCursor: Pair<Long, Long>? = null
+    private var conversationCursor: Pair<Long, Long>? = null
+
+    /** IR-01: whether the open conversation has older messages to load. */
+    private var chatHasMore: Boolean = false
 
     /** True when another page can be loaded. */
     private var hasMorePages: Boolean = false
@@ -319,9 +324,6 @@ class MainActivity : ComponentActivity() {
             android.util.Log.d("LOADENTRIES", "io task running")
             val db = InboxDatabase(this)
             var loaded: List<InboxDatabase.Entry>
-            var readState = CryptoStore.KeyState.KEY_AVAILABLE
-            var unreadable = 0
-            var cursor: Pair<Long, Long>? = null
             var more = false
             try {
                 // T03: reconcile any unlinked rows first (idempotent, cheap when
@@ -330,15 +332,34 @@ class MainActivity : ComponentActivity() {
                 val store = ConversationStore(this@MainActivity)
                 try { store.linkAllMessages() } finally { store.close() }
                 refreshCanonicalKeys()
-                // The FIRST page only. The rest is loaded when the user asks
-                // for it, so the first screen never decrypts the whole table.
-                val res = db.readPage(limit = PAGE_SIZE)
-                android.util.Log.d("LOADENTRIES", "readPage rows=${res.entries.size} hasMore=${res.hasMore}")
-                loaded = res.entries
-                readState = res.keyState
-                unreadable = res.unreadableRows
-                cursor = res.nextCursor()
-                more = res.hasMore
+                // IR-01: page by CONVERSATION, not by message.
+                //
+                // The previous implementation read the newest 50 MESSAGES and
+                // only then grouped them into conversations. Two defects
+                // followed directly:
+                //   * a conversation with 100 recent messages filled the whole
+                //     page, so an older-but-distinct conversation never
+                //     appeared at all;
+                //   * a conversation whose rows straddled the page boundary was
+                //     split into two boxes.
+                // conversationPage() computes the grouping in SQL over the whole
+                // table, so one row per conversation is returned regardless of
+                // how many messages it holds.
+                val summaries = db.conversationPage(limit = PAGE_SIZE, offset = 0)
+                val convRows = ArrayList<InboxDatabase.Entry>(summaries.size)
+                for (s in summaries) {
+                    // Decrypt just this conversation's newest message.
+                    db.entryForMessageId(s.latestMessageId)?.let { convRows.add(it) }
+                }
+                android.util.Log.d(
+                    "LOADENTRIES",
+                    "conversationPage convos=${summaries.size} rows=${convRows.size}"
+                )
+                loaded = convRows
+                conversationCursor = summaries.lastOrNull()?.let {
+                    it.latestMessageTimestamp to it.latestMessageId
+                }
+                more = summaries.size >= PAGE_SIZE
                 val days = LocalSettings.retentionDays(this)
                 if (days > 0) runCatching { db.pruneOlderThanDays(days) }
             } catch (e: Exception) {
@@ -349,9 +370,6 @@ class MainActivity : ComponentActivity() {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 android.util.Log.d("LOADENTRIES", "UI update rows=${loaded.size}")
                 entries = loaded
-                keyState = readState
-                unreadableRows = unreadable
-                nextPageCursor = cursor
                 hasMorePages = more
                 pagesLoaded = 1
                 when (page) {
@@ -436,22 +454,21 @@ class MainActivity : ComponentActivity() {
      */
     private fun loadMorePages() {
         if (loadingPage || !hasMorePages) return
-        val cursor = nextPageCursor ?: return
+        val offset = pagesLoaded * PAGE_SIZE
         loadingPage = true
         io.execute {
             val db = InboxDatabase(this@MainActivity)
             var more: List<InboxDatabase.Entry> = emptyList()
-            var next: Pair<Long, Long>? = null
             var hasMore = false
             try {
-                val res = db.readPage(
-                    limit = PAGE_SIZE,
-                    beforeReceivedAt = cursor.first,
-                    beforeId = cursor.second
-                )
-                more = res.entries
-                next = res.nextCursor()
-                hasMore = res.hasMore
+                // IR-01: the NEXT page of CONVERSATIONS, by offset.
+                val summaries = db.conversationPage(limit = PAGE_SIZE, offset = offset)
+                val rows = ArrayList<InboxDatabase.Entry>(summaries.size)
+                for (s in summaries) {
+                    db.entryForMessageId(s.latestMessageId)?.let { rows.add(it) }
+                }
+                more = rows
+                hasMore = summaries.size >= PAGE_SIZE
             } catch (_: Exception) {
                 // A failed page leaves the list as it was.
             } finally {
@@ -463,7 +480,6 @@ class MainActivity : ComponentActivity() {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 if (more.isNotEmpty()) {
                     entries = entries + more
-                    nextPageCursor = next
                     hasMorePages = hasMore
                     pagesLoaded++
                     when (page) {
@@ -757,8 +773,27 @@ class MainActivity : ComponentActivity() {
         if (!unlocked) return
         val key = currentThread ?: return showInbox(false)
         page = "chat"
-        val group = entries.filter { threadKey(it) == key }
-            .sortedWith(compareBy<InboxDatabase.Entry> { it.receivedAt }.thenBy { it.id })
+        // IR-01: the DETAIL page pages by MESSAGE, which is the correct unit
+        // here (the user is reading one conversation's history). The inbox page
+        // above pages by CONVERSATION. Only the first message page is loaded
+        // eagerly; older messages are fetched on demand.
+        val detailPage = runCatching {
+            InboxDatabase(this).use { db ->
+                db.readConversationMessages(key, limit = CHAT_PAGE_SIZE)
+            }
+        }.getOrNull()
+        val group: List<InboxDatabase.Entry> = if (detailPage != null && detailPage.entries.isNotEmpty()) {
+            chatHasMore = detailPage.hasMore
+            detailPage.entries.sortedWith(
+                compareBy<InboxDatabase.Entry> { it.receivedAt }.thenBy { it.id }
+            )
+        } else {
+            // Fall back to the already-loaded conversation rows (the inbox page
+            // holds this conversation's newest message) so the screen is never
+            // blank while the detail page is unavailable.
+            entries.filter { threadKey(it) == key }
+                .sortedWith(compareBy<InboxDatabase.Entry> { it.receivedAt }.thenBy { it.id })
+        }
         // Opening the thread marks everything currently stored in it as seen, so the
         // chat list badge reflects newly captured messages only.
         group.maxByOrNull { it.receivedAt }?.let {
