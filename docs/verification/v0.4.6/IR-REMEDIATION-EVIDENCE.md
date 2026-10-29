@@ -202,8 +202,12 @@ mislabelled FLAKY_UNRESOLVED; the `|| true` masked it.
 * Test reports are still uploaded with `if: always()` (JUnit XML, counts,
   skips, failures).
 
-**GREEN evidence.** The suite now passes (see FULL REGRESSION below) and CI is
-required again.
+**GREEN evidence.** The suite passes for real: full instrumentation
+**272 / 272 PASS** (0 failures, 0 skipped) on `emulator-5554`, and GitHub
+Actions run 40793600918 reported `Starting 265 tests … Finished 265 …
+BUILD SUCCESSFUL` with 0 failures, 0 skipped (265 was before the IR-08
+follow-up suite was added). The test also now grants and VERIFIES
+POST_NOTIFICATIONS itself instead of inheriting a grant from another class.
 
 ---
 
@@ -215,8 +219,39 @@ verdict are recorded in the handoff and in the reviewer report.
 
 ---
 
+## Full regression (final)
+
+| Suite | Result |
+|-------|--------|
+| Instrumentation (all suites) | **272 / 272 PASS**, 0 failures, 0 skipped |
+| JVM unit tests | 157 / 157 PASS |
+| audit.sh / audit-secrets.sh / audit-test-isolation.py | PASS / PASS / PASS (47 files) |
+| audit-release.sh / verify-version.sh | PASS / PASS |
+| DHC connector | 23 / 23 PASS |
+
+## IR-08 — defects found IN the IR fix by the independent review
+
+The reviewer found that the IR-01 rewrite introduced new defects. Each is
+fixed and pinned by `IR08ReviewFollowupInstrumentedTest` (7 tests):
+
+| Defect | Severity | Fix |
+|---|---|---|
+| `keyState`/`unreadableRows` never assigned → key recovery dead | P1 | `conversationPreview()` reports state; MainActivity restores both fields |
+| Unlinked conversation detail collapsed to 1 message (`k:` prefix mismatch) | P2 | `readMessagesByLegacyKey()` + routing |
+| `chatHasMore` written, never read → silent truncation | P2 | real "load older messages" control |
+| Offset paging skips conversations on insert | P2 | keyset cursor as `HAVING` inside the derived table |
+| `conversationPage(search=)` accepted and ignored | P2 | parameter removed |
+| Dead `db` parameter, dead `conversationCursor` | P3 | removed |
+| E2E never granted POST_NOTIFICATIONS (ordering-dependent pass) | P1-adjacent | test grants and verifies it itself |
+
+**A note on the keyset fix:** SQLite does not apply column affinity inside a
+`HAVING` clause, so a TEXT-bound timestamp compared against an INTEGER
+aggregate silently matches nothing — the filter appeared to work and returned
+the same page forever. This was caught by the new IR-08 tests, not by
+inspection. The cursor timestamps are now inlined as numeric literals.
+
 ## Verdict
 
-Publication remains gated on an independent reviewer's sign-off over the
-`3d56a7f5..HEAD` range. The engineering findings IR-01 … IR-06 are closed with
-the RED/GREEN evidence above.
+All engineering findings IR-01 … IR-08 are closed with RED/GREEN evidence.
+Publication remains gated on the independent reviewer's final sign-off over the
+`3d56a7f5..HEAD` range.
