@@ -584,10 +584,9 @@ class ConversationMigrationV5InstrumentedTest {
                 messageDiscriminator = "c:Alice:hello:i0"
             )
         } finally { db2.close() }
-        assertEquals(
-            "a message stored before the migration must be recognised as DUPLICATE after it",
-            InboxDatabase.SaveResult.DUPLICATE, result
-        )
+        assertTrue("a message stored before the migration must be recognised as DUPLICATE after it",
+            result
+         is InboxDatabase.SaveResult.DUPLICATE)
     }
 
 }

@@ -167,9 +167,20 @@ class SystemNotificationE2EInstrumentedTest {
                         "the renamed conversation still renders as exactly one box",
                         1, renamedGroups.size
                     )
+                    // IR-01: the inbox holds ONE entry per conversation, so
+                    // the box carries the conversation's NEWEST message. The
+                    // full history (both messages) is read through the detail
+                    // path, which is what the chat screen uses.
                     assertEquals(
-                        "and that box carries both messages",
-                        2, renamedGroups.first().value.size
+                        "the inbox box carries the conversation's newest message",
+                        1, renamedGroups.first().value.size
+                    )
+                    val detail = InboxDatabase(ctx).use {
+                        it.readConversationMessages(rows[0].conversationId!!, 100)
+                    }
+                    assertEquals(
+                        "the conversation's full history holds both messages",
+                        2, detail.entries.size
                     )
                 }
             }

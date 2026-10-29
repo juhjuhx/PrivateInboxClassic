@@ -5,6 +5,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNotEquals
 import org.junit.Before
 import org.junit.Test
@@ -76,11 +77,10 @@ class FingerprintCompatibilityInstrumentedTest {
     @Test
     fun sameShortcutSameTitleIsDuplicateOnRedelivery() {
         val a = save("家族", "Alice", "hello", 1_700_000_000_000L, "c:Alice:hello:i0", "sc-1")
-        assertEquals("first delivery is NEW", InboxDatabase.SaveResult.NEW, a)
-
+        assertTrue("first delivery is NEW", a is InboxDatabase.SaveResult.NEW)
         val b = save("家族", "Alice", "hello", 1_700_000_000_000L, "c:Alice:hello:i0", "sc-1")
-        assertEquals("the identical re-delivery is DUPLICATE",
-            InboxDatabase.SaveResult.DUPLICATE, b)
+        assertTrue("the identical re-delivery is DUPLICATE",
+            b is InboxDatabase.SaveResult.DUPLICATE)
         assertEquals("no extra row", 1, rowCount())
     }
 
@@ -91,13 +91,11 @@ class FingerprintCompatibilityInstrumentedTest {
         // canonical conversation still stays ONE (asserted separately); the ROW
         // is treated as new because the legacy key it is hashed with is different.
         val a = save("家族", "Alice", "hello", 1_700_000_000_000L, "c:Alice:hello:i0", "sc-1")
-        assertEquals(InboxDatabase.SaveResult.NEW, a)
-
+        assertTrue(a is InboxDatabase.SaveResult.NEW)
         val b = save("家族（新）", "Alice", "hello", 1_700_000_000_000L, "c:Alice:hello:i0", "sc-1")
-        assertEquals(
-            "a renamed title produces a different fingerprint input by design",
-            InboxDatabase.SaveResult.NEW, b
-        )
+        assertTrue("a renamed title produces a different fingerprint input by design",
+            b
+         is InboxDatabase.SaveResult.NEW)
         assertEquals("so the row count grows — documented, not hidden", 2, rowCount())
 
         // But the CANONICAL conversation is still one, which is the v0.4.6 fix.
@@ -116,9 +114,9 @@ class FingerprintCompatibilityInstrumentedTest {
     fun differentShortcutSameTitleIsNotDuplicate() {
         val a = save("家族", "Alice", "hello", 1_700_000_000_000L, "c:Alice:hello:i0", "sc-A")
         val b = save("家族", "Alice", "hello", 1_700_000_000_000L, "c:Alice:hello:i0", "sc-B")
-        assertEquals(InboxDatabase.SaveResult.NEW, a)
-        assertEquals("two different groups are two different messages",
-            InboxDatabase.SaveResult.NEW, b)
+        assertTrue(a is InboxDatabase.SaveResult.NEW)
+        assertTrue("two different groups are two different messages",
+            b is InboxDatabase.SaveResult.NEW)
         assertEquals(2, rowCount())
 
         // Resolve both, as the listener does for each delivered notification.
@@ -137,15 +135,13 @@ class FingerprintCompatibilityInstrumentedTest {
         // ts = 0 -> the fingerprint uses the discriminator. Two deliveries with
         // the same discriminator must dedup; a different discriminator must not.
         val a = save("家族", "Alice", "hello", 0L, "c:Alice:hello:i0", "sc-1")
-        assertEquals(InboxDatabase.SaveResult.NEW, a)
-
+        assertTrue(a is InboxDatabase.SaveResult.NEW)
         val b = save("家族", "Alice", "hello", 0L, "c:Alice:hello:i0", "sc-1")
-        assertEquals("the same discriminator dedups even without a timestamp",
-            InboxDatabase.SaveResult.DUPLICATE, b)
-
+        assertTrue("the same discriminator dedups even without a timestamp",
+            b is InboxDatabase.SaveResult.DUPLICATE)
         val c = save("家族", "Alice", "hello", 0L, "c:Alice:hello:i1", "sc-1")
-        assertEquals("a different discriminator is a different message",
-            InboxDatabase.SaveResult.NEW, c)
+        assertTrue("a different discriminator is a different message",
+            c is InboxDatabase.SaveResult.NEW)
         assertEquals(2, rowCount())
     }
 
@@ -154,16 +150,14 @@ class FingerprintCompatibilityInstrumentedTest {
         // The classic dedup trap: same sender, same text, same millisecond.
         val a = save("家族", "Alice", "ok", 1_700_000_000_000L, "c:Alice:ok:i0", "sc-1")
         val b = save("家族", "Alice", "ok", 1_700_000_000_000L, "c:Alice:ok:i1", "sc-1")
-        assertEquals(InboxDatabase.SaveResult.NEW, a)
-        assertEquals("the discriminator keeps the second one apart",
-            InboxDatabase.SaveResult.NEW, b)
+        assertTrue(a is InboxDatabase.SaveResult.NEW)
+        assertTrue("the discriminator keeps the second one apart",
+            b is InboxDatabase.SaveResult.NEW)
         assertEquals(2, rowCount())
 
         // Re-delivering each must dedup against its own row.
-        assertEquals(InboxDatabase.SaveResult.DUPLICATE,
-            save("家族", "Alice", "ok", 1_700_000_000_000L, "c:Alice:ok:i0", "sc-1"))
-        assertEquals(InboxDatabase.SaveResult.DUPLICATE,
-            save("家族", "Alice", "ok", 1_700_000_000_000L, "c:Alice:ok:i1", "sc-1"))
+        assertTrue(save("家族", "Alice", "ok", 1_700_000_000_000L, "c:Alice:ok:i0", "sc-1") is InboxDatabase.SaveResult.DUPLICATE)
+        assertTrue(save("家族", "Alice", "ok", 1_700_000_000_000L, "c:Alice:ok:i1", "sc-1") is InboxDatabase.SaveResult.DUPLICATE)
         assertEquals("no rows added by the re-deliveries", 2, rowCount())
     }
 
@@ -171,15 +165,11 @@ class FingerprintCompatibilityInstrumentedTest {
     fun multipleLegacyAliasesForOneShortcutStillDedupAgainstTheirOwnRows() {
         // Two titles for the same shortcut: two legacy keys, two rows, one
         // canonical conversation. Each key dedups against ITSELF.
-        assertEquals(InboxDatabase.SaveResult.NEW,
-            save("家族", "Alice", "m1", 1_700_000_000_001L, "c:Alice:m1:i0", "sc-1"))
-        assertEquals(InboxDatabase.SaveResult.NEW,
-            save("家族（新）", "Alice", "m2", 1_700_000_000_002L, "c:Alice:m2:i1", "sc-1"))
+        assertTrue(save("家族", "Alice", "m1", 1_700_000_000_001L, "c:Alice:m1:i0", "sc-1") is InboxDatabase.SaveResult.NEW)
+        assertTrue(save("家族（新）", "Alice", "m2", 1_700_000_000_002L, "c:Alice:m2:i1", "sc-1") is InboxDatabase.SaveResult.NEW)
 
-        assertEquals(InboxDatabase.SaveResult.DUPLICATE,
-            save("家族", "Alice", "m1", 1_700_000_000_001L, "c:Alice:m1:i0", "sc-1"))
-        assertEquals(InboxDatabase.SaveResult.DUPLICATE,
-            save("家族（新）", "Alice", "m2", 1_700_000_000_002L, "c:Alice:m2:i1", "sc-1"))
+        assertTrue(save("家族", "Alice", "m1", 1_700_000_000_001L, "c:Alice:m1:i0", "sc-1") is InboxDatabase.SaveResult.DUPLICATE)
+        assertTrue(save("家族（新）", "Alice", "m2", 1_700_000_000_002L, "c:Alice:m2:i1", "sc-1") is InboxDatabase.SaveResult.DUPLICATE)
         assertEquals("still two rows", 2, rowCount())
 
         resolve(pkg, "sc-1", "家族")
@@ -206,8 +196,7 @@ class FingerprintCompatibilityInstrumentedTest {
         val disc = "c:Alice:hello:i0"
         val legacyKey = LegacyKeyCodec.format(pkg, "sc-1", title)
 
-        assertEquals(InboxDatabase.SaveResult.NEW,
-            save(title, sender, body, ts, disc, "sc-1"))
+        assertTrue(save(title, sender, body, ts, disc, "sc-1") is InboxDatabase.SaveResult.NEW)
 
         val expected = CryptoStore.fingerprint(
             pkg, ts, legacyKey, "$sender\u0000$body", disc
