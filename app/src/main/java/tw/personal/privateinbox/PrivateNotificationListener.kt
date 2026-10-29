@@ -365,7 +365,7 @@ class PrivateNotificationListener : NotificationListenerService() {
                     val committedIds = results.mapNotNull { r ->
                         (r as? InboxDatabase.SaveResult.NEW)?.id
                     }
-                    linkBatchToCanonicalConversation(app, batch, db, committedIds)
+                    linkBatchToCanonicalConversation(app, batch, committedIds)
                 }
                 if (failedIndices.isEmpty()) continue
                 // Only the failed rows are carried forward. They keep their
@@ -466,7 +466,6 @@ class PrivateNotificationListener : NotificationListenerService() {
     private fun linkBatchToCanonicalConversation(
         app: android.content.Context,
         batch: PreparedBatch,
-        db: InboxDatabase?,
         /**
          * IR-03: the ids SQLite actually assigned to this batch's NEW rows,
          * reported by save(). Linking these ids cannot confuse this batch with

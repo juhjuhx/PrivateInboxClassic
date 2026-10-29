@@ -69,9 +69,47 @@ class SystemNotificationE2EInstrumentedTest {
 
     // ------------------------------------------------------------------ tests
 
+    /**
+     * IR-06 P1: grant POST_NOTIFICATIONS to THIS app before posting.
+     *
+     * `postCustom()` returns false without it on Android 13+, so the suite used
+     * to pass only because another test class happened to grant it earlier in
+     * the same instrumentation process. That is exactly the ordering-dependent
+     * pattern that produced the original "flake" misdiagnosis. The test now
+     * establishes its own precondition instead of inheriting one.
+     */
+    private fun grantPostNotifications() {
+        if (android.os.Build.VERSION.SDK_INT < 33) return
+        val pkg = ctx.packageName
+        // The instrumentation process cannot grant a permission to another
+        // package directly, so use the shell (uiAutomation runs as shell).
+        runCatching {
+            val ui = androidx.test.platform.app.InstrumentationRegistry
+                .getInstrumentation().uiAutomation
+            val fd = ui.executeShellCommand("pm grant $pkg android.permission.POST_NOTIFICATIONS")
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(fd).use { it.readBytes() }
+        }
+        // Confirm the grant actually took effect; never proceed on a guess.
+        val deadline = System.currentTimeMillis() + 10_000
+        while (System.currentTimeMillis() < deadline) {
+            val granted = ctx.checkSelfPermission(
+                android.Manifest.permission.POST_NOTIFICATIONS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (granted) return
+            Thread.sleep(200)
+        }
+        // Not granted: the test cannot prove the pipeline, so it must fail
+        // loudly rather than silently skipping the assertion.
+        throw AssertionError(
+            "POST_NOTIFICATIONS could not be granted; the E2E assertion would be " +
+                "meaningless without it"
+        )
+    }
+
     @Test
     fun systemPostedNotificationIsCapturedLinkedAndRendered() {
         enableSelfTest()
+        grantPostNotifications()
         grantListener()
 
         // The notification must be posted by the APP package so the self-test

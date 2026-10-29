@@ -320,10 +320,27 @@ class InboxDatabase(private val appContext: Context) :
         limit: Int = 50,
         offset: Int = 0,
         packageName: String? = null,
-        search: String? = null
+        /**
+         * P2: a keyset cursor — only conversations strictly OLDER than this
+         * (latestReceived, gid) pair are returned.
+         *
+         * Offset paging over a LIVE table is unstable: a new message arriving in
+         * an already-loaded conversation moves it to the top and shifts every
+         * later row down by one, so the next offset page skips a conversation.
+         * The keyset cursor is immune to that, because it is anchored to the
+         * last row actually seen rather than to a position.
+         */
+        afterLatestReceived: Long? = null,
+        afterGid: String? = null
     ): List<ConversationSummary> {
         val bounded = limit.coerceIn(1, 200)
         val db = readableDatabase
+        // P2: inside a HAVING clause SQLite does NOT apply the column's INTEGER
+        // affinity to a TEXT-bound parameter, so
+        // `MAX(m.received_at) < '1700000031000'` compares TEXT against INTEGER
+        // and never matches -- the keyset filter silently returned the same page
+        // forever. The cursor values are internal Longs (never user input), so
+        // they are inlined as numeric literals to keep the comparison numeric.
         val args = ArrayList<String>()
         // The grouping key: canonical when linked, legacy otherwise. The title is
         // only decrypted for the FINAL page rows, in the caller's loop, so the
@@ -344,9 +361,32 @@ class InboxDatabase(private val appContext: Context) :
                 "LEFT JOIN message_conversation l ON l.message_id = m.id "
             )
             // (the sub-query is the derived table `g`)
-            if (packageName != null) { append("WHERE m.package_name = ? "); args.add(packageName) }
+            val predicates = ArrayList<String>()
+            if (packageName != null) {
+                predicates.add("m.package_name = ?"); args.add(packageName)
+            }
+            if (predicates.isNotEmpty()) {
+                append("WHERE ").append(predicates.joinToString(" AND ")).append(' ')
+            }
+            append("GROUP BY gid, m.package_name ")
+            // P2: the keyset predicate belongs on the AGGREGATED rows, inside
+            // the derived table and BEFORE the LIMIT. Applying it outside would
+            // filter an already-truncated page and repeat rows across pages.
+            // It is anchored to the last (latest_received, gid) actually seen, so
+            // a conversation that jumps to the top on a new insert cannot make
+            // the next page skip one.
+            if (afterLatestReceived != null && afterGid != null) {
+                // The two timestamps are Longs from our own cursor, never user
+                // input, so inlining them is safe and keeps the comparison
+                // numeric (see the note on `args` above). The gid is bound.
+                append(
+                    "HAVING (MAX(m.received_at) < $afterLatestReceived OR " +
+                        "        (MAX(m.received_at) = $afterLatestReceived AND " +
+                        "         COALESCE(l.conversation_id, 'k:' || m.conversation_key) > ?)) "
+                )
+                args.add(afterGid)
+            }
             append(
-                "GROUP BY gid, m.package_name " +
                 "ORDER BY latest_received DESC, gid " +
                 "LIMIT ? OFFSET ?) AS g"
             )
@@ -368,9 +408,9 @@ class InboxDatabase(private val appContext: Context) :
                 "     AND a2.alias_type = 'SHORTCUT' " +
                 "     AND a2.conversation_id = g.gid " +
                 "   ORDER BY CASE a2.strength WHEN 'STRONG' THEN 0 ELSE 1 END, a2.alias_value " +
-                "   LIMIT 1) " +
-                "ORDER BY g.latest_received DESC, g.gid"
+                "   LIMIT 1) "
             )
+            append("ORDER BY g.latest_received DESC, g.gid")
         }
         val out = ArrayList<ConversationSummary>(bounded)
         db.rawQuery(sql, args.toTypedArray()).use { c ->
@@ -538,28 +578,119 @@ class InboxDatabase(private val appContext: Context) :
      * sealed blob alone does not say which package it belongs to. This reads the
      * single row and decrypts it — O(1), never a table scan.
      */
-    fun entryForMessageId(id: Long): Entry? {
+    /**
+     * IR-01 P1: decrypt one conversation's newest message AND report the worst
+     * key state seen.
+     *
+     * The IR-01 rewrite moved the inbox onto `conversationPage()` and, in doing
+     * so, dropped the only assignments to the Activity's `keyState` /
+     * `unreadableRows`. That silently disabled the key-recovery UI: an
+     * invalidated Keystore key was never surfaced, and the diagnostics panel
+     * always claimed KEY_AVAILABLE. The per-conversation decrypt is now the only
+     * place the inbox touches ciphertext, so it is where the signal must come
+     * from.
+     */
+    data class ConversationPreview(
+        val entry: Entry?,
+        /** Worst key state observed while decrypting this preview. */
+        val keyState: CryptoStore.KeyState,
+        /** 1 when the row existed but could not be decrypted. */
+        val unreadable: Int
+    )
+
+    fun entryForMessageId(id: Long): Entry? = conversationPreview(id).entry
+
+    fun conversationPreview(id: Long): ConversationPreview {
         readableDatabase.rawQuery(
             "SELECT id, package_name, received_at, source_ts, sealed_content, " +
                 "sealed_image, conversation_key, message_kind FROM messages WHERE id = ?",
             arrayOf(id.toString())
         ).use { c ->
-            if (!c.moveToFirst()) return null
+            if (!c.moveToFirst()) {
+                return ConversationPreview(null, CryptoStore.KeyState.KEY_AVAILABLE, 0)
+            }
             val pkg = c.getString(1)
             val res = CryptoStore.openWithState(pkg, c.getBlob(4))
-            val plain = res.plaintext ?: return null
+            val plain = res.plaintext
+                ?: return ConversationPreview(null, res.state, 1)
             val decoded = runCatching {
                 JSONObject(String(plain, Charsets.UTF_8))
-            }.getOrNull() ?: return null
+            }.getOrNull()
+                ?: return ConversationPreview(null, CryptoStore.KeyState.DECRYPT_FAILED, 1)
             val key = c.getString(6)?.takeIf { it.isNotEmpty() }
                 ?: legacyConversationKey(pkg, decoded.optString("title"))
-            return Entry(
-                c.getLong(0), pkg, c.getLong(2), c.getLong(3),
-                decoded.optString("title"), decoded.optString("sender"),
-                decoded.optString("body"), !c.isNull(5),
-                key, c.getString(7) ?: SourceRegistry.MessageKind.UNKNOWN.name
+            return ConversationPreview(
+                Entry(
+                    c.getLong(0), pkg, c.getLong(2), c.getLong(3),
+                    decoded.optString("title"), decoded.optString("sender"),
+                    decoded.optString("body"), !c.isNull(5),
+                    key, c.getString(7) ?: SourceRegistry.MessageKind.UNKNOWN.name
+                ),
+                res.state,
+                0
             )
         }
+    }
+
+    /**
+     * IR-01 P2: read an UNLINKED conversation's messages by its legacy key.
+     *
+     * `conversationPage()` groups unlinked rows under `"k:" + conversation_key`.
+     * The detail screen must be able to open such a group, and
+     * `readConversationMessages()` (correctly) refuses a canonical id with
+     * neither an alias nor a link. This reads by the legacy key itself, using
+     * the same hex comparison that survives the NUL separators.
+     */
+    fun readMessagesByLegacyKey(legacyKey: String, limit: Int = 100): ReadResult {
+        val bounded = limit.coerceIn(1, 500)
+        val fetch = bounded + 1
+        val keyHex = legacyKey.toByteArray(Charsets.UTF_8)
+            .joinToString("") { "%02X".format(it) }
+        val output = ArrayList<Entry>()
+        var worst = CryptoStore.KeyState.KEY_AVAILABLE
+        var unreadable = 0
+        readableDatabase.rawQuery(
+            "SELECT id, package_name, received_at, source_ts, sealed_content, " +
+                "sealed_image, conversation_key, message_kind FROM messages " +
+                "WHERE hex(conversation_key) = ? " +
+                "ORDER BY received_at DESC, id DESC LIMIT $fetch",
+            arrayOf(keyHex)
+        ).use { c ->
+            while (c.moveToNext()) {
+                val pkg = c.getString(1)
+                val res = CryptoStore.openWithState(pkg, c.getBlob(4))
+                val plain = res.plaintext
+                if (plain == null) {
+                    unreadable++
+                    if (res.state.isUnrecoverable) worst = res.state
+                    else if (worst == CryptoStore.KeyState.KEY_AVAILABLE) worst = res.state
+                    continue
+                }
+                val decoded = runCatching {
+                    JSONObject(String(plain, Charsets.UTF_8))
+                }.getOrNull()
+                if (decoded == null) {
+                    unreadable++
+                    if (worst == CryptoStore.KeyState.KEY_AVAILABLE) {
+                        worst = CryptoStore.KeyState.DECRYPT_FAILED
+                    }
+                    continue
+                }
+                val key = c.getString(6)?.takeIf { it.isNotEmpty() }
+                    ?: legacyConversationKey(pkg, decoded.optString("title"))
+                output += Entry(
+                    c.getLong(0), pkg, c.getLong(2), c.getLong(3),
+                    decoded.optString("title"), decoded.optString("sender"),
+                    decoded.optString("body"), !c.isNull(5),
+                    key, c.getString(7) ?: SourceRegistry.MessageKind.UNKNOWN.name
+                )
+            }
+        }
+        val finalState = if (worst.isUnrecoverable) CryptoStore.KeyState.RECOVERY_REQUIRED
+                         else worst
+        val hasMore = output.size > bounded
+        if (hasMore) output.removeAt(output.size - 1)
+        return ReadResult(output, finalState, unreadable, hasMore)
     }
 
     /**
