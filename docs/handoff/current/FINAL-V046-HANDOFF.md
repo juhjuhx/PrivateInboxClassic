@@ -4,7 +4,7 @@
 **Branch:** `v045-reliability` (local, uncommitted) @ `bb36c83f`  
 **Public integration:** `release/v0.4.6-alpha` @ `6f8191d` (GitHub)  
 **Draft PR:** https://github.com/juhjuhx/PrivateInboxClassic/pull/4 (PR #3 superseded — marker only)
-**IR head:** `316c44c` — independent-review remediation (IR-01…IR-06)  
+**IR head:** `fd2338c` — independent-review remediation (IR-01…IR-10)  
 **Working tree:** 80 entries dirty (preserved, uncommitted on `v045-reliability`)
 
 ---
@@ -13,7 +13,7 @@
 
 | Suite | Result |
 |-------|--------|
-| Full instrumentation | **265 / 265 PASS** (0 failures, 0 skipped) |
+| Full instrumentation | **274 / 274 PASS** (0 failures, 0 skipped) |
 | JVM unit tests | **157 / 157 PASS** |
 | Security audits | PASS (manifest/privacy, secrets+history, test isolation 47 files) |
 | Release audit / version regression | PASS / PASS |

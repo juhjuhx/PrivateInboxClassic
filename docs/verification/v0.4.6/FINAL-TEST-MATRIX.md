@@ -28,12 +28,13 @@ See `IR-REMEDIATION-EVIDENCE.md` for each finding's RED/GREEN evidence.
 | IR-04 summary cardinality | alias join pinned to one row | IR04SummaryCardinalityInstrumentedTest (5) | 2 shortcuts → 1 row; page not inflated; latest id/ts; paging; merge/unmerge | PASS |
 | IR-05 schema repair | tri-state NONE/RUNNING/DONE + verify | IR05SchemaRepairInstrumentedTest (5) | fresh DB; repeated opens; dropped table recreated; failure not remembered; data preserved | PASS |
 | IR-06 authoritative CI | postSelfTest implemented; no `|| true` | SystemNotificationE2EInstrumentedTest (1) | real NotificationManager post → captured, linked, rendered | PASS |
+| IR-10 chat detail pagination | cursor-based beforeReceivedAt/beforeId | IR10ChatHistoryPaginationInstrumentedTest (5) | 150/350/650 canonical; 150 unlinked legacy; same-timestamp diff-ID; new msg during load; read failure preserves history | PASS |
 | Real-device / OEM | — | — | NOT TESTED | NOT TESTED |
 | Performance re-measurement | — | — | NOT RUN (burst suite functional only) | NOT TESTED |
 
 ## Totals
-- Instrumentation: **265 / 265 PASS**, 0 failures, 0 skipped.
-  (239 before the IR suites; +26 from IR-01…IR-05.)
+- Instrumentation: **274 / 274 PASS**, 0 failures, 0 skipped.
+  (239 before the IR suites; +35 from IR-01…IR-10.)
 - JVM: 157 / 157 PASS.
 - Security audits: audit.sh PASS, audit-secrets.sh PASS, audit-test-isolation.py PASS (47 files).
 - Release audit: PASS. Version regression: PASS. DHC connector: 23/23 PASS.

@@ -179,11 +179,15 @@
     },
     "R07-E": {
       "status": "PASS",
-      "evidence": "CI green earlier; IR round re-verifies"
+      "evidence": "CI green on fd2338c; all IR-01\u2026IR-10 tests pass (274/274 instrumentation)"
     },
     "R07-F": {
-      "status": "BLOCKED",
-      "reason": "Independent reviewer sign-off on 3d56a7f5..316c44c still pending"
+      "status": "READY_FOR_REVIEWER",
+      "reason": "All engineering gates complete; only independent reviewer sign-off over 3d56a7f5..fd2338c remains"
+    },
+    "IR-10": {
+      "status": "PASS",
+      "evidence": "IR10ChatHistoryPaginationInstrumentedTest 5/5; cursor-based paging in showChat/loadOlderChatMessages"
     }
   },
   "verification": {

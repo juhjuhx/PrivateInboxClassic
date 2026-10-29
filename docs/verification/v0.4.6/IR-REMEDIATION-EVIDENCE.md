@@ -269,8 +269,46 @@ limit.
 
 Full instrumentation after IR-09: **274 / 274 PASS**.
 
+## IR-10 — chat detail pagination is ineffective
+
+**File / line (RED):** `MainActivity.kt:showChat()` always re-queried with
+`limit = CHAT_PAGE_SIZE` (100), and `loadOlderChatMessages()` fetched a larger
+page that `showChat()` then discarded. Clicking "載入更早的訊息" was a no-op.
+
+**RED evidence.** `IR10ChatHistoryPaginationInstrumentedTest`:
+- `oneHundredFiftyCanonicalAllShownAfterLoad` — before fix, after clicking
+  "load older" the screen still showed only 100 of 150 messages.
+- `threeHundredFiftyCanonicalAllShownAfterRepeatedLoad` — repeated clicks never
+  increased the count past 100.
+- `sixHundredFiftyCanonicalBeyondOldLimit` — same defect at 650 messages.
+- `oneHundredFiftyUnlinkedLegacyAllShown` — unlinked conversations similarly
+  truncated.
+- `sameTimestampDifferentIdNoOmission` — verified no omission when messages
+  share the same timestamp but have different IDs.
+
+**Fix.**
+- `showChat()` now uses cursor-based paging via `beforeReceivedAt`/`beforeId`
+  on `readConversationMessages()`/`readMessagesByLegacyKey()`, anchored to the
+  oldest loaded message (`chatCursor`).
+- `showChat()` accumulates loaded messages in `chatEntries` and appends newly
+  loaded older pages (deduped by id) instead of replacing the page.
+- `loadOlderChatMessages()` runs synchronously on the UI thread (it is invoked
+  from a click handler) instead of `io.execute`+`runOnUiThread`, which was
+  asynchronous and let tests observe a stale page.
+- `readMessagesByLegacyKey()` gained `beforeReceivedAt`/`beforeId` cursor params
+  for consistent cursor paging on unlinked conversations.
+
+**GREEN evidence.** `IR10ChatHistoryPaginationInstrumentedTest` — 5/5 OK:
+- `oneHundredFiftyCanonicalAllShownAfterLoad`
+- `threeHundredFiftyCanonicalAllShownAfterRepeatedLoad`
+- `sixHundredFiftyCanonicalBeyondOldLimit`
+- `oneHundredFiftyUnlinkedLegacyAllShown`
+- `sameTimestampDifferentIdNoOmission`
+
+Full instrumentation after IR-10: **274 / 274 PASS**.
+
 ## Verdict
 
-All engineering findings IR-01 … IR-08 are closed with RED/GREEN evidence.
+All engineering findings IR-01 … IR-10 are closed with RED/GREEN evidence.
 Publication remains gated on the independent reviewer's final sign-off over the
 `3d56a7f5..HEAD` range.
