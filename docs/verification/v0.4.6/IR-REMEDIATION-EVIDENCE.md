@@ -237,7 +237,7 @@ fixed and pinned by `IR08ReviewFollowupInstrumentedTest` (7 tests):
 | Defect | Severity | Fix |
 |---|---|---|
 | `keyState`/`unreadableRows` never assigned → key recovery dead | P1 | `conversationPreview()` reports state; MainActivity restores both fields |
-| Unlinked conversation detail collapsed to 1 message (`k:` prefix mismatch) | P2 | `readMessagesByLegacyKey()` + routing |
+| Unlinked conversation detail collapsed to 1 message | P2 | `readMessagesByLegacyKey()`; the FIRST routing attempt was dead code — see IR-09 |
 | `chatHasMore` written, never read → silent truncation | P2 | real "load older messages" control |
 | Offset paging skips conversations on insert | P2 | keyset cursor as `HAVING` inside the derived table |
 | `conversationPage(search=)` accepted and ignored | P2 | parameter removed |
@@ -249,6 +249,25 @@ fixed and pinned by `IR08ReviewFollowupInstrumentedTest` (7 tests):
 aggregate silently matches nothing — the filter appeared to work and returned
 the same page forever. This was caught by the new IR-08 tests, not by
 inspection. The cursor timestamps are now inlined as numeric literals.
+
+## IR-09 — the second review round
+
+The re-review found that one IR-08 fix was **dead code**, and that a P2 from the
+first round was still open. Both are now closed:
+
+| Defect | Severity | Fix |
+|---|---|---|
+| Unlinked-detail routing branched on a `"k:"` prefix that `currentThread` never carries, so the branch was unreachable and the chat screen still showed 1 message | **P1** | Routing is data-driven: try the canonical read, fall back to `readMessagesByLegacyKey()` when it returns nothing. The unused prefix constant is removed. |
+| `readConversationMessages()` read `linkedIds` unbounded and emitted one `?` per message; >999 messages exceeded SQLite's bound-variable limit and threw | P2 | Membership is an `EXISTS` sub-select, so the placeholder count is constant |
+
+**Why the previous suite did not catch the P1:** `IR08` called the DB method
+directly, which was correct, and never drove `showChat()`. The routing test now
+opens the conversation through the real Activity (`openThreadForTest` →
+`showChat()` → view hierarchy) and asserts every message body is rendered, so a
+dead branch cannot pass again. A 1200-message read was added for the variable
+limit.
+
+Full instrumentation after IR-09: **274 / 274 PASS**.
 
 ## Verdict
 
