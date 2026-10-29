@@ -480,19 +480,22 @@ class InboxDatabase(private val appContext: Context) :
         // are the authoritative membership signal, and they exist even when no
         // LEGACY_KEY alias was ever written (a partial migration, or a merge
         // that moved links without re-writing aliases).
-        val linkedIds = ArrayList<Long>()
-        readableDatabase.rawQuery(
-            "SELECT message_id FROM message_conversation WHERE conversation_id = ?",
+        //
+        // P2 (independent review): this list used to be read UNBOUNDED and then
+        // turned into one `?` per id. SQLite rejects a statement with more than
+        // 999 bound variables, so a conversation with >999 messages threw. The
+        // membership test is now an EXISTS sub-select instead of an IN list, so
+        // the number of messages never affects the number of placeholders.
+        val hasAnyLink = readableDatabase.rawQuery(
+            "SELECT 1 FROM message_conversation WHERE conversation_id = ? LIMIT 1",
             arrayOf(canonicalId)
-        ).use { c ->
-            while (c.moveToNext()) linkedIds.add(c.getLong(0))
-        }
+        ).use { c -> c.moveToFirst() }
         // IR-02 FAIL-CLOSED: with neither an alias nor a link there is NO
         // evidence that any row belongs to this conversation. Returning an empty
         // page is the only safe answer. The previous implementation built an
         // empty WHERE clause in that case, which silently read (and decrypted)
         // the ENTIRE messages table -- a cross-conversation disclosure.
-        if (keyHexes.isEmpty() && linkedIds.isEmpty()) {
+        if (keyHexes.isEmpty() && !hasAnyLink) {
             android.util.Log.d("READMODEL", "fail-closed: unknown canonicalId=$canonicalId")
             return ReadResult(emptyList(), CryptoStore.KeyState.KEY_AVAILABLE, 0, false)
         }
@@ -510,10 +513,15 @@ class InboxDatabase(private val appContext: Context) :
             args.addAll(keyHexes)
             selection.append("hex(conversation_key) IN (${keyHexes.joinToString(",") { "?" }})")
         }
-        if (linkedIds.isNotEmpty()) {
+        if (hasAnyLink) {
             if (selection.isNotEmpty()) selection.append(" OR ")
-            selection.append("id IN (${linkedIds.joinToString(",") { "?" }})")
-            linkedIds.forEach { args.add(it.toString()) }
+            // EXISTS keeps the placeholder count constant regardless of how many
+            // messages the conversation holds.
+            selection.append(
+                "EXISTS (SELECT 1 FROM message_conversation mc " +
+                    "WHERE mc.message_id = messages.id AND mc.conversation_id = ?)"
+            )
+            args.add(canonicalId)
         }
         if (beforeReceivedAt != null && beforeId != null) {
             // Wrap the membership expression in its own parentheses so the OR

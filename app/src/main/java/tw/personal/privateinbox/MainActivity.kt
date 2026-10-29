@@ -56,9 +56,6 @@ class MainActivity : ComponentActivity() {
 
         /** IR-01: messages per page on the conversation DETAIL screen. */
         const val CHAT_PAGE_SIZE = 100
-
-        /** The grouping prefix conversationPage() uses for UNLINKED groups. */
-        const val UNLINKED_GROUP_PREFIX = "k:"
     }
 
     private var unlocked = false
@@ -779,6 +776,19 @@ class MainActivity : ComponentActivity() {
     /** Entries after applying the platform filter and the active search query. */
     /** QA hook: let instrumentation drive searchQuery/selectedPlatform without
      *  touching private fields. */
+    /**
+     * IR-08 test hook: open a conversation exactly as a row tap does.
+     *
+     * The independent review pointed out that testing the DB method directly
+     * cannot catch a dead routing branch in `showChat()`. This drives the real
+     * `currentThread`/`currentTitle` + `showChat()` path.
+     */
+    internal fun openThreadForTest(threadKey: String, title: String) {
+        currentThread = threadKey
+        currentTitle = title
+        showChat()
+    }
+
     internal fun setSearchInputsForTest(query: String?, platform: String?) {
         searchQuery = query
         selectedPlatform = platform
@@ -817,20 +827,23 @@ class MainActivity : ComponentActivity() {
         // here (the user is reading one conversation's history). The inbox page
         // above pages by CONVERSATION.
         //
-        // P2: conversationPage() labels an UNLINKED group "k:<legacyKey>" while
-        // threadKey() returns the raw legacy key. Passing the raw key to
-        // readConversationMessages finds no alias and no link, so the fail-closed
-        // read returns nothing and the detail screen collapsed to the single
-        // preview row. A "k:" group is matched by its LEGACY KEY instead.
-        val legacyKeyOfUnlinked =
-            if (key.startsWith(UNLINKED_GROUP_PREFIX)) key.removePrefix(UNLINKED_GROUP_PREFIX)
-            else null
+        // P1 (independent review): the previous version branched on
+        // `key.startsWith("k:")`, but `currentThread` comes from threadKey(),
+        // which returns the RAW legacy key and never carries the "k:" prefix
+        // that conversationPage() adds. The branch was therefore unreachable and
+        // an unlinked conversation still showed exactly one message.
+        //
+        // The routing is now decided by the DATA, not by a string prefix: try the
+        // canonical read first, and fall back to the legacy-key read when it
+        // yields nothing (which is exactly the unlinked case). No prefix
+        // convention can silently break this.
         val detailPage = runCatching {
             InboxDatabase(this).use { db ->
-                if (legacyKeyOfUnlinked != null) {
-                    db.readMessagesByLegacyKey(legacyKeyOfUnlinked, limit = CHAT_PAGE_SIZE)
+                val canonical = db.readConversationMessages(key, limit = CHAT_PAGE_SIZE)
+                if (canonical.entries.isNotEmpty()) {
+                    canonical
                 } else {
-                    db.readConversationMessages(key, limit = CHAT_PAGE_SIZE)
+                    db.readMessagesByLegacyKey(key, limit = CHAT_PAGE_SIZE)
                 }
             }
         }.getOrNull()
@@ -969,13 +982,11 @@ class MainActivity : ComponentActivity() {
         io.execute {
             val result = runCatching {
                 InboxDatabase(this).use { db ->
-                    if (key.startsWith(UNLINKED_GROUP_PREFIX)) {
-                        db.readMessagesByLegacyKey(
-                            key.removePrefix(UNLINKED_GROUP_PREFIX), limit = nextSize
-                        )
-                    } else {
-                        db.readConversationMessages(key, limit = nextSize)
-                    }
+                    // Same data-driven routing as showChat(): try canonical,
+                    // fall back to the legacy key for unlinked conversations.
+                    val canonical = db.readConversationMessages(key, limit = nextSize)
+                    if (canonical.entries.isNotEmpty()) canonical
+                    else db.readMessagesByLegacyKey(key, limit = nextSize)
                 }
             }.getOrNull()
             runOnUiThread {

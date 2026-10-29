@@ -212,4 +212,85 @@ class IR08ReviewFollowupInstrumentedTest {
         val page = InboxDatabase(ctx).use { it.conversationPage(limit = 10) }
         assertEquals(1, page.size)
     }
+
+    // -------------------------- P1: the ROUTING, driven through the real UI
+
+    /**
+     * P1 (re-review): the previous fix branched on a "k:" prefix that
+     * `currentThread` never carries, so the branch was dead and the detail
+     * screen still showed one message. This test drives the REAL Activity and
+     * the REAL `threads()`/`showChat()` path, so a dead branch cannot pass.
+     */
+    @Test
+    fun unlinkedConversationRendersEveryMessageInTheRealChatScreen() {
+        val key = LegacyKeyCodec.format(pkg, null, "未連結畫面")
+        for (i in 1..4) save("未連結畫面", "ui-$i", 1_700_000_000_000L + i, key)
+
+        androidx.test.core.app.ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            // Unlock + load through the production path.
+            scenario.onActivity { activity ->
+                val f = MainActivity::class.java.getDeclaredField("unlocked")
+                f.isAccessible = true; f.setBoolean(activity, true)
+                activity.loadEntries()
+            }
+            val deadline = System.currentTimeMillis() + 8_000
+            while (System.currentTimeMillis() < deadline) {
+                var ready = false
+                scenario.onActivity { ready = it.entries.isNotEmpty() }
+                if (ready) break
+                Thread.sleep(100)
+            }
+            scenario.onActivity { activity ->
+                // The inbox shows ONE entry for the unlinked conversation.
+                assertEquals("one inbox entry for the unlinked conversation",
+                    1, activity.entries.size)
+                val threadKey = activity.threads(activity.entries).first().key
+
+                // Now open the chat screen exactly as a tap does. Called
+                // directly: the method is `internal`, so reflection would need
+                // the name-mangled JVM signature.
+                activity.openThreadForTest(threadKey, "未連結畫面")
+
+                // The REAL view hierarchy must contain every message body.
+                val texts = ArrayList<String>()
+                walkText(activity.window.decorView) { texts.add(it) }
+                for (i in 1..4) {
+                    assertTrue(
+                        "the chat screen must render ui-$i (rendered: $texts)",
+                        texts.any { it.contains("ui-$i") }
+                    )
+                }
+            }
+        }
+    }
+
+    private fun walkText(v: android.view.View, sink: (String) -> Unit) {
+        if (v is android.widget.TextView) v.text?.toString()?.let(sink)
+        if (v is android.view.ViewGroup) {
+            for (i in 0 until v.childCount) walkText(v.getChildAt(i), sink)
+        }
+    }
+
+    // ------------------- P2: more messages than SQLite's variable limit
+
+    /**
+     * P2 (re-review): `linkedIds` was turned into one `?` per message, so a
+     * conversation with >999 messages exceeded SQLite's bound-variable limit and
+     * threw. 1200 messages must read successfully.
+     */
+    @Test
+    fun conversationWithMoreThanTheSqliteVariableLimitReadsSuccessfully() {
+        val cid = resolve("大量訊息")
+        val total = 1200
+        for (i in 1..total) {
+            link(save("大量訊息", "bulk-$i", 1_700_000_000_000L + i), cid)
+        }
+        val result = InboxDatabase(ctx).use {
+            it.readConversationMessages(cid, limit = 500)
+        }
+        assertEquals("a 500-message page is returned", 500, result.entries.size)
+        assertTrue("and more remain", result.hasMore)
+        // The newest message is the last one written.
+        assertEquals("bulk-$total", result.entries[0].body)
+    }
 }
