@@ -84,6 +84,18 @@ class MainActivity : ComponentActivity() {
     /** IR-01 P2: how many messages the open conversation currently shows. */
     private var chatPageSize: Int = 0
 
+    /** IR-10: all chat messages loaded so far for the open conversation,
+     *  accumulated across "載入更早的訊息" clicks. Newest first. */
+    private var chatEntries: List<InboxDatabase.Entry> = emptyList()
+
+    /**
+     * IR-10: keyset cursor for the open conversation's chat detail page.
+     * Holds the (received_at, id) of the OLDEST loaded message, so the next
+     * page reads strictly older messages via beforeReceivedAt/beforeId.
+     * null means no page has been loaded yet (first load fetches the newest page).
+     */
+    private var chatCursor: Pair<Long, Long>? = null
+
     /**
      * IR-01 P2: the last conversation seen, used as a KEYSET cursor for the next
      * page. Anchoring to the last row actually rendered (rather than to an
@@ -839,22 +851,47 @@ class MainActivity : ComponentActivity() {
         // canonical read first, and fall back to the legacy-key read when it
         // yields nothing (which is exactly the unlinked case). No prefix
         // convention can silently break this.
+        // IR-10: page by message cursor instead of re-reading with a fixed limit.
+        // chatEntries accumulates all messages loaded so far for this conversation,
+        // so clicking "載入更早的訊息" genuinely adds older messages instead of
+        // discarding the previously fetched page.
         val detailPage = runCatching {
             InboxDatabase(this).use { db ->
-                val canonical = db.readConversationMessages(key, limit = CHAT_PAGE_SIZE)
-                if (canonical.entries.isNotEmpty()) {
-                    canonical
+                val page = if (chatEntries.isNotEmpty() && chatCursor != null) {
+                    // Next page: older messages after the cursor.
+                    val (curTs, curId) = chatCursor!!
+                    val canonical = db.readConversationMessages(
+                        key, limit = CHAT_PAGE_SIZE,
+                        beforeReceivedAt = curTs, beforeId = curId)
+                    if (canonical.entries.isNotEmpty()) canonical
+                    else db.readMessagesByLegacyKey(
+                        key, limit = CHAT_PAGE_SIZE,
+                        beforeReceivedAt = curTs, beforeId = curId)
                 } else {
-                    db.readMessagesByLegacyKey(key, limit = CHAT_PAGE_SIZE)
+                    // First load: newest page, no cursor.
+                    val canonical = db.readConversationMessages(key, limit = CHAT_PAGE_SIZE)
+                    if (canonical.entries.isNotEmpty()) canonical
+                    else db.readMessagesByLegacyKey(key, limit = CHAT_PAGE_SIZE)
                 }
+                page
             }
         }.getOrNull()
         val group: List<InboxDatabase.Entry> = if (detailPage != null && detailPage.entries.isNotEmpty()) {
             chatHasMore = detailPage.hasMore
-            chatPageSize = CHAT_PAGE_SIZE
-            detailPage.entries.sortedWith(
+            val newEntries = detailPage.entries.sortedWith(
                 compareBy<InboxDatabase.Entry> { it.receivedAt }.thenBy { it.id }
             )
+            // Append older pages to what we already loaded (dedup by id).
+            val existingIds = chatEntries.map { it.id }.toSet()
+            val appended = newEntries.filter { it.id !in existingIds }
+            chatEntries = (chatEntries + appended)
+                .sortedWith(compareBy<InboxDatabase.Entry> { it.receivedAt }.thenBy { it.id })
+                .reversed() // newest first for display
+            // Advance cursor to the oldest message in this page.
+            val oldest = detailPage.entries.minByOrNull { it.receivedAt }
+            chatCursor = oldest?.let { it.receivedAt to it.id }
+            chatPageSize = chatEntries.size
+            chatEntries
         } else {
             // Fall back to the already-loaded conversation rows (the inbox page
             // holds this conversation's newest message) so the screen is never
@@ -980,26 +1017,11 @@ class MainActivity : ComponentActivity() {
     private fun loadOlderChatMessages() {
         val key = currentThread ?: return
         if (!chatHasMore) return
-        val nextSize = chatPageSize + CHAT_PAGE_SIZE
-        io.execute {
-            val result = runCatching {
-                InboxDatabase(this).use { db ->
-                    // Same data-driven routing as showChat(): try canonical,
-                    // fall back to the legacy key for unlinked conversations.
-                    val canonical = db.readConversationMessages(key, limit = nextSize)
-                    if (canonical.entries.isNotEmpty()) canonical
-                    else db.readMessagesByLegacyKey(key, limit = nextSize)
-                }
-            }.getOrNull()
-            runOnUiThread {
-                if (isFinishing || isDestroyed) return@runOnUiThread
-                if (result != null) {
-                    chatPageSize = nextSize
-                    chatHasMore = result.hasMore
-                    showChat()
-                }
-            }
-        }
+        // Called from the UI thread (click handler), so showChat() can run
+        // synchronously. Using io.execute + runOnUiThread here would be async
+        // and the test could observe the UI before showChat() finishes, seeing
+        // a stale page count.
+        showChat()
     }
 
     private fun showPhoto(entry: InboxDatabase.Entry) {

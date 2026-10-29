@@ -652,7 +652,12 @@ class InboxDatabase(private val appContext: Context) :
      * neither an alias nor a link. This reads by the legacy key itself, using
      * the same hex comparison that survives the NUL separators.
      */
-    fun readMessagesByLegacyKey(legacyKey: String, limit: Int = 100): ReadResult {
+    fun readMessagesByLegacyKey(
+        legacyKey: String,
+        limit: Int = 100,
+        beforeReceivedAt: Long? = null,
+        beforeId: Long? = null
+    ): ReadResult {
         val bounded = limit.coerceIn(1, 500)
         val fetch = bounded + 1
         val keyHex = legacyKey.toByteArray(Charsets.UTF_8)
@@ -660,12 +665,20 @@ class InboxDatabase(private val appContext: Context) :
         val output = ArrayList<Entry>()
         var worst = CryptoStore.KeyState.KEY_AVAILABLE
         var unreadable = 0
+        val selection = StringBuilder("hex(conversation_key) = ?")
+        val args = mutableListOf<String>(keyHex)
+        if (beforeReceivedAt != null && beforeId != null) {
+            selection.append(" AND (received_at < ? OR (received_at = ? AND id < ?))")
+            args += beforeReceivedAt.toString()
+            args += beforeReceivedAt.toString()
+            args += beforeId.toString()
+        }
         readableDatabase.rawQuery(
             "SELECT id, package_name, received_at, source_ts, sealed_content, " +
                 "sealed_image, conversation_key, message_kind FROM messages " +
-                "WHERE hex(conversation_key) = ? " +
+                "WHERE $selection " +
                 "ORDER BY received_at DESC, id DESC LIMIT $fetch",
-            arrayOf(keyHex)
+            args.toTypedArray()
         ).use { c ->
             while (c.moveToNext()) {
                 val pkg = c.getString(1)
