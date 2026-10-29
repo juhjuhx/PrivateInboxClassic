@@ -1,5 +1,17 @@
 # T12-EXCEPTION — BurstCapture / SystemE2E flake classification
 
+> ## ⚠ CORRECTION (IR-06, supersedes the SystemE2E classification below)
+>
+> The `SystemNotificationE2E` entry in this document was **wrong**. That test was
+> never flaky: `DebugSettingsProvider.call()` had **no `postSelfTest` /
+> `cancelSelfTest` branch at all**, so the test always received `null` and threw
+> `IllegalStateException: the app failed to post`. CI masked it with `|| true`.
+>
+> IR-06 implements both provider methods (delegating to
+> `SelfTestNotifier.postCustom`), removes `|| true`, and the suite now passes for
+> real. The `BurstCapture` observations below remain as recorded evidence and are
+> unaffected by this correction.
+
 ## Evidence (fresh, this round)
 | Run | Result |
 |---|---|

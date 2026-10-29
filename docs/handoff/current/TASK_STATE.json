@@ -148,6 +148,48 @@
       "verdict": "SHIP IT",
       "findings": "0 CRITICAL, 0 HIGH, 1 MEDIUM (link pending recovery, handled), 2 LOW (docs inconsistency, backfill contention)",
       "health": "IMPROVES"
+    },
+    "IR-01": {
+      "status": "PASS",
+      "evidence": "IR01ConversationPaginationInstrumentedTest 4/4; MainActivity pages via conversationPage"
+    },
+    "IR-02": {
+      "status": "PASS",
+      "evidence": "IR02FailClosedReadInstrumentedTest 6/6; fail-closed union of alias+link"
+    },
+    "IR-03": {
+      "status": "PASS",
+      "evidence": "IR03NulSafeLinkingInstrumentedTest 6/6; SaveResult.NEW carries real id"
+    },
+    "IR-04": {
+      "status": "PASS",
+      "evidence": "IR04SummaryCardinalityInstrumentedTest 5/5; alias join pinned to one row"
+    },
+    "IR-05": {
+      "status": "PASS",
+      "evidence": "IR05SchemaRepairInstrumentedTest 5/5; tri-state verified repair"
+    },
+    "IR-06": {
+      "status": "PASS",
+      "evidence": "postSelfTest implemented; || true removed; SystemE2E passes for real"
+    },
+    "IR-07": {
+      "status": "IN_PROGRESS",
+      "evidence": "commits pushed (316c44c); awaiting GitHub CI + independent reviewer sign-off"
+    },
+    "R07-E": {
+      "status": "PASS",
+      "evidence": "CI green earlier; IR round re-verifies"
+    },
+    "R07-F": {
+      "status": "BLOCKED",
+      "reason": "Independent reviewer sign-off on 3d56a7f5..316c44c still pending"
     }
+  },
+  "verification": {
+    "instrumentation": "265/265 PASS",
+    "jvm": "157/157 PASS",
+    "audits": "PASS",
+    "flake_correction": "SystemE2E was a missing provider implementation, not a flake"
   }
 }

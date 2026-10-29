@@ -1,7 +1,8 @@
-# v0.4.6 Final Test Matrix — T12 + R07
+# v0.4.6 Final Test Matrix — T12 + R07 + IR
 
-All results fresh, after the last production change (onOpen one-shot repair).
-Emulator-5554, API 36, sdk_gphone64_arm64. HEAD bb36c83 (uncommitted worktree).
+All results fresh, after the IR-01…IR-06 remediation.
+Emulator-5554, API 36 (test36 AVD). PR #4 head `316c44c`.
+See `IR-REMEDIATION-EVIDENCE.md` for each finding's RED/GREEN evidence.
 
 | Requirement | Implementation | Test | Evidence | Verdict |
 |---|---|---|---|---|
@@ -21,12 +22,27 @@ Emulator-5554, API 36, sdk_gphone64_arm64. HEAD bb36c83 (uncommitted worktree).
 | Builds | assembleProdDebug + DevtestDebug | gradle | BUILD SUCCESSFUL | PASS |
 | Security audits | audit.sh / audit-secrets.sh / audit-test-isolation.py | scripts | 3x PASS (39 files) | PASS |
 | DHC Kotlin↔Python interop | — | host_interop.sh | Python 27 pass, Kotlin 14 pass, REAL round trip PASS | PASS |
+| IR-01 conversation paging | conversationPage + entryForMessageId | IR01ConversationPaginationInstrumentedTest (4) | many-msg convo does not hide older; 100 convos page w/o loss/dup; legacy rows visible; rename/merge paging | PASS |
+| IR-02 fail-closed reads | readConversationMessages union of alias+link | IR02FailClosedReadInstrumentedTest (6) | unknown id → 0; deleted alias scoped; partial migration; merge/unmerge; cross-package; empty DB | PASS |
+| IR-03 NUL-safe linking | SaveResult.NEW(id) + link by real id | IR03NulSafeLinkingInstrumentedTest (6) | real id; DUPLICATE≠NEW; [NEW,FAILURE,NEW]; NUL keys; fresh helper; reconcile | PASS |
+| IR-04 summary cardinality | alias join pinned to one row | IR04SummaryCardinalityInstrumentedTest (5) | 2 shortcuts → 1 row; page not inflated; latest id/ts; paging; merge/unmerge | PASS |
+| IR-05 schema repair | tri-state NONE/RUNNING/DONE + verify | IR05SchemaRepairInstrumentedTest (5) | fresh DB; repeated opens; dropped table recreated; failure not remembered; data preserved | PASS |
+| IR-06 authoritative CI | postSelfTest implemented; no `|| true` | SystemNotificationE2EInstrumentedTest (1) | real NotificationManager post → captured, linked, rendered | PASS |
 | Real-device / OEM | — | — | NOT TESTED | NOT TESTED |
 | Performance re-measurement | — | — | NOT RUN (burst suite functional only) | NOT TESTED |
 
 ## Totals
-- Instrumentation: 239 run, 1 documented flake (SystemE2E link under full ordering — FLAKY_UNRESOLVED), 0 product failures.
+- Instrumentation: **265 / 265 PASS**, 0 failures, 0 skipped.
+  (239 before the IR suites; +26 from IR-01…IR-05.)
 - JVM: 157 / 157 PASS.
+- Security audits: audit.sh PASS, audit-secrets.sh PASS, audit-test-isolation.py PASS (47 files).
+- Release audit: PASS. Version regression: PASS. DHC connector: 23/23 PASS.
+
+## Flake status correction
+The previously-recorded `SystemNotificationE2E` "FLAKY_UNRESOLVED" classification
+was WRONG. The test never passed because `DebugSettingsProvider.call()` had no
+`postSelfTest` branch at all. IR-06 implements it; the suite now passes for real
+and CI is authoritative (no `|| true`).
 
 ## Known limitations (stated, not hidden)
 1. Rename changes the legacy key → fingerprint input → a re-delivered message is

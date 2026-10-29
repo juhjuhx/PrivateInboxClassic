@@ -1,24 +1,25 @@
 # Private Inbox Classic v0.4.6 — Final Handoff
 
-**Status:** READY_FOR_PUBLICATION (pending independent review — R07-E)  
+**Status:** IR_REMEDIATED — PENDING INDEPENDENT REVIEW SIGN-OFF  
 **Branch:** `v045-reliability` (local, uncommitted) @ `bb36c83f`  
 **Public integration:** `release/v0.4.6-alpha` @ `6f8191d` (GitHub)  
-**Draft PR:** https://github.com/juhjuhx/PrivateInboxClassic/pull/4 (PR #3 superseded — marker only)  
+**Draft PR:** https://github.com/juhjuhx/PrivateInboxClassic/pull/4 (PR #3 superseded — marker only)
+**IR head:** `316c44c` — independent-review remediation (IR-01…IR-06)  
 **Working tree:** 80 entries dirty (preserved, uncommitted on `v045-reliability`)
 
 ---
 
-## Verified Test Results (Fresh, 2026-10-27)
+## Verified Test Results (Fresh, after IR remediation)
 
 | Suite | Result |
 |-------|--------|
-| Full instrumentation | **239 / 239 PASS** (0 failures, 1 documented flake) |
-| Integration worktree | **238 / 239 PASS** (only SystemE2E link flake) |
+| Full instrumentation | **265 / 265 PASS** (0 failures, 0 skipped) |
 | JVM unit tests | **157 / 157 PASS** |
+| Security audits | PASS (manifest/privacy, secrets+history, test isolation 47 files) |
+| Release audit / version regression | PASS / PASS |
+| DHC connector | 23 / 23 PASS |
 | Lint | PASS |
 | Build (prod + devtest) | PASS |
-| Audits | PASS (secrets, test isolation) |
-| DHC interop | PASS |
 
 ## Artifacts
 
@@ -30,8 +31,13 @@
 ## Upgrade Compatibility
 **VERIFIED** — Public v0.4.4-alpha (key A) → v0.4.6 prod (key A) via `adb install -r` succeeds.
 
-## Known Flake
-`SystemNotificationE2EInstrumentedTest` link under full-suite ordering — FLAKY_UNRESOLVED, passes 3/3 isolated. Documented in `FLAKE-ANALYSIS.md`.
+## Flake status — CORRECTED
+The `SystemNotificationE2E` "FLAKY_UNRESOLVED" classification was **wrong**.
+`DebugSettingsProvider.call()` had no `postSelfTest` branch, so the test always
+threw "the app failed to post"; CI masked it with `|| true`. IR-06 implements the
+provider methods and removes `|| true`. The suite now passes for real (265/265)
+and CI is authoritative. See `IR-REMEDIATION-EVIDENCE.md` and the correction
+header in `FLAKE-ANALYSIS.md`.
 
 ## Release Gate Status
 | Gate | Status |
@@ -42,7 +48,10 @@
 | APK signing verified | PASS (debug key A) |
 | Public upgrade compatibility | VERIFIED |
 | Unresolved flake disclosed | YES (FLAKY_UNRESOLVED) |
-| Independent review (2nd reviewer) | SELF_REVIEW_ONLY (BLOCKS publication) |
+| IR remediation (IR-01…IR-06) | PASS — RED/GREEN evidence in IR-REMEDIATION-EVIDENCE.md |
+| Independent review (2nd reviewer) | PENDING — blocks publication |
 | Release keystore | NOT EXISTS (BLOCKS production release) |
 
-**Cannot publish Alpha Release until:** independent review of PR #4 + acceptance of documented flake.
+**Cannot publish Alpha Release until:** an independent reviewer signs off on the
+`3d56a7f5..316c44c` range. The previously-cited flake blocker no longer applies
+(it was a missing implementation, now fixed).
