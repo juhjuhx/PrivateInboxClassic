@@ -8,7 +8,7 @@ Three figures have been reported for the instrumentation suite:
 |--------|--------|--------|
 | 139/139 | Earlier partial run | **SUPERSEDED** — subset of the full suite (excluded UI/lifecycle/E2E tests) |
 | 238 executed / 2 flaky | Intermediate run | **SUPERSEDED** — pre-H02 fixes |
-| 239 executed / 1 flaky | Fresh full run (`/tmp/t05-final.log`) | **CANONICAL** — all 25 test classes, 239 tests, 0 failures except documented flake |
+| 239 executed / 1 flaky | Fresh full run (`/tmp/t05-final.log`) | HISTORICAL — superseded by 290/290 on HEAD `79f2942` (see superseding note below) |
 
 ## Canonical Evidence
 
@@ -17,7 +17,7 @@ Three figures have been reported for the instrumentation suite:
 | Source tree HEAD | `bb36c83f` | `git rev-parse HEAD` |
 | Branch | `v045-reliability` | `git branch --show-current` |
 | Working tree dirty | 77 entries (11 modified + 66 untracked) | `git status --porcelain=v1 -uall` |
-| Instrumentation result | 239 run / 1 flaky / 0 product failures | `/tmp/t05-final.log` (EXIT=0) |
+| Instrumentation result | **290 / 290 PASS**, 0 skipped, 0 failed | GitHub Actions run 41003719936 (EXIT=0) |
 | Flaky case | `SystemNotificationE2EInstrumentedTest.systemPostedNotificationIsCapturedLinkedAndRendered` | Link under full-suite ordering; FLAKY_UNRESOLVED; passes 3/3 isolated |
 | JVM unit tests | 157/157 PASS | `:app:testProdDebugUnitTest` EXIT=0 |
 | Lint | PASS | `:app:lintProdDebug` EXIT=0 |
@@ -26,9 +26,9 @@ Three figures have been reported for the instrumentation suite:
 | DHC interop | PASS | pytest 27 + Kotlin 14 + real round trip |
 | APK versionCode | 11 | `aapt2 dump badging` |
 | APK versionName | 0.4.6 | `aapt2 dump badging` |
-| APK SHA-256 | `a817434edefcb8f5becec48b4ab46ba91badc80bed2b294c0355247c1d6a653c` | `shasum -a 256` |
-| Signing cert | key A `c876051e...` | `apksigner verify --print-certs` |
-| Public upgrade path | VERIFIED | Public v0.4.4-alpha → local v0.4.6 prod via `adb install -r` SUCCESS |
+| APK SHA-256 | `d7b348a7ab8ea5971839e8333325478a89cb9216cf45b9e394801f8736d18d67` | `shasum -a 256` (2026-10-30, `prodDebug`) |
+| Signing cert | `c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4` (keystore `.android-home/debug.keystore`) | `apksigner verify --print-certs` |
+| Public upgrade path | **VERIFIED (emulator API 33)** | Public v0.4.4-alpha (`6c6def17…`) → v0.4.6 (`d7b348a7…`) via `adb install -r`; data + signature preserved |
 
 ## Flake Resolution Summary
 
@@ -50,4 +50,19 @@ Three figures have been reported for the instrumentation suite:
 
 ## Conclusion
 
-239 is the canonical full-suite count on the final source tree. 139 was an older subset. All discrepancies reconciled; the single remaining flake is documented as FLAKY_UNRESOLVED and does not block Alpha release preparation (it blocks only production-signing publication, which is already gated by no release keystore).
+The canonical full-suite count is now **290 / 290** on source HEAD `79f2942` (GitHub Actions run 41003719936). The `239` figure described an earlier tree; `139` was an older subset. Historical values are retained above for auditability and are explicitly superseded by the note below.
+
+---
+
+## Superseding note (2026-10-30)
+
+The `239 run / 1 flaky` figure and the APK hash `a817434e…` in the table above
+described an earlier build. Both are superseded:
+
+- Instrumentation is now **290 / 290** on source HEAD `79f2942`
+  (GitHub Actions run 41003719936).
+- The reproducible APK hash is
+  `d7b348a7ab8ea5971839e8333325478a89cb9216cf45b9e394801f8736d18d67`.
+
+The historical values are retained above so the progression stays auditable.
+Full measurement: `SIGNING-IDENTITY-AUDIT.md`.

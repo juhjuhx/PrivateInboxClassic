@@ -41,3 +41,20 @@ diagnosis attempts made per the contract; recorded, not guessed.
 ## H05 — Final matrix
 See FINAL-TEST-MATRIX.md (regenerated). Core product suites all green in
 isolation; the only red is the recorded flake.
+
+---
+
+## H06 — Superseded by IR-11 closure (2026-10-30)
+
+This H-round evidence was recorded when the full suite was **239 tests** and
+`SystemNotificationE2E` was classified flaky. Both facts are historical.
+
+Current state at source HEAD `79f2942`:
+
+- Full instrumentation: **290 / 290 PASS**, 0 skipped, 0 failed
+  (GitHub Actions run 41003719936; reproduced locally).
+- `SystemNotificationE2E` passed in that run. The flake is not declared
+  permanently fixed — see `FLAKE-ANALYSIS.md`.
+- IR-11 added 11 tests; IR-08 follow-up added 5.
+
+The 239 figure above is kept unchanged as a record of that round.

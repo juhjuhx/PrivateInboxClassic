@@ -1,8 +1,15 @@
 # v0.4.6 Final Test Matrix — T12 + R07 + IR
 
-All results fresh, after the IR-01…IR-06 remediation.
-Emulator-5554, API 36 (test36 AVD). PR #4 head `316c44c`.
+All results fresh, after the IR-01…IR-11 remediation.
+Source HEAD `79f2942059a815d275403d924be1c1e25024d786`.
+GitHub Actions run [41003719936](https://github.com/juhjuhx/PrivateInboxClassic/actions/runs/41003719936)
+— emulator API 36, `290/290` instrumentation, 0 skipped, 0 failed.
+Locally reproduced on emulator API 36 (`OK (290 tests)`).
 See `IR-REMEDIATION-EVIDENCE.md` for each finding's RED/GREEN evidence.
+
+**Historical results are preserved, not rewritten.** The earlier `239/239` and
+`274/274` figures below are kept with their original source HEAD and date so the
+progression stays auditable; they are not the current result.
 
 | Requirement | Implementation | Test | Evidence | Verdict |
 |---|---|---|---|---|
@@ -29,15 +36,31 @@ See `IR-REMEDIATION-EVIDENCE.md` for each finding's RED/GREEN evidence.
 | IR-05 schema repair | tri-state NONE/RUNNING/DONE + verify | IR05SchemaRepairInstrumentedTest (5) | fresh DB; repeated opens; dropped table recreated; failure not remembered; data preserved | PASS |
 | IR-06 authoritative CI | postSelfTest implemented; no `|| true` | SystemNotificationE2EInstrumentedTest (1) | real NotificationManager post → captured, linked, rendered | PASS |
 | IR-10 chat detail pagination | cursor-based beforeReceivedAt/beforeId | IR10ChatHistoryPaginationInstrumentedTest (5) | 150/350/650 canonical; 150 unlinked legacy; same-timestamp diff-ID; new msg during load; read failure preserves history | PASS |
+| **IR-11A** conversation state isolation | `chatConversationId` resets all chat state on switch | IR11 (1) + IR11 (7) | A→B→A shows no cross-conversation leakage; stale result cannot pollute new session | PASS |
+| **IR-11B** cursor ordering | full `(received_at, id)` keyset cursor, not `received_at` alone | IR11 (2) | 150 messages sharing one timestamp, distinct ids: no omission, no duplication across pages | PASS |
+| **IR-11C** async fetch/render separation | DB read + AES on IO executor; `renderChatPage()` UI-thread only | IR11 (5) | 350 and 650 messages load across multiple pages with no main-thread DB work | PASS |
+| **IR-11D** async lifecycle corrective patch | `chatRequestGen` generation gating; `refreshChat()` render-only path; honest delete failure | IR11 (8, 9, 10, 11) | photo return keeps entry count + cursor; delete removes row from chat page; stale callback does not clear new request's loading; lock rejects in-flight callback | PASS |
 | Real-device / OEM | — | — | NOT TESTED | NOT TESTED |
 | Performance re-measurement | — | — | NOT RUN (burst suite functional only) | NOT TESTED |
 
-## Totals
-- Instrumentation: **274 / 274 PASS**, 0 failures, 0 skipped.
-  (239 before the IR suites; +35 from IR-01…IR-10.)
+## Totals — current (source HEAD `79f2942`)
+
+- Instrumentation: **290 / 290 PASS**, 0 failures, 0 skipped.
+  Verified in GitHub Actions run 41003719936 and reproduced locally.
+  Breakdown: 239 baseline + 35 from IR-01…IR-10 + 11 IR-11 + 5 IR-08 follow-up.
 - JVM: 157 / 157 PASS.
-- Security audits: audit.sh PASS, audit-secrets.sh PASS, audit-test-isolation.py PASS (47 files).
-- Release audit: PASS. Version regression: PASS. DHC connector: 23/23 PASS.
+- Lint: PASS.
+- Builds: `assembleProdDebug`, `assembleDevtestDebug`, `assembleDevtestDebugAndroidTest`: PASS.
+- Security audits: audit.sh PASS, audit-secrets.sh PASS, audit-test-isolation.py PASS (50 files).
+- Release audit: PASS. Version regression: PASS. DHC connector: PASS.
+
+## Historical totals (preserved, not current)
+
+| Figure | Source HEAD | Date | Note |
+|---|---|---|---|
+| 239 / 239 | `bb36c83` | 2026-10-27 | before the IR-01…IR-10 suites |
+| 274 / 274 | `316c44c` | 2026-10-28 | after IR-01…IR-10; before IR-11 |
+| **290 / 290** | **`79f2942`** | **2026-10-30** | **current** — adds the 11 IR-11 tests + 5 IR-08 follow-up |
 
 ## Flake status correction
 The previously-recorded `SystemNotificationE2E` "FLAKY_UNRESOLVED" classification
@@ -88,7 +111,8 @@ per-run markers).
 | Production signing | — | — | no release keystore | BLOCKED |
 
 ## Totals (fresh)
-- Full instrumentation: **239 run / 1 flaky (SystemE2E link under full ordering) / 0 product failures**
+- Full instrumentation: **290 / 290 PASS** on source HEAD `79f2942` (0 skipped, 0 failed).
+  Historical: 239 run / 1 flaky (SystemE2E link) on the pre-IR-11 tree — see the history table above.
 - Isolated: SystemE2E 3/3 · Qa01 8/8 · BurstCapture 10/10 · pair 3/3
 - JVM: 157/157
 

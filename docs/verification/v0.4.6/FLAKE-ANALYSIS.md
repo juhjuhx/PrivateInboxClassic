@@ -91,3 +91,16 @@ which no pair repro touches.
 - Full suite (post-fixes): 239 run / 1 flaky / 0 product failures.
 - Isolated: SystemNotificationE2E 3/3 PASS, Qa01ReadModelAndUiTest 8/8 PASS,
   BurstCapture 10/10, pair runs 11/11.
+
+---
+
+## Current status (2026-10-30, source HEAD `79f2942`)
+
+`SystemNotificationE2E` did **not** fail in GitHub Actions run 41003719936
+(290/290, 0 failed). The historical `FLAKY_UNRESOLVED` classification above is
+kept as a record of what was observed at the time.
+
+**This is not a claim that the flake can never recur.** It is a statement that
+the current full-suite run passed. If it reappears under a different suite
+ordering, treat it as a real ordering-sensitive defect and investigate then —
+do not re-label it a permanent pass.

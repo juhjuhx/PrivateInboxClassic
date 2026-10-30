@@ -29,21 +29,27 @@ Android 會以簽章判定「是否為同一個 App」；簽章不同 = 不同�
 本工作區存在**兩份不同的 debug keystore**，這是造成舊 APK 無法覆蓋安裝的
 根本原因：
 
-| 金鑰 | 憑證 SHA-256 | 狀態 |
-|------|--------------|------|
-| A：`~/.android/debug.keystore` | `46:48:8E:99:37:3F:3C:1A:F0:C6:30:64:2F:2D:9E:C4:59:B8:DB:67:13:91:F3:AD:81:7E:FB:3A:AE:99:DA:94` | Android 預設產生 |
-| B：`.android-home/debug.keystore` | `C8:76:05:1E:28:79:D0:05:AB:F6:10:27:7E:58:F4:0B:72:8C:62:CA:C3:6A:77:48:F3:35:72:00:AF:33:77:A4` | 本專案建置時使用 |
+**簽章身分一律以完整 Certificate SHA-256 表示，不使用「A / B」字母標籤。**
+舊文件曾在 `SIGNING.md` 與 `ALPHA-CLOSURE.md` 之間把 A/B 對調使用，造成混淆；
+字母標籤已全部移除。
 
-**已安裝於模擬器上的 APK 實際使用金鑰 B**（以 `apksigner verify --print-certs`
-對裝置上的 `base.apk` 實測確認）。
+| Keystore | 憑證 SHA-256 | 說明 |
+|----------|--------------|------|
+| `~/.android/debug.keystore` | `46488e99373f3c1af0c630642f2d9ec459b8db671391f3ad817efb3aae99da94` | Android 預設自動產生，**與已發布版本不符** |
+| `.android-home/debug.keystore` | `c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4` | **本專案發布用身分**，與公開 `v0.4.4-alpha` 相同 |
 
-**因此本專案採用金鑰 B**，並複製到專案內的
-`keystore/debug.keystore`（已 git-ignored），讓每一台機器都用同一把
-金鑰簽署，`adb install -r` 才能在每次重新建置後正常運作。
+**已發布的公開 `v0.4.4-alpha` APK 實測憑證為 `c876051e…`**
+（`apksigner verify --print-certs` 對 Release 資產實測，非引用文件）。
+因此任何要能「原地更新既有安裝」的 v0.4.6 APK **必須**使用
+`.android-home/debug.keystore`。
 
-> **不得自行輪替這把 debug 金鑰。** 換成金鑰 A 會讓目前已安裝的 App
-> 無法被覆蓋更新。若使用者手機上的簽章與本專案產生的不同，
+用預設的 `~/.android/debug.keystore` 建置會得到 `46488e99…`，
+該 APK **無法**覆蓋已安裝的公開版本（Android 會以簽章不同拒絕）。
+
+> **不得自行輪替這把 debug 金鑰。** 若使用者手機上的簽章與本專案產生的不同，
 > 必須明確告知使用者需先解除安裝，**不得**為了讓安裝成功而清除使用者資料。
+
+完整量測紀錄見 `docs/verification/v0.4.6/SIGNING-IDENTITY-AUDIT.md`。
 
 ---
 
@@ -112,12 +118,20 @@ keytool -genkeypair -v \
 ./gradlew :app:bundleRelease
 ```
 
-**當 release 金鑰未設定時**，`assembleRelease` 會：
-1. 在建置輸出印出明確警告：
-   `SIGNING: no release keystore configured. The release build will be signed with the DEBUG key and is NOT distributable.`
-2. 仍然以 debug 金鑰簽署，讓開發者可以做本機 smoke test。
+**當 release 金鑰未設定時**，`assembleRelease` 產生的是
+**完全未簽署（UNSIGNED）** 的 APK — 不是用 debug 金鑰簽署的 APK：
 
-這樣的產出**必須**視為不可散布版本。
+1. 建置輸出印出警告（實測原文）：
+   `SIGNING: no release keystore configured. The release build will be UNSIGNED and is NOT distributable. See docs/SIGNING.md.`
+2. 產出檔名為 `app-prod-release-unsigned.apk`，`apksigner verify` 回報
+   `DOES NOT VERIFY / ERROR: Missing META-INF/MANIFEST.MF`，因為它連
+   `META-INF/MANIFEST.MF` 都沒有。
+
+**這種產出無法安裝，也絕不可散布。** 舊版本文件曾錯誤描述為
+「仍以 debug 金鑰簽署」，與 `app/build.gradle.kts` 的實際行為不符，已更正。
+
+要得到可安裝的 Alpha 資產，請建置 **`assembleProdDebug`** 並以
+`.android-home/debug.keystore` 簽署（見 §2）。
 
 ---
 
