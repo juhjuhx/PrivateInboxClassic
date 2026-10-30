@@ -1,7 +1,7 @@
 {
   "project": "PrivateInboxClassic",
   "target": "v0.4.6",
-  "head": "79f2942059a815d275403d924be1c1e25024d786",
+  "head": "122cddaa84a1ae62b808e6ff3c682ea895959008",
   "branch": "v046-integration-repair-final",
   "tracking": "https://github.com/juhjuhx/PrivateInboxClassic/pull/4",
   "updated": "2026-10-30T13:45:00+08:00",
@@ -191,7 +191,7 @@
     }
   },
   "verification": {
-    "instrumentation": "290/290 PASS (GitHub Actions run 41003719936; reproduced locally)",
+    "instrumentation": "290/290 PASS (GitHub Actions run 41011478801; reproduced locally)",
     "jvm": "157/157 PASS",
     "lint": "PASS",
     "builds": "assembleProdDebug + assembleDevtestDebug + assembleDevtestDebugAndroidTest: PASS",
@@ -208,7 +208,7 @@
     "versionCode": 11,
     "versionName": "0.4.6",
     "variant": "prodDebug",
-    "source_head": "79f2942059a815d275403d924be1c1e25024d786",
+    "source_head": "122cddaa84a1ae62b808e6ff3c682ea895959008",
     "supersedes_sha256": "a817434edefcb8f5becec48b4ab46ba91badc80bed2b294c0355247c1d6a653c (not reproducible from this tree)"
   },
   "upgrade_verification": {

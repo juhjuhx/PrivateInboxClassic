@@ -1,8 +1,8 @@
 # v0.4.6 Final Test Matrix — T12 + R07 + IR
 
 All results fresh, after the IR-01…IR-11 remediation.
-Source HEAD `79f2942059a815d275403d924be1c1e25024d786`.
-GitHub Actions run [41003719936](https://github.com/juhjuhx/PrivateInboxClassic/actions/runs/41003719936)
+Source HEAD `122cddaa84a1ae62b808e6ff3c682ea895959008`.
+GitHub Actions run [41011478801](https://github.com/juhjuhx/PrivateInboxClassic/actions/runs/41011478801)
 — emulator API 36, `290/290` instrumentation, 0 skipped, 0 failed.
 Locally reproduced on emulator API 36 (`OK (290 tests)`).
 See `IR-REMEDIATION-EVIDENCE.md` for each finding's RED/GREEN evidence.
@@ -46,7 +46,7 @@ progression stays auditable; they are not the current result.
 ## Totals — current (source HEAD `79f2942`)
 
 - Instrumentation: **290 / 290 PASS**, 0 failures, 0 skipped.
-  Verified in GitHub Actions run 41003719936 and reproduced locally.
+  Verified in GitHub Actions run 41011478801 and reproduced locally.
   Breakdown: 239 baseline + 35 from IR-01…IR-10 + 11 IR-11 + 5 IR-08 follow-up.
 - JVM: 157 / 157 PASS.
 - Lint: PASS.

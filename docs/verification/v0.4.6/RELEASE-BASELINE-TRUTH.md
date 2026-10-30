@@ -6,17 +6,17 @@
 ## 唯一有效狀態
 | 項目 | 值 | 來源 |
 |---|---|---|
-| HEAD | `79f2942059a815d275403d924be1c1e25024d786` | `git rev-parse HEAD` |
+| HEAD | `122cddaa84a1ae62b808e6ff3c682ea895959008` | `git rev-parse HEAD` |
 | Branch | `v046-integration-repair-final`（PR #4） | `git branch --show-current` |
 | Dirty | clean（本輪結束時） | `git status --short` |
 | APK | `PrivateInboxClassic-v0.4.6-alpha-debug.apk`（`app-prod-debug.apk`），**versionCode 11 / versionName 0.4.6** | aapt2 badging（實檔） |
 | APK SHA-256 | `d7b348a7ab8ea5971839e8333325478a89cb9216cf45b9e394801f8736d18d67` | shasum（實檔，`prodDebug`，2026-10-30 重建） |
 | Signing | `c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4`（keystore `.android-home/debug.keystore`） | apksigner（實檔） |
-| Instrumentation | **290 / 290 PASS**，0 failures，0 skipped | GitHub Actions run 41003719936 + 本機重跑 |
+| Instrumentation | **290 / 290 PASS**，0 failures，0 skipped | GitHub Actions run 41011478801 + 本機重跑 |
 | JVM | 157 / 157 | test-results XML |
 | Lint | PASS | `:app:lintDevtestDebug` |
 | DHC | Python + Kotlin + real round trip PASS | host_interop.sh |
-| Flake | `SystemNotificationE2E` — 歷史 flake，**未在 run 41003719936 出現**；不宣稱永久消失 | FLAKE-ANALYSIS.md |
+| Flake | `SystemNotificationE2E` — 歷史 flake，**未在 run 41011478801 出現**；不宣稱永久消失 | FLAKE-ANALYSIS.md |
 | Blockers | 1) 無 release keystore（PRODUCTION_SIGNING_BLOCKED）2) **尚無真正獨立審查**（開發 Agent 的 PR 留言不算）3) 無實機/OEM 驗證 | — |
 | Public upgrade | **VERIFIED（emulator API 33）** — 公開 v0.4.4-alpha（`6c6def17…`, cert `c876051e…`）→ v0.4.6（`d7b348a7…`, cert `c876051e…`）`adb install -r` 成功，資料保留、簽章不變 | SIGNING-IDENTITY-AUDIT.md |
 

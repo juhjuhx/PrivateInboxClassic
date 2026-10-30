@@ -98,7 +98,7 @@ header in `FLAKE-ANALYSIS.md`.
 
 ### Full instrumentation — 290 / 290 PASS
 
-GitHub Actions run [41003719936](https://github.com/juhjuhx/PrivateInboxClassic/actions/runs/41003719936),
+GitHub Actions run [41011478801](https://github.com/juhjuhx/PrivateInboxClassic/actions/runs/41011478801),
 emulator API 36, 0 skipped, 0 failed. Reproduced locally (`OK (290 tests)`).
 
 ## Review state

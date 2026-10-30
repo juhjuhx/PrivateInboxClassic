@@ -17,7 +17,7 @@ Three figures have been reported for the instrumentation suite:
 | Source tree HEAD | `bb36c83f` | `git rev-parse HEAD` |
 | Branch | `v045-reliability` | `git branch --show-current` |
 | Working tree dirty | 77 entries (11 modified + 66 untracked) | `git status --porcelain=v1 -uall` |
-| Instrumentation result | **290 / 290 PASS**, 0 skipped, 0 failed | GitHub Actions run 41003719936 (EXIT=0) |
+| Instrumentation result | **290 / 290 PASS**, 0 skipped, 0 failed | GitHub Actions run 41011478801 (EXIT=0) |
 | Flaky case | `SystemNotificationE2EInstrumentedTest.systemPostedNotificationIsCapturedLinkedAndRendered` | Link under full-suite ordering; FLAKY_UNRESOLVED; passes 3/3 isolated |
 | JVM unit tests | 157/157 PASS | `:app:testProdDebugUnitTest` EXIT=0 |
 | Lint | PASS | `:app:lintProdDebug` EXIT=0 |
@@ -50,7 +50,7 @@ Three figures have been reported for the instrumentation suite:
 
 ## Conclusion
 
-The canonical full-suite count is now **290 / 290** on source HEAD `79f2942` (GitHub Actions run 41003719936). The `239` figure described an earlier tree; `139` was an older subset. Historical values are retained above for auditability and are explicitly superseded by the note below.
+The canonical full-suite count is now **290 / 290** on source HEAD `79f2942` (GitHub Actions run 41011478801). The `239` figure described an earlier tree; `139` was an older subset. Historical values are retained above for auditability and are explicitly superseded by the note below.
 
 ---
 
@@ -60,7 +60,7 @@ The `239 run / 1 flaky` figure and the APK hash `a817434e…` in the table above
 described an earlier build. Both are superseded:
 
 - Instrumentation is now **290 / 290** on source HEAD `79f2942`
-  (GitHub Actions run 41003719936).
+  (GitHub Actions run 41011478801).
 - The reproducible APK hash is
   `d7b348a7ab8ea5971839e8333325478a89cb9216cf45b9e394801f8736d18d67`.
 

@@ -63,7 +63,7 @@ certificate SHA-256. The keystore that matters is the one whose certificate is
 
 ## 3. The release candidate built for this release
 
-Built from source HEAD `79f2942059a815d275403d924be1c1e25024d786`:
+Built from source HEAD `122cddaa84a1ae62b808e6ff3c682ea895959008`:
 
 ```bash
 ./gradlew :app:assembleProdDebug --rerun-tasks \
@@ -86,7 +86,7 @@ is written into the repository, the build output, or this document.**
 | versionCode | `11` |
 | versionName | `0.4.6` |
 | Build variant | `prodDebug` |
-| Source HEAD | `79f2942059a815d275403d924be1c1e25024d786` |
+| Source HEAD | `122cddaa84a1ae62b808e6ff3c682ea895959008` |
 | INTERNET permission | **absent** (grep count 0) |
 | Declared permissions | `POST_NOTIFICATIONS`, `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` |
 | Debug provider | present (`tw.personal.privateinbox.debugsettings`), signature-permission guarded |
