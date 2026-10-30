@@ -91,6 +91,14 @@ is written into the repository, the build output, or this document.**
 | Declared permissions | `POST_NOTIFICATIONS`, `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` |
 | Debug provider | present (`tw.personal.privateinbox.debugsettings`), signature-permission guarded |
 
+### Reproducibility
+
+`./gradlew :app:assembleProdDebug --rerun-tasks` with the same `-P` flags was run
+twice from a clean task graph. Both builds produced
+`d7b348a7ab8ea5971839e8333325478a89cb9216cf45b9e394801f8736d18d67` — the hash is
+reproducible from this source tree, so the published value can be re-derived by
+anyone with the keystore.
+
 ### SIGNING_MATCH = YES
 
 The release candidate's certificate is byte-identical to the published
