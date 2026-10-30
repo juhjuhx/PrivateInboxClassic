@@ -250,16 +250,28 @@ class IR08ReviewFollowupInstrumentedTest {
                 // directly: the method is `internal`, so reflection would need
                 // the name-mangled JVM signature.
                 activity.openThreadForTest(threadKey, "未連結畫面")
+            }
 
-                // The REAL view hierarchy must contain every message body.
+            // IR-11C: showChat() now fetches off the UI thread, so the chat
+            // screen renders asynchronously. Wait for the render instead of
+            // reading the hierarchy in the same frame that started the fetch.
+            val renderDeadline = System.currentTimeMillis() + 15_000
+            var rendered: List<String> = emptyList()
+            while (System.currentTimeMillis() < renderDeadline) {
                 val texts = ArrayList<String>()
-                walkText(activity.window.decorView) { texts.add(it) }
-                for (i in 1..4) {
-                    assertTrue(
-                        "the chat screen must render ui-$i (rendered: $texts)",
-                        texts.any { it.contains("ui-$i") }
-                    )
+                scenario.onActivity { act ->
+                    texts.clear()
+                    walkText(act.window.decorView) { texts.add(it) }
                 }
+                rendered = texts
+                if (rendered.any { it.contains("ui-4") }) break
+                Thread.sleep(100)
+            }
+            for (i in 1..4) {
+                assertTrue(
+                    "the chat screen must render ui-$i (rendered: $rendered)",
+                    rendered.any { it.contains("ui-$i") }
+                )
             }
         }
     }

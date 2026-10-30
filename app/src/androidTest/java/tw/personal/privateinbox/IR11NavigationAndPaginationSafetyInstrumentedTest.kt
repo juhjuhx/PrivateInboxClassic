@@ -86,7 +86,7 @@ class IR11NavigationAndPaginationSafetyInstrumentedTest {
     }
 
     private fun msgBodies(texts: List<String>): List<String> =
-        texts.filter { it.startsWith("msg-") }
+        texts.filter { it.startsWith("msg-") || it.startsWith("msgA-") || it.startsWith("msgB-") }
 
     private fun collectTexts(activity: MainActivity): List<String> {
         val texts = ArrayList<String>()
@@ -118,26 +118,34 @@ class IR11NavigationAndPaginationSafetyInstrumentedTest {
      * inside another onActivity block), so Thread.sleep never blocks the UI thread.
      */
     private fun openConversation(scenario: ActivityScenario<MainActivity>, title: String) {
+        var threadKey: String? = null
         scenario.onActivity { activity ->
             val f = MainActivity::class.java.getDeclaredField("entries")
             f.isAccessible = true
             val entries = f.get(activity) as List<InboxDatabase.Entry>
-            val threadKey = activity.threads(entries)
-                .entries
-                .first { it.value.any { it.title == title } }
-                .key
-            activity.openThreadForTest(threadKey, title)
+            val match = activity.threads(entries)
+                .firstOrNull { it.value.any { it.title == title } }
+            // Fall back to the resolved canonical id when the conversation is not
+            // on the first inbox page (entries is a page of conversations).
+            threadKey = match?.key ?: resolve(title)
+            activity.openThreadForTest(threadKey!!, title)
         }
-        // Wait for async DB read to complete and render
-        val ld = System.currentTimeMillis() + 10_000
+        // Wait until the TARGET conversation is the one rendered and its page
+        // has settled. Waiting only for "some message visible" would let a
+        // previous conversation's leftover screen satisfy the wait.
+        val ld = System.currentTimeMillis() + 15_000
         var loaded = false
         while (System.currentTimeMillis() < ld && !loaded) {
             Thread.sleep(200)
             scenario.onActivity { activity ->
-                val texts = collectTexts(activity)
-                loaded = msgBodies(texts).size > 0
+                val st = activity.chatStateForTest()
+                // The target conversation must be active and its fetch settled.
+                // A conversation with no saved messages legitimately renders an
+                // empty page, so entry count is not part of the readiness test.
+                loaded = st["conversationId"] == threadKey && st["loading"] == false
             }
         }
+        assertTrue("Conversation '$title' rendered its page", loaded)
     }
 
     // ------------------------------------------------------------------ tests
@@ -178,9 +186,7 @@ class IR11NavigationAndPaginationSafetyInstrumentedTest {
             }
 
             // Switch to conversation B
-            scenario.onActivity { activity ->
-                openConversation(scenario, "Conversation B")
-            }
+            openConversation(scenario, "Conversation B")
 
             // B should only show B's messages
             scenario.onActivity { activity ->
@@ -191,9 +197,7 @@ class IR11NavigationAndPaginationSafetyInstrumentedTest {
             }
 
             // Switch back to A
-            scenario.onActivity { activity ->
-                openConversation(scenario, "Conversation A")
-            }
+            openConversation(scenario, "Conversation A")
 
             // A should still have its messages
             scenario.onActivity { activity ->
@@ -316,25 +320,20 @@ class IR11NavigationAndPaginationSafetyInstrumentedTest {
                 assertEquals("10 messages shown initially", 10, msgBodies(texts).size)
             }
 
-            scenario.onActivity { activity ->
-                var deleteBtn: TextView? = null
-                fun findDelete(v: View) {
-                    if (deleteBtn != null) return
-                    if (v is TextView && v.text == "🗑") deleteBtn = v
-                    if (v is ViewGroup) {
-                        for (i in 0 until v.childCount) findDelete(v.getChildAt(i))
-                    }
-                }
-                findDelete(activity.window.decorView)
-                if (deleteBtn != null) {
-                    activity.runOnUiThread { deleteBtn.performClick() }
+            // Delete the newest message through the real delete path.
+            scenario.onActivity { activity -> activity.deleteMessageForTest(ids.last()) }
+
+            val settle = System.currentTimeMillis() + 10_000
+            var done = false
+            while (System.currentTimeMillis() < settle && !done) {
+                Thread.sleep(200)
+                scenario.onActivity { activity ->
+                    val bodies = msgBodies(collectTexts(activity))
+                    done = bodies.size == 9 && bodies.none { it == "msg-10" }
                 }
             }
-
-            Thread.sleep(1500)
             scenario.onActivity { activity ->
-                val texts = collectTexts(activity)
-                val bodies = msgBodies(texts)
+                val bodies = msgBodies(collectTexts(activity))
                 assertEquals("9 messages remain after delete", 9, bodies.size)
                 assertFalse("Deleted message not present", bodies.any { it == "msg-10" })
             }
@@ -464,9 +463,7 @@ class IR11NavigationAndPaginationSafetyInstrumentedTest {
                 assertTrue("Load older button found on A", clickLoadOlder(activity))
             }
 
-            scenario.onActivity { activity ->
-                openConversation(scenario, titleB)
-            }
+            openConversation(scenario, titleB)
 
             scenario.onActivity { activity ->
                 val texts = collectTexts(activity)
@@ -499,14 +496,208 @@ class IR11NavigationAndPaginationSafetyInstrumentedTest {
                 assertTrue("A messages shown", msgBodies(texts).all { it.startsWith("msgA-") })
             }
 
-            scenario.onActivity { activity ->
-                openConversation(scenario, titleB)
-            }
+            openConversation(scenario, titleB)
 
             scenario.onActivity { activity ->
                 val texts = collectTexts(activity)
                 val aMessages = msgBodies(texts).filter { it.startsWith("msgA-") }
                 assertTrue("No A messages leaked into B", aMessages.isEmpty())
+            }
+        }
+    }
+
+    // ------------------------------------------------- IR-11D corrective tests
+
+    /**
+     * Photo → Back must keep the already-loaded history AND the cursor exactly
+     * where they were: returning from the preview may not fetch a new page.
+     */
+    @Test
+    fun photoReturnPreservesHistoryAndCursor() {
+        val title = "Photo Cursor"
+        val cid = resolve(title)
+        val ids = ArrayList<Long>()
+        for (i in 1..150) {
+            ids.add(save(title, "msg-$i", 1_700_000_000_000L + i * 1000L))
+        }
+        for (id in ids) link(id, cid)
+
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            unlockAndLoad(scenario)
+            openConversation(scenario, title)
+
+            // Load the second page so the cursor is non-null and meaningful.
+            scenario.onActivity { activity -> clickLoadOlder(activity) }
+            val ld = System.currentTimeMillis() + 15_000
+            var loaded150 = false
+            while (System.currentTimeMillis() < ld && !loaded150) {
+                Thread.sleep(200)
+                scenario.onActivity { activity ->
+                    loaded150 = msgBodies(collectTexts(activity)).size >= 150
+                }
+            }
+            assertTrue("Second page loaded before photo", loaded150)
+
+            var beforeEntries = 0
+            var beforeCursor: Any? = null
+            scenario.onActivity { activity ->
+                val st = activity.chatStateForTest()
+                beforeEntries = st["entries"] as Int
+                beforeCursor = st["cursor"]
+            }
+
+            // Open the photo preview, then come straight back.
+            val photoId = ids.last()
+            scenario.onActivity { activity -> activity.openPhotoForTest(photoId) }
+            scenario.onActivity { activity -> activity.onBackPressedDispatcher.onBackPressed() }
+
+            val wait = System.currentTimeMillis() + 10_000
+            var backOnChat = false
+            while (System.currentTimeMillis() < wait && !backOnChat) {
+                Thread.sleep(100)
+                scenario.onActivity { activity ->
+                    backOnChat = activity.chatStateForTest()["page"] == "chat"
+                }
+            }
+            assertTrue("Returned to chat page", backOnChat)
+
+            scenario.onActivity { activity ->
+                val st = activity.chatStateForTest()
+                assertEquals("Entry count unchanged by photo return",
+                    beforeEntries, st["entries"] as Int)
+                assertEquals("Cursor unchanged by photo return",
+                    beforeCursor, st["cursor"])
+                assertTrue("History still rendered",
+                    msgBodies(collectTexts(activity)).size >= 150)
+            }
+        }
+    }
+
+    /** Delete must remove the row from the chat page and never show it again. */
+    @Test
+    fun deleteRemovesMessageFromChatPage() {
+        val title = "Delete Chat Page"
+        val cid = resolve(title)
+        val ids = ArrayList<Long>()
+        for (i in 1..10) {
+            ids.add(save(title, "msg-$i", 1_700_000_000_000L + i * 1000L))
+        }
+        for (id in ids) link(id, cid)
+
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            unlockAndLoad(scenario)
+            openConversation(scenario, title)
+
+            scenario.onActivity { activity ->
+                assertEquals("10 messages initially",
+                    10, msgBodies(collectTexts(activity)).size)
+            }
+
+            // Delete through the Activity's own delete path (the dialog's
+            // positive button), so the real handler runs.
+            scenario.onActivity { activity -> activity.deleteMessageForTest(ids.last()) }
+
+            val settle = System.currentTimeMillis() + 10_000
+            var gone = false
+            while (System.currentTimeMillis() < settle && !gone) {
+                Thread.sleep(200)
+                scenario.onActivity { activity ->
+                    val bodies = msgBodies(collectTexts(activity))
+                    gone = bodies.size == 9 && bodies.none { it == "msg-10" }
+                }
+            }
+            scenario.onActivity { activity ->
+                val bodies = msgBodies(collectTexts(activity))
+                assertEquals("9 messages remain after delete", 9, bodies.size)
+                assertFalse("Deleted message not rendered", bodies.any { it == "msg-10" })
+                assertEquals("chatEntries no longer holds deleted id", 9,
+                    activity.chatStateForTest()["entries"] as Int)
+            }
+        }
+    }
+
+    /**
+     * A stale generation must not render, and must not release the loading flag
+     * owned by the newer request.
+     */
+    @Test
+    fun staleCallbackDoesNotClearNewRequestLoading() {
+        val titleA = "Stale A"
+        val titleB = "Stale B"
+        val cidA = resolve(titleA)
+        val cidB = resolve(titleB)
+        for (i in 1..200) link(save(titleA, "msgA-$i", 1_700_000_000_000L + i * 1000L), cidA)
+        for (i in 1..30) link(save(titleB, "msgB-$i", 1_700_100_000_000L + i * 1000L), cidB)
+
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            unlockAndLoad(scenario)
+            openConversation(scenario, titleA)
+
+            // Kick off a load on A, then immediately switch to B so A's
+            // callback becomes stale while B's request owns chatLoading.
+            scenario.onActivity { activity -> clickLoadOlder(activity) }
+            scenario.onActivity { activity ->
+                val f = MainActivity::class.java.getDeclaredField("entries")
+                f.isAccessible = true
+                @Suppress("UNCHECKED_CAST")
+                val list = f.get(activity) as List<InboxDatabase.Entry>
+                val keyB = activity.threads(list).first { e -> e.value.any { it.title == titleB } }.key
+                activity.openThreadForTest(keyB, titleB)
+            }
+
+            val wait = System.currentTimeMillis() + 15_000
+            var settled = false
+            while (System.currentTimeMillis() < wait && !settled) {
+                Thread.sleep(200)
+                scenario.onActivity { activity ->
+                    val st = activity.chatStateForTest()
+                    settled = st["loading"] == false && (st["entries"] as Int) > 0
+                }
+            }
+
+            scenario.onActivity { activity ->
+                val st = activity.chatStateForTest()
+                assertEquals("Loading released after B settles", false, st["loading"])
+                val bodies = msgBodies(collectTexts(activity))
+                assertTrue("B rendered", bodies.isNotEmpty())
+                assertTrue("No A leakage into B", bodies.none { it.startsWith("msgA-") })
+            }
+        }
+    }
+
+    /** A locked session must never be repainted by an old chat callback. */
+    @Test
+    fun lockRejectsInFlightChatCallback() {
+        val title = "Lock Chat"
+        val cid = resolve(title)
+        for (i in 1..300) link(save(title, "msg-$i", 1_700_000_000_000L + i * 1000L), cid)
+
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            unlockAndLoad(scenario)
+            openConversation(scenario, title)
+
+            scenario.onActivity { activity -> clickLoadOlder(activity) }
+
+            // Lock immediately, while the fetch is still in flight.
+            scenario.onActivity { activity ->
+                activity.onBackPressedDispatcher.onBackPressed()
+            }
+            scenario.onActivity { activity ->
+                val f = MainActivity::class.java.getDeclaredField("unlocked")
+                f.isAccessible = true
+                f.setBoolean(activity, false)
+                val m = MainActivity::class.java.getDeclaredMethod("showLock")
+                m.isAccessible = true
+                m.invoke(activity)
+            }
+
+            Thread.sleep(2_000)
+            scenario.onActivity { activity ->
+                val st = activity.chatStateForTest()
+                assertEquals("Still on lock page", "locked", st["page"])
+                assertEquals("Loading released on lock", false, st["loading"])
+                assertTrue("No private message text on lock screen",
+                    msgBodies(collectTexts(activity)).isEmpty())
             }
         }
     }

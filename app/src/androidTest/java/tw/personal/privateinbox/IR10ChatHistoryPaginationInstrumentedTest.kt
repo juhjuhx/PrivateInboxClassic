@@ -120,18 +120,31 @@ class IR10ChatHistoryPaginationInstrumentedTest {
     }
 
     private fun openConversation(scenario: ActivityScenario<MainActivity>, title: String) {
+        var threadKey: String? = null
         scenario.onActivity { activity ->
-            val threadKey = activity.threads(activity.entries).first().key
-            activity.openThreadForTest(threadKey, title)
+            val match = activity.threads(activity.entries)
+                .firstOrNull { it.value.any { e -> e.title == title } }
+            threadKey = match?.key ?: resolve(title)
+            activity.openThreadForTest(threadKey!!, title)
         }
-        Thread.sleep(300) // let showChat() complete its async DB read on UI thread
+        // IR-11C: showChat() fetches off the UI thread and renders async, so poll
+        // until the target conversation's first page has actually rendered.
+        val deadline = System.currentTimeMillis() + 20_000
+        var ready = false
+        while (System.currentTimeMillis() < deadline && !ready) {
+            Thread.sleep(150)
+            scenario.onActivity { activity ->
+                ready = msgBodies(collectTexts(activity)).isNotEmpty()
+            }
+        }
+        check(ready) { "conversation '$title' did not render" }
     }
 
-    private fun collectTexts(scenario: ActivityScenario<MainActivity>): List<String> {
+    /** IR-11C: takes the Activity directly so it never nests scenario.onActivity
+     *  (which deadlocks now that showChat() renders asynchronously). */
+    private fun collectTexts(activity: MainActivity): List<String> {
         val texts = ArrayList<String>()
-        scenario.onActivity { activity ->
-            walkText(activity.window.decorView, texts)
-        }
+        walkText(activity.window.decorView, texts)
         return texts
     }
 
@@ -152,7 +165,7 @@ class IR10ChatHistoryPaginationInstrumentedTest {
             unlockAndLoad(scenario)
             openConversation(scenario, title)
             scenario.onActivity { activity ->
-                val texts = collectTexts(scenario)
+                val texts = collectTexts(activity)
                 assertEquals("page 1 shows 100 messages", 100, msgBodies(texts).size)
                 assertTrue("load older button found", clickLoadOlder(activity))
             }
@@ -161,12 +174,12 @@ class IR10ChatHistoryPaginationInstrumentedTest {
             while (System.currentTimeMillis() < loadDeadline && !allShown) {
                 Thread.sleep(200)
                 scenario.onActivity { activity ->
-                    val t2 = collectTexts(scenario)
+                    val t2 = collectTexts(activity)
                     allShown = msgBodies(t2).size >= 150
                 }
             }
             scenario.onActivity { activity ->
-                val t3 = collectTexts(scenario)
+                val t3 = collectTexts(activity)
                 val allBodies = msgBodies(t3)
                 assertEquals("all 150 messages shown", 150, allBodies.size)
                 assertEquals("no duplicates", 150, allBodies.toSet().size)
@@ -198,7 +211,7 @@ class IR10ChatHistoryPaginationInstrumentedTest {
             var done = false
             while (totalClicks < maxClicks && !done) {
                 scenario.onActivity { activity ->
-                    val texts = collectTexts(scenario)
+                    val texts = collectTexts(activity)
                     val count = msgBodies(texts).size
                     if (count >= 350) done = true
                     else if (!clickLoadOlder(activity)) done = true
@@ -207,21 +220,21 @@ class IR10ChatHistoryPaginationInstrumentedTest {
                 val ld = System.currentTimeMillis() + 10_000
                 var prevCount = 0
                 scenario.onActivity { activity ->
-                    val texts = collectTexts(scenario)
+                    val texts = collectTexts(activity)
                     prevCount = msgBodies(texts).size
                 }
                 var grown = false
                 while (System.currentTimeMillis() < ld && !grown) {
                     Thread.sleep(200)
                     scenario.onActivity { activity ->
-                        val t2 = collectTexts(scenario)
+                        val t2 = collectTexts(activity)
                         if (msgBodies(t2).size > prevCount) grown = true
                     }
                 }
                 totalClicks++
             }
             scenario.onActivity { activity ->
-                val finalTexts = collectTexts(scenario)
+                val finalTexts = collectTexts(activity)
                 val allBodies = msgBodies(finalTexts)
                 assertEquals("all 350 messages shown", 350, allBodies.size)
                 assertEquals("no duplicates", 350, allBodies.toSet().size)
@@ -253,7 +266,7 @@ class IR10ChatHistoryPaginationInstrumentedTest {
             var done = false
             while (totalClicks < maxClicks && !done) {
                 scenario.onActivity { activity ->
-                    val texts = collectTexts(scenario)
+                    val texts = collectTexts(activity)
                     val count = msgBodies(texts).size
                     if (count >= 650) done = true
                     else if (!clickLoadOlder(activity)) done = true
@@ -261,21 +274,21 @@ class IR10ChatHistoryPaginationInstrumentedTest {
                 val ld = System.currentTimeMillis() + 10_000
                 var prevCount = 0
                 scenario.onActivity { activity ->
-                    val texts = collectTexts(scenario)
+                    val texts = collectTexts(activity)
                     prevCount = msgBodies(texts).size
                 }
                 var grown = false
                 while (System.currentTimeMillis() < ld && !grown) {
                     Thread.sleep(200)
                     scenario.onActivity { activity ->
-                        val t2 = collectTexts(scenario)
+                        val t2 = collectTexts(activity)
                         if (msgBodies(t2).size > prevCount) grown = true
                     }
                 }
                 totalClicks++
             }
             scenario.onActivity { activity ->
-                val finalTexts = collectTexts(scenario)
+                val finalTexts = collectTexts(activity)
                 val allBodies = msgBodies(finalTexts)
                 assertEquals("all 650 messages shown", 650, allBodies.size)
                 assertEquals("no duplicates", 650, allBodies.toSet().size)
@@ -298,7 +311,7 @@ class IR10ChatHistoryPaginationInstrumentedTest {
             unlockAndLoad(scenario)
             openConversation(scenario, title)
             scenario.onActivity { activity ->
-                val texts = collectTexts(scenario)
+                val texts = collectTexts(activity)
                 assertEquals("page 1 shows 100 messages", 100, msgBodies(texts).size)
                 assertTrue("load older button found", clickLoadOlder(activity))
             }
@@ -307,12 +320,12 @@ class IR10ChatHistoryPaginationInstrumentedTest {
             while (System.currentTimeMillis() < ld && !allShown) {
                 Thread.sleep(200)
                 scenario.onActivity { activity ->
-                    val t2 = collectTexts(scenario)
+                    val t2 = collectTexts(activity)
                     allShown = msgBodies(t2).size >= 150
                 }
             }
             scenario.onActivity { activity ->
-                val t3 = collectTexts(scenario)
+                val t3 = collectTexts(activity)
                 val allBodies = msgBodies(t3)
                 assertEquals("all 150 unlinked messages shown", 150, allBodies.size)
                 assertEquals("no duplicates", 150, allBodies.toSet().size)
@@ -336,7 +349,7 @@ class IR10ChatHistoryPaginationInstrumentedTest {
             unlockAndLoad(scenario)
             openConversation(scenario, title)
             scenario.onActivity { activity ->
-                val texts = collectTexts(scenario)
+                val texts = collectTexts(activity)
                 val allBodies = msgBodies(texts)
                 assertEquals("all 30 same-timestamp messages shown", 30, allBodies.size)
                 assertEquals("no duplicates", 30, allBodies.toSet().size)

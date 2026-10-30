@@ -829,6 +829,65 @@ class MainActivity : ComponentActivity() {
         showChat()
     }
 
+    /** IR-11D test hook: read the live chat pagination state without mutating it. */
+    @VisibleForTesting
+    internal fun chatStateForTest(): Map<String, Any?> = mapOf(
+        "conversationId" to chatConversationId,
+        "entries" to chatEntries.size,
+        "cursor" to chatCursor,
+        "hasMore" to chatHasMore,
+        "loading" to chatLoading,
+        "page" to page
+    )
+
+    /** IR-11D test hook: open photo preview exactly as a thumbnail tap does. */
+    @VisibleForTesting
+    internal fun openPhotoForTest(entryId: Long) {
+        val entry = chatEntries.firstOrNull { it.id == entryId }
+            ?: entries.firstOrNull { it.id == entryId }
+            ?: return
+        showPhoto(entry)
+    }
+
+    /**
+     * IR-11D: delete one saved message and refresh the chat page from cache.
+     *
+     * Runs the DB delete on the IO executor. On success the row is dropped from
+     * BOTH the inbox list and the loaded chat page, so refreshChat() cannot
+     * re-display deleted content; the pagination cursor is deliberately left
+     * untouched. A failed delete is reported honestly and changes nothing.
+     */
+    private fun deleteMessageNow(messageId: Long) {
+        io.execute {
+            val db = InboxDatabase(this@MainActivity)
+            val removed = try {
+                db.deleteMessage(messageId)
+                true
+            } catch (_: Exception) {
+                false
+            } finally {
+                db.close()
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (!removed) {
+                    Toast.makeText(this@MainActivity, "刪除失敗，訊息仍保留", Toast.LENGTH_SHORT).show()
+                    return@runOnUiThread
+                }
+                entries = entries.filter { it.id != messageId }
+                chatEntries = chatEntries.filter { it.id != messageId }
+                chatPageSize = chatEntries.size
+                refreshChat()
+            }
+        }
+    }
+
+    /** IR-11D test hook: delete a message through the real delete path. */
+    @VisibleForTesting
+    internal fun deleteMessageForTest(messageId: Long) {
+        deleteMessageNow(messageId)
+    }
+
     internal fun setSearchInputsForTest(query: String?, platform: String?) {
         searchQuery = query
         selectedPlatform = platform
@@ -922,7 +981,11 @@ class MainActivity : ComponentActivity() {
                 // IR-11D: invalidate stale callbacks — only act if this is the
                 // latest request, the activity is still alive, still unlocked,
                 // and still on the chat page for the same conversation.
-                if (gen != chatRequestGen) { chatLoading = false; return@runOnUiThread }
+                // A stale generation owns nothing: it must not render, and it
+                // must NOT clear chatLoading, which belongs to the newer request.
+                if (gen != chatRequestGen) return@runOnUiThread
+                // From here on this callback owns chatLoading and must release it
+                // on every path, including invalidation by lock / navigation.
                 if (isFinishing || isDestroyed) { chatLoading = false; return@runOnUiThread }
                 if (!unlocked) { chatLoading = false; return@runOnUiThread }
                 if (page != "chat") { chatLoading = false; return@runOnUiThread }
@@ -1046,16 +1109,7 @@ class MainActivity : ComponentActivity() {
                         .setMessage("這則通知副本與已保存的照片將永久刪除。")
                         .setNegativeButton("取消", null)
                         .setPositiveButton("刪除") { _, _ ->
-                            io.execute {
-                                val db = InboxDatabase(this@MainActivity)
-                                runCatching { db.deleteMessage(entry.id) }
-                                db.close()
-                                runOnUiThread {
-                                    if (isFinishing || isDestroyed) return@runOnUiThread
-                                    entries = entries.filter { it.id != entry.id }
-                                    refreshChat()
-                                }
-                            }
+                            deleteMessageNow(entry.id)
                         }.show()
                 }
             }
@@ -1088,8 +1142,12 @@ class MainActivity : ComponentActivity() {
      * message — never re-fetches, never changes pagination state.
      */
     private fun refreshChat() {
-        if (!unlocked || currentThread == null || page != "chat") return
-        val key = currentThread!!
+        if (!unlocked || currentThread == null) return
+        // IR-11D: this is also the return path from photo preview, so the page
+        // may still be "photo". Switching back to chat is safe and does not
+        // fetch or advance the cursor — it only re-draws already-loaded state.
+        page = "chat"
+        refreshBackState()
         renderChatPage(null)
     }
 
@@ -1132,7 +1190,11 @@ class MainActivity : ComponentActivity() {
                 // IR-11D: invalidate stale callbacks — only act if this is the
                 // latest request, the activity is still alive, still unlocked,
                 // and still on the chat page for the same conversation.
-                if (gen != chatRequestGen) { chatLoading = false; return@runOnUiThread }
+                // A stale generation owns nothing: it must not render, and it
+                // must NOT clear chatLoading, which belongs to the newer request.
+                if (gen != chatRequestGen) return@runOnUiThread
+                // From here on this callback owns chatLoading and must release it
+                // on every path, including invalidation by lock / navigation.
                 if (isFinishing || isDestroyed) { chatLoading = false; return@runOnUiThread }
                 if (!unlocked) { chatLoading = false; return@runOnUiThread }
                 if (page != "chat") { chatLoading = false; return@runOnUiThread }
