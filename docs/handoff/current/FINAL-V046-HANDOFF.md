@@ -63,7 +63,7 @@ header in `FLAKE-ANALYSIS.md`.
 | CI / Build / Migration / DHC | PASS |
 | APK signing verified | PASS — cert `c876051e…`, matches public v0.4.4-alpha |
 | Public upgrade compatibility | VERIFIED (emulator API 33, data preserved) |
-| Encrypted message-table readability after upgrade | **NOT_DIRECTLY_TESTED** |
+| Encrypted message-table readability after upgrade | **VERIFIED** (API 33: decrypted, displayed, and again after restart) — `IR12-APK-UPGRADE-EVIDENCE.md` |
 | Unresolved flake disclosed | Historical FLAKY_UNRESOLVED record; not observed in run 41013529150 |
 | IR remediation (IR-01…IR-11) | PASS — evidence in IR-REMEDIATION-EVIDENCE.md + SIGNING-IDENTITY-AUDIT.md |
 | Independent review (2nd reviewer) | **PENDING — blocks publication** |
@@ -73,11 +73,14 @@ header in `FLAKE-ANALYSIS.md`.
 submits a formal GitHub review on PR #4. The previously-cited flake blocker no
 longer applies (it was a missing implementation, fixed by IR-06).
 
-**Upgrade caveat:** the API 33 in-place upgrade preserved the app data
-directory, a marker file and `shared_prefs/`. It did **not** directly read a
-populated encrypted message table after the upgrade — the emulator has no
-messaging package, so the capture whitelist correctly refused synthetic
-notifications. That specific property is `NOT_DIRECTLY_TESTED`.
+**Upgrade evidence (IR-12):** a genuine encrypted message was captured by the
+v0.4.4-alpha install (stored as ciphertext only — the plaintext marker appears
+nowhere in the database file), then the candidate was installed over it with
+`adb install -r`. versionCode 10 → 11, package signature unchanged, data and
+prefs preserved, ciphertext byte-identical, and the upgraded app **decrypted and
+displayed** the message — verified again after a force-stop and relaunch.
+Encrypted message-table readability is therefore **VERIFIED**, not merely
+inferred. Details: `docs/verification/v0.4.6/IR12-APK-UPGRADE-EVIDENCE.md`.
 
 ---
 

@@ -4,7 +4,7 @@
   "head": "79f2942059a815d275403d924be1c1e25024d786",
   "branch": "v046-integration-repair-final",
   "tracking": "https://github.com/juhjuhx/PrivateInboxClassic/pull/4",
-  "updated": "2026-10-31T20:50:00+08:00",
+  "updated": "2026-11-01T00:25:00+08:00",
   "tasks": {
     "T00": {
       "status": "PASS",
@@ -225,8 +225,10 @@
     "old_cert_sha256": "c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4",
     "method": "adb install -r, no uninstall, no data clear",
     "preserved": "app data dir, marker file, shared_prefs/capture_diag.xml; signature [a0e2e7cb] unchanged; launches with no crash",
-    "encrypted_message_table_readability": "NOT_DIRECTLY_TESTED",
-    "limitation": "Preserved a marker file and prefs, not a populated encrypted message table: the emulator has no messaging package, so the capture whitelist correctly refused synthetic notifications. Encrypted-row survival is inferred from the intact data directory, not directly observed."
+    "encrypted_message_table_readability": "VERIFIED (API 33: decrypted and displayed, including after restart)",
+    "limitation": "Closed by IR-12: genuine encrypted data was captured by v0.4.4-alpha, the candidate was installed over it, and the upgraded app decrypted and displayed the message (also after restart). See docs/verification/v0.4.6/IR12-APK-UPGRADE-EVIDENCE.md.",
+    "evidence": "docs/verification/v0.4.6/IR12-APK-UPGRADE-EVIDENCE.md",
+    "new_apk_sha256": "d7b348a7ab8ea5971839e8333325478a89cb9216cf45b9e394801f8736d18d67"
   },
   "review": {
     "independent_signoff": "PENDING",
@@ -236,8 +238,17 @@
       "no independent reviewer (non-IR-11 author)",
       "no release keystore (Debug Alpha only)",
       "no physical-device/OEM verification",
-      "encrypted message-table readability after upgrade NOT_DIRECTLY_TESTED"
+      "CI artifact certificate differs from the release candidate; CI artifact must never be uploaded"
     ]
   },
-  "documentation_head": "ecadb9337426cf9be27d5197d038aba2d201ee71"
+  "documentation_head": "ecadb9337426cf9be27d5197d038aba2d201ee71",
+  "ci_artifact": {
+    "artifact_id": 13043974395,
+    "name": "PrivateInboxClassic-debug-apk",
+    "archive_sha256": "85a0c40ed46bdc8aa484c0ada6b9ce7a6564f26f71e4b956c4473ee314183049",
+    "apk_sha256": "385d85ba59421806123d1b34d685472df872f30757b58bd4617643766d99c971",
+    "cert_sha256": "256bb32f8c3be8060c5b1f6390604936b498d2625fad861b63717a17d2abf0f5",
+    "classification": "INDEPENDENT CI DEBUG BUILD — signed with the GitHub runner ephemeral debug key; NOT the release candidate and NOT upgrade-compatible with public v0.4.4-alpha",
+    "candidate_identity_match": "NO"
+  }
 }

@@ -213,3 +213,29 @@ If either differs, do **not** publish: rebuild from code HEAD `79f2942` with
 `.android-home/debug.keystore` and re-measure, or investigate why the artifact
 changed. A mismatched upload is the one failure this whole audit exists to
 prevent.
+
+---
+
+## 8. IR-12: CI artifact identity (2026-11-01)
+
+The GitHub Actions artifact for run `41204287676` (artifact id `13043974395`) was
+downloaded and measured:
+
+| Property | Value |
+|---|---|
+| Archive SHA-256 | `85a0c40ed46bdc8aa484c0ada6b9ce7a6564f26f71e4b956c4473ee314183049` (matches the GitHub API digest) |
+| APK SHA-256 | `385d85ba59421806123d1b34d685472df872f30757b58bd4617643766d99c971` |
+| Certificate SHA-256 | `256bb32f8c3be8060c5b1f6390604936b498d2625fad861b63717a17d2abf0f5` |
+
+**This certificate matches neither keystore on this machine.** It is the GitHub
+runner's ephemeral debug key, generated per runner.
+
+Therefore:
+
+- The CI artifact is an **independent CI debug build**, not the release candidate.
+- It **cannot** update an install of the public v0.4.4-alpha (different signing
+  certificate → Android treats it as a different app).
+- It must **never** be uploaded as the v0.4.6-alpha release asset.
+
+The release candidate remains `d7b348a7…` / `c876051e…`, rebuilt and re-verified
+this round. Only that identity may be published.
