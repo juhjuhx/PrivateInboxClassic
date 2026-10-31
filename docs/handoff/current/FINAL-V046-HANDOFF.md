@@ -1,11 +1,12 @@
 # Private Inbox Classic v0.4.6 — Final Handoff
 
-**Status:** IR_REMEDIATED — PENDING INDEPENDENT REVIEW SIGN-OFF  
-**Branch:** `v045-reliability` (local, uncommitted) @ `bb36c83f`  
-**Public integration:** `release/v0.4.6-alpha` @ `6f8191d` (GitHub)  
-**Draft PR:** https://github.com/juhjuhx/PrivateInboxClassic/pull/4 (PR #3 superseded — marker only)
-**IR head:** `fd2338c` — independent-review remediation (IR-01…IR-10)  
-**Working tree:** 80 entries dirty (preserved, uncommitted on `v045-reliability`)
+**Status:** EVIDENCE_REPAIRED — PENDING INDEPENDENT REVIEW SIGN-OFF  
+**Branch:** `v046-integration-repair-final`  
+**Code HEAD:** `79f2942059a815d275403d924be1c1e25024d786` (product code + tests)  
+**Documentation HEAD:** `ecadb9337426cf9be27d5197d038aba2d201ee71` (docs-only commits on top)  
+**PR:** https://github.com/juhjuhx/PrivateInboxClassic/pull/4  
+**CI:** [run 41013529150](https://github.com/juhjuhx/PrivateInboxClassic/actions/runs/41013529150) — success, 290/290  
+**Working tree:** clean on this branch
 
 ---
 
@@ -13,11 +14,13 @@
 
 | Suite | Result |
 |-------|--------|
-| Full instrumentation | **274 / 274 PASS** (0 failures, 0 skipped) |
+| Full instrumentation | **290 / 290 PASS** (0 skipped, 0 failed) |
+| IR-11 regression | **11 / 11 PASS** |
 | JVM unit tests | **157 / 157 PASS** |
-| Security audits | PASS (manifest/privacy, secrets+history, test isolation 47 files) |
+| Android Lint | PASS |
+| Security audits | PASS (secrets+history, test isolation 50 files) |
 | Release audit / version regression | PASS / PASS |
-| DHC connector | 23 / 23 PASS |
+| DHC connector | PASS |
 | Lint | PASS |
 | Build (prod + devtest) | PASS |
 
@@ -56,18 +59,25 @@ header in `FLAKE-ANALYSIS.md`.
 | Gate | Status |
 |------|--------|
 | Clean integration branch | PASS |
-| Full diff security review | PASS (SHIP IT) |
+| Full diff security review | SELF_REVIEW_ONLY (not independent sign-off) |
 | CI / Build / Migration / DHC | PASS |
-| APK signing verified | PASS (debug key A) |
-| Public upgrade compatibility | VERIFIED |
-| Unresolved flake disclosed | YES (FLAKY_UNRESOLVED) |
-| IR remediation (IR-01…IR-06) | PASS — RED/GREEN evidence in IR-REMEDIATION-EVIDENCE.md |
-| Independent review (2nd reviewer) | PENDING — blocks publication |
+| APK signing verified | PASS — cert `c876051e…`, matches public v0.4.4-alpha |
+| Public upgrade compatibility | VERIFIED (emulator API 33, data preserved) |
+| Encrypted message-table readability after upgrade | **NOT_DIRECTLY_TESTED** |
+| Unresolved flake disclosed | Historical FLAKY_UNRESOLVED record; not observed in run 41013529150 |
+| IR remediation (IR-01…IR-11) | PASS — evidence in IR-REMEDIATION-EVIDENCE.md + SIGNING-IDENTITY-AUDIT.md |
+| Independent review (2nd reviewer) | **PENDING — blocks publication** |
 | Release keystore | NOT EXISTS (BLOCKS production release) |
 
-**Cannot publish Alpha Release until:** an independent reviewer signs off on the
-`3d56a7f5..316c44c` range. The previously-cited flake blocker no longer applies
-(it was a missing implementation, now fixed).
+**Cannot publish Alpha Release until:** a reviewer who did not implement IR-11
+submits a formal GitHub review on PR #4. The previously-cited flake blocker no
+longer applies (it was a missing implementation, fixed by IR-06).
+
+**Upgrade caveat:** the API 33 in-place upgrade preserved the app data
+directory, a marker file and `shared_prefs/`. It did **not** directly read a
+populated encrypted message table after the upgrade — the emulator has no
+messaging package, so the capture whitelist correctly refused synthetic
+notifications. That specific property is `NOT_DIRECTLY_TESTED`.
 
 ---
 

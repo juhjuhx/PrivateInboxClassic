@@ -4,7 +4,7 @@
   "head": "79f2942059a815d275403d924be1c1e25024d786",
   "branch": "v046-integration-repair-final",
   "tracking": "https://github.com/juhjuhx/PrivateInboxClassic/pull/4",
-  "updated": "2026-10-30T13:45:00+08:00",
+  "updated": "2026-10-31T20:50:00+08:00",
   "tasks": {
     "T00": {
       "status": "PASS",
@@ -76,11 +76,12 @@
     "T12": {
       "status": "PASS_W_FLAKY",
       "full": "239 run / 1 flaky (SystemE2E link) / 0 product failures",
-      "isolated": "SystemE2E 3/3, Qa01 8/8, BurstCapture 10/10"
+      "isolated": "SystemE2E 3/3, Qa01 8/8, BurstCapture 10/10",
+      "superseded": "HISTORICAL (pre-IR-11 tree). Superseded by 290/290 on HEAD 79f2942, CI run 41013529150."
     },
     "T13": {
       "status": "SELF_REVIEW_ONLY",
-      "note": "no second independent reviewer available in this harness; adversarial self-review performed across the round (7 defects caught+fixed); independent review still required before integration"
+      "note": "Still SELF_REVIEW_ONLY. 0 formal reviews on PR #4; GitHub blocks self-review."
     },
     "T14": {
       "status": "PASS",
@@ -100,7 +101,8 @@
       "status": "PARTIAL",
       "fixed": 4,
       "unresolved": "SystemE2E link flake under full ordering (FLAKY_UNRESOLVED)",
-      "evidence": "FLAKE-ANALYSIS.md updated"
+      "evidence": "FLAKE-ANALYSIS.md updated",
+      "superseded": "HISTORICAL record. Not observed in CI run 41013529150; not claimed permanently fixed."
     },
     "H04": {
       "status": "PASS",
@@ -109,7 +111,8 @@
     },
     "H05": {
       "status": "PASS",
-      "full": "239/1 flaky/0 product failures"
+      "full": "239/1 flaky/0 product failures",
+      "superseded": "HISTORICAL (pre-IR-11 tree). Superseded by 290/290 on HEAD 79f2942."
     },
     "W00": {
       "status": "PASS"
@@ -128,12 +131,14 @@
       "branch": "v045-reliability",
       "dirty_files": 76,
       "prod_apk_sha256": "d7b348a7ab8ea5971839e8333325478a89cb9216cf45b9e394801f8736d18d67",
-      "version": "11/0.4.6"
+      "version": "11/0.4.6",
+      "superseded": "HISTORICAL baseline snapshot (bb36c83). Current code HEAD is 79f2942."
     },
     "R01": {
       "status": "PASS",
       "evidence": "Full instrumentation 239/239 PASS, JVM 157/157 PASS, Lint PASS, Audits PASS",
-      "flaky": "testJ_groupSummaryAndChildren resolved"
+      "flaky": "testJ_groupSummaryAndChildren resolved",
+      "superseded": "HISTORICAL. Superseded: instrumentation 290/290 on HEAD 79f2942, CI run 41013529150."
     },
     "R04": {
       "status": "PASS",
@@ -145,9 +150,10 @@
     "R02": {
       "status": "PASS",
       "evidence": "docs/handoff/current/INDEPENDENT-REVIEW-REPORT.md",
-      "verdict": "SHIP IT",
+      "verdict": "SELF_REVIEW_ONLY — not independent sign-off; must not be cited as approval",
       "findings": "0 CRITICAL, 0 HIGH, 1 MEDIUM (link pending recovery, handled), 2 LOW (docs inconsistency, backfill contention)",
-      "health": "IMPROVES"
+      "health": "IMPROVES",
+      "superseded": "HISTORICAL. Current review state: REVIEW_PENDING (0 formal GitHub reviews on PR #4)."
     },
     "IR-01": {
       "status": "PASS",
@@ -175,11 +181,13 @@
     },
     "IR-07": {
       "status": "IN_PROGRESS",
-      "evidence": "commits pushed (316c44c); awaiting GitHub CI + independent reviewer sign-off"
+      "evidence": "commits pushed (316c44c); awaiting GitHub CI + independent reviewer sign-off",
+      "superseded": "HISTORICAL (316c44c era). Current HEAD 79f2942 / docs ecadb93, CI run 41013529150."
     },
     "R07-E": {
       "status": "PASS",
-      "evidence": "CI green on fd2338c; all IR-01…IR-10 tests pass (274/274 instrumentation)"
+      "evidence": "CI green on fd2338c; all IR-01…IR-10 tests pass (274/274 instrumentation)",
+      "superseded": "HISTORICAL (IR-10 era). Superseded: CI run 41013529150 green at 290/290 on HEAD 79f2942."
     },
     "R07-F": {
       "status": "READY_FOR_REVIEWER",
@@ -191,14 +199,14 @@
     }
   },
   "verification": {
-    "instrumentation": "290/290 PASS (GitHub Actions run 41003719936 on 79f2942; also green on docs HEAD 122cdda via run 41011478801)",
+    "instrumentation": "290/290 PASS (GitHub Actions run 41013529150, code HEAD 79f2942)",
+    "ir11": "IR-11A/B/C/D complete; 11 regression tests PASS",
     "jvm": "157/157 PASS",
     "lint": "PASS",
     "builds": "assembleProdDebug + assembleDevtestDebug + assembleDevtestDebugAndroidTest: PASS",
     "audits": "PASS (audit-secrets, audit-release, audit-test-isolation 50 files)",
     "dhc": "PASS",
-    "flake_correction": "SystemE2E was a missing provider implementation (IR-06 fixed it); it did not fail in run 41003719936. Historical FLAKY_UNRESOLVED retained as record, not declared permanently fixed.",
-    "ir11": "IR-11A/B/C/D complete; 11 regression tests PASS"
+    "flake_correction": "SystemE2E did not fail in CI run 41013529150. Historical FLAKY_UNRESOLVED record retained in FLAKE-ANALYSIS.md; not claimed permanently fixed."
   },
   "artifact": {
     "name": "PrivateInboxClassic-v0.4.6-alpha-debug.apk",
@@ -217,16 +225,19 @@
     "old_cert_sha256": "c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4",
     "method": "adb install -r, no uninstall, no data clear",
     "preserved": "app data dir, marker file, shared_prefs/capture_diag.xml; signature [a0e2e7cb] unchanged; launches with no crash",
-    "limitation": "preserved marker+prefs, not a populated encrypted message table (no messaging package on emulator; capture whitelist refused synthetic notifications)"
+    "encrypted_message_table_readability": "NOT_DIRECTLY_TESTED",
+    "limitation": "Preserved a marker file and prefs, not a populated encrypted message table: the emulator has no messaging package, so the capture whitelist correctly refused synthetic notifications. Encrypted-row survival is inferred from the intact data directory, not directly observed."
   },
   "review": {
     "independent_signoff": "PENDING",
-    "note": "PR comment 6515429268 was authored by the IR-11 implementer; GitHub blocks self-review. Not APPROVED.",
+    "formal_github_reviews": 0,
+    "note": "Prior SHIP IT was a self-review by the implementing agent. GitHub rejects self-review. Not APPROVED.",
     "open_blockers": [
+      "no independent reviewer (non-IR-11 author)",
       "no release keystore (Debug Alpha only)",
-      "no independent reviewer",
-      "no physical-device/OEM verification"
+      "no physical-device/OEM verification",
+      "encrypted message-table readability after upgrade NOT_DIRECTLY_TESTED"
     ]
   },
-  "documentation_head": "122cddaa84a1ae62b808e6ff3c682ea895959008"
+  "documentation_head": "ecadb9337426cf9be27d5197d038aba2d201ee71"
 }

@@ -101,7 +101,7 @@ per-run markers).
 | Existing v6 upgrade | onOpen one-shot repair | ExistingV6 (6) | stability across 3 reopens | PASS |
 | Merge/Unmerge | batch undo journal | Merge suite (13) | alias ownership restore | PASS |
 | Capture pipeline | listener link + reconcile | Pipeline (9) | real capture path | PASS |
-| True system self-post | SelfTestNotifier + provider | SystemNotificationE2EInstrumentedTest | ISOLATED 3/3 PASS; full-run 1 flake (link under ordering) — FLAKY_UNRESOLVED, documented in FLAKE-ANALYSIS.md | PASS w/ documented flake |
+| True system self-post | SelfTestNotifier + provider | SystemNotificationE2EInstrumentedTest | PASS in CI run 41013529150 (290/290). Historical FLAKY_UNRESOLVED record retained in FLAKE-ANALYSIS.md; not claimed permanently gone | PASS |
 | Burst capture | v0.4.5 suite | BurstCapture 10/10 | pass | PASS |
 | Concurrent writer | suite | 3/3 | pass | PASS |
 | SQLite integrity | PRAGMA + app audits | Integrity 8/8 | pass | PASS |

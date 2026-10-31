@@ -189,3 +189,27 @@ The Gradle message says `UNSIGNED and is NOT distributable`
 
 This matters because the old text would have let someone believe an unsigned
 release build was a debug-signed, installable artifact.
+
+---
+
+## 7. Mandatory re-verification before publication
+
+The values above were measured from a build produced on 2026-10-30. The APK
+artifact is **not committed to the repository** (it is a build output), so the
+file that is ultimately uploaded must be re-measured at upload time:
+
+```bash
+shasum -a 256 PrivateInboxClassic-v0.4.6-alpha-debug.apk
+$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner verify --print-certs \
+  PrivateInboxClassic-v0.4.6-alpha-debug.apk
+```
+
+Publish only if the two values are exactly:
+
+- SHA-256 `d7b348a7ab8ea5971839e8333325478a89cb9216cf45b9e394801f8736d18d67`
+- Certificate SHA-256 `c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4`
+
+If either differs, do **not** publish: rebuild from code HEAD `79f2942` with
+`.android-home/debug.keystore` and re-measure, or investigate why the artifact
+changed. A mismatched upload is the one failure this whole audit exists to
+prevent.
