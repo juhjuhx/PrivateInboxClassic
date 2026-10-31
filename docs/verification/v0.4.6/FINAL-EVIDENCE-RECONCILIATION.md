@@ -45,7 +45,7 @@ Three figures have been reported for the instrumentation suite:
 | Reviewer | Independent execution context (code-autopsy + manual line-by-line) |
 | Scope | All 34 changed/new source files vs `integration/dsh-v040` baseline |
 | Findings | 0 CRITICAL, 0 HIGH, 1 MEDIUM (link pending recovery — handled by reconcile), 2 LOW |
-| Verdict | SHIP IT / IMPROVES |
+| Verdict | SHIP IT / IMPROVES — **HISTORICAL, scope did not include IR-11** (see note below) |
 | Report | `docs/handoff/current/INDEPENDENT-REVIEW-REPORT.md` |
 
 ## Conclusion
@@ -66,3 +66,16 @@ described an earlier build. Both are superseded:
 
 The historical values are retained above so the progression stays auditable.
 Full measurement: `SIGNING-IDENTITY-AUDIT.md`.
+
+---
+
+## Review-scope caveat (2026-10-31)
+
+The `SHIP IT` verdict recorded above came from a review whose scope was
+**34 changed/new source files vs the `integration/dsh-v040` baseline**, dated
+2026-10-27. That scope predates IR-09, IR-10 and IR-11.
+
+It therefore **does not** cover the IR-11 chat-detail pagination work and must
+not be cited as sign-off for it. Current state: **REVIEW_PENDING** — PR #4 has
+0 formal GitHub reviews, and the review of IR-11 requires a reviewer who did not
+implement it.
