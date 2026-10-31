@@ -64,6 +64,53 @@ object SelfTestNotifier {
         return true
     }
 
+    /**
+     * IR-06: post an ARBITRARY self-test notification (id/title/body/shortcut)
+     * through the real NotificationManager.
+     *
+     * The fixed [post] above always uses the same title and channel, which is
+     * enough for a smoke test but not for the E2E suite: that suite needs a
+     * unique marker body per run and a shortcut id so the canonical resolver
+     * has a STRONG signal to link on.
+     *
+     * Returns false when the app may not post (Android 13+ without
+     * POST_NOTIFICATIONS) — the caller must treat that as a real failure, never
+     * as a pass.
+     */
+    fun postCustom(
+        ctx: Context,
+        id: Int,
+        title: String,
+        body: String,
+        shortcutId: String?
+    ): Boolean {
+        if (!canPost(ctx)) return false
+        val nm = ctx.getSystemService(NotificationManager::class.java)
+        if (Build.VERSION.SDK_INT >= 26) {
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, "Private Inbox Self Test",
+                    NotificationManager.IMPORTANCE_HIGH)
+            )
+        }
+        val person = Person.Builder().setName(SENDER).build()
+        val style = Notification.MessagingStyle(person)
+        style.addMessage(Notification.MessagingStyle.Message(body, System.currentTimeMillis(), person))
+        val builder = Notification.Builder(ctx, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_classic)
+            .setContentTitle(title.ifEmpty { TITLE })
+            .setContentText(body)
+            .setStyle(style)
+            .setAutoCancel(true)
+        // The shortcut id is what lets the resolver produce a STRONG alias; it
+        // travels as the notification's short-cut id, exactly like a real
+        // messaging app sets it.
+        if (!shortcutId.isNullOrEmpty()) {
+            builder.setShortcutId(shortcutId)
+        }
+        nm.notify(id, builder.build())
+        return true
+    }
+
     /** Whether the user has granted this app notification access (the listener
      *  permission) — the precondition for the self-test notification to arrive. */
     fun listenerPermissionGranted(ctx: Context): Boolean =

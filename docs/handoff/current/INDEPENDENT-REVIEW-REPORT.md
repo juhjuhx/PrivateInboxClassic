@@ -1,5 +1,15 @@
 # Independent Code Review Report — v0.4.6 Alpha
 
+> **SCOPE LIMITATION (added 2026-10-31).** This report covers 34 source files
+> against the `integration/dsh-v040` baseline, dated 2026-10-27. That scope
+> **predates IR-09, IR-10 and IR-11**, so it is **not** sign-off for the IR-11
+> chat-detail pagination work. It is retained as a historical record of that
+> round only.
+>
+> Current review state: **REVIEW_PENDING**. PR #4 has 0 formal GitHub reviews.
+> IR-11 requires a reviewer who did not implement it.
+
+
 **Reviewer:** Independent (separate execution context from author)  
 **Scope:** Full working tree diff vs `integration/dsh-v040` baseline  
 **Method:** Line-by-line source review of all modified + new Kotlin files  

@@ -7,6 +7,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import androidx.annotation.VisibleForTesting
 import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -53,6 +54,9 @@ class MainActivity : ComponentActivity() {
          * only the page is decrypted.
          */
         const val PAGE_SIZE = 50
+
+        /** IR-01: messages per page on the conversation DETAIL screen. */
+        const val CHAT_PAGE_SIZE = 100
     }
 
     private var unlocked = false
@@ -74,14 +78,48 @@ class MainActivity : ComponentActivity() {
     /** Number of rows that could not be decrypted during the last read. */
     private var unreadableRows: Int = 0
 
+    /** IR-01 P2: whether the open conversation has older messages to load. */
+    private var chatHasMore: Boolean = false
+
+    /** IR-01 P2: how many messages the open conversation currently shows. */
+    private var chatPageSize: Int = 0
+
+    /** IR-11D: true while a chat page fetch is in flight, so repeated clicks
+     *  cannot launch overlapping queries. */
+    private var chatLoading: Boolean = false
+
+    /** IR-10: all chat messages loaded so far for the open conversation,
+     *  accumulated across "載入更早的訊息" clicks. Newest first. */
+    private var chatEntries: List<InboxDatabase.Entry> = emptyList()
+
     /**
-     * The cursor for the next page.
-     *
-     * It is the (received_at, id) pair of the last loaded row. The list is
-     * loaded a page at a time, so the first screen only decrypts what it
-     * shows instead of the whole table.
+     * IR-10: keyset cursor for the open conversation's chat detail page.
+     * Holds the (received_at, id) of the OLDEST loaded message, so the next
+     * page reads strictly older messages via beforeReceivedAt/beforeId.
+     * null means no page has been loaded yet (first load fetches the newest page).
      */
-    private var nextPageCursor: Pair<Long, Long>? = null
+    private var chatCursor: Pair<Long, Long>? = null
+
+    /**
+     * IR-11A: the conversation ID whose chat state (chatEntries/chatCursor/
+     * chatHasMore/chatPageSize) is currently loaded. When the user switches to
+     * a different conversation, all chat state is reset so no message from one
+     * conversation can leak into another.
+     */
+    private var chatConversationId: String? = null
+
+    /** IR-11D: monotonically increasing request generation for chat page fetches.
+     *  Each new request bumps the generation; in-flight callbacks from older
+     *  generations are discarded, so a stale result can never overwrite a newer
+     *  conversation's screen or a lock screen. */
+    private var chatRequestGen: Int = 0
+
+    /**
+     * IR-01 P2: the last conversation seen, used as a KEYSET cursor for the next
+     * page. Anchoring to the last row actually rendered (rather than to an
+     * offset) keeps paging stable when a new message re-orders the list.
+     */
+    private var lastConversationCursor: Pair<Long, String>? = null
 
     /** True when another page can be loaded. */
     private var hasMorePages: Boolean = false
@@ -188,6 +226,10 @@ class MainActivity : ComponentActivity() {
         entries = emptyList()
         currentThread = null
         currentTitle = null
+        // IR-11D: invalidate in-flight chat callbacks so they cannot render
+        // after the activity is stopped.
+        ++chatRequestGen
+        chatLoading = false
         showLock()
     }
 
@@ -203,7 +245,7 @@ class MainActivity : ComponentActivity() {
     private val backCallback = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() {
             when (page) {
-                "photo" -> showChat()
+                "photo" -> refreshChat()
                 "chat", "settings", "search" -> showInbox(false)
                 else -> finish()
             }
@@ -274,6 +316,10 @@ class MainActivity : ComponentActivity() {
 
     private fun showLock() {
         page = "locked"
+        // IR-11D: invalidate all in-flight chat callbacks so a stale async
+        // result cannot render private messages over the lock screen.
+        ++chatRequestGen
+        chatLoading = false
         val layout = column().apply { gravity = Gravity.CENTER; setPadding(30.dp(), 15.dp(), 30.dp(), 15.dp()) }
         val logo = txt("✉", 42f, Color.WHITE).apply {
             gravity = Gravity.CENTER
@@ -319,10 +365,10 @@ class MainActivity : ComponentActivity() {
             android.util.Log.d("LOADENTRIES", "io task running")
             val db = InboxDatabase(this)
             var loaded: List<InboxDatabase.Entry>
-            var readState = CryptoStore.KeyState.KEY_AVAILABLE
-            var unreadable = 0
-            var cursor: Pair<Long, Long>? = null
             var more = false
+            var loadedKeyState = CryptoStore.KeyState.KEY_AVAILABLE
+            var loadedUnreadable = 0
+            var lastCursor: Pair<Long, String>? = null
             try {
                 // T03: reconcile any unlinked rows first (idempotent, cheap when
                 // there is nothing to do), then read the canonical map the UI
@@ -330,15 +376,49 @@ class MainActivity : ComponentActivity() {
                 val store = ConversationStore(this@MainActivity)
                 try { store.linkAllMessages() } finally { store.close() }
                 refreshCanonicalKeys()
-                // The FIRST page only. The rest is loaded when the user asks
-                // for it, so the first screen never decrypts the whole table.
-                val res = db.readPage(limit = PAGE_SIZE)
-                android.util.Log.d("LOADENTRIES", "readPage rows=${res.entries.size} hasMore=${res.hasMore}")
-                loaded = res.entries
-                readState = res.keyState
-                unreadable = res.unreadableRows
-                cursor = res.nextCursor()
-                more = res.hasMore
+                // IR-01: page by CONVERSATION, not by message.
+                //
+                // The previous implementation read the newest 50 MESSAGES and
+                // only then grouped them into conversations. Two defects
+                // followed directly:
+                //   * a conversation with 100 recent messages filled the whole
+                //     page, so an older-but-distinct conversation never
+                //     appeared at all;
+                //   * a conversation whose rows straddled the page boundary was
+                //     split into two boxes.
+                // conversationPage() computes the grouping in SQL over the whole
+                // table, so one row per conversation is returned regardless of
+                // how many messages it holds.
+                val summaries = db.conversationPage(limit = PAGE_SIZE, offset = 0)
+                val convRows = ArrayList<InboxDatabase.Entry>(summaries.size)
+                var worstState = CryptoStore.KeyState.KEY_AVAILABLE
+                var badRows = 0
+                for (s in summaries) {
+                    // Decrypt just this conversation's newest message. The
+                    // preview also reports the key state, which is the ONLY
+                    // ciphertext touch on the inbox path now that paging is by
+                    // conversation.
+                    val preview = db.conversationPreview(s.latestMessageId)
+                    preview.entry?.let { convRows.add(it) }
+                    badRows += preview.unreadable
+                    if (preview.keyState.isUnrecoverable) worstState = preview.keyState
+                    else if (worstState == CryptoStore.KeyState.KEY_AVAILABLE) {
+                        worstState = preview.keyState
+                    }
+                }
+                android.util.Log.d(
+                    "LOADENTRIES",
+                    "conversationPage convos=${summaries.size} rows=${convRows.size}"
+                )
+                loaded = convRows
+                lastCursor = summaries.lastOrNull()?.let {
+                    it.latestMessageTimestamp to it.canonicalConversationId
+                }
+                loadedKeyState = if (worstState.isUnrecoverable) {
+                    CryptoStore.KeyState.RECOVERY_REQUIRED
+                } else worstState
+                loadedUnreadable = badRows
+                more = summaries.size >= PAGE_SIZE
                 val days = LocalSettings.retentionDays(this)
                 if (days > 0) runCatching { db.pruneOlderThanDays(days) }
             } catch (e: Exception) {
@@ -349,9 +429,12 @@ class MainActivity : ComponentActivity() {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 android.util.Log.d("LOADENTRIES", "UI update rows=${loaded.size}")
                 entries = loaded
-                keyState = readState
-                unreadableRows = unreadable
-                nextPageCursor = cursor
+                // P1: restore the key-recovery signal that the IR-01 rewrite
+                // dropped. Without this, offerKeyRecovery() never fires and the
+                // diagnostics panel always reports KEY_AVAILABLE.
+                keyState = loadedKeyState
+                unreadableRows = loadedUnreadable
+                lastConversationCursor = lastCursor
                 hasMorePages = more
                 pagesLoaded = 1
                 when (page) {
@@ -436,22 +519,31 @@ class MainActivity : ComponentActivity() {
      */
     private fun loadMorePages() {
         if (loadingPage || !hasMorePages) return
-        val cursor = nextPageCursor ?: return
+        val cursor = lastConversationCursor ?: return
         loadingPage = true
         io.execute {
             val db = InboxDatabase(this@MainActivity)
             var more: List<InboxDatabase.Entry> = emptyList()
-            var next: Pair<Long, Long>? = null
             var hasMore = false
+            var nextCursor: Pair<Long, String>? = null
             try {
-                val res = db.readPage(
+                // IR-01 P2: the NEXT page of conversations via the KEYSET
+                // cursor, so an insert that re-orders the list cannot make this
+                // page skip a conversation.
+                val summaries = db.conversationPage(
                     limit = PAGE_SIZE,
-                    beforeReceivedAt = cursor.first,
-                    beforeId = cursor.second
+                    afterLatestReceived = cursor.first,
+                    afterGid = cursor.second
                 )
-                more = res.entries
-                next = res.nextCursor()
-                hasMore = res.hasMore
+                val rows = ArrayList<InboxDatabase.Entry>(summaries.size)
+                for (s in summaries) {
+                    db.entryForMessageId(s.latestMessageId)?.let { rows.add(it) }
+                }
+                nextCursor = summaries.lastOrNull()?.let {
+                    it.latestMessageTimestamp to it.canonicalConversationId
+                }
+                more = rows
+                hasMore = summaries.size >= PAGE_SIZE
             } catch (_: Exception) {
                 // A failed page leaves the list as it was.
             } finally {
@@ -463,7 +555,7 @@ class MainActivity : ComponentActivity() {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 if (more.isNotEmpty()) {
                     entries = entries + more
-                    nextPageCursor = next
+                    lastConversationCursor = nextCursor
                     hasMorePages = hasMore
                     pagesLoaded++
                     when (page) {
@@ -723,6 +815,85 @@ class MainActivity : ComponentActivity() {
     /** Entries after applying the platform filter and the active search query. */
     /** QA hook: let instrumentation drive searchQuery/selectedPlatform without
      *  touching private fields. */
+    /**
+     * IR-08 test hook: open a conversation exactly as a row tap does.
+     *
+     * The independent review pointed out that testing the DB method directly
+     * cannot catch a dead routing branch in `showChat()`. This drives the real
+     * `currentThread`/`currentTitle` + `showChat()` path.
+     */
+    @VisibleForTesting
+    internal fun openThreadForTest(threadKey: String, title: String) {
+        currentThread = threadKey
+        currentTitle = title
+        showChat()
+    }
+
+    /** F-05 test hook: trigger the older-page read path exactly as the UI does. */
+    @VisibleForTesting
+    internal fun loadOlderForTest() {
+        loadOlderChatMessages()
+    }
+
+    /** IR-11D test hook: read the live chat pagination state without mutating it. */
+    @VisibleForTesting
+    internal fun chatStateForTest(): Map<String, Any?> = mapOf(
+        "conversationId" to chatConversationId,
+        "entries" to chatEntries.size,
+        "cursor" to chatCursor,
+        "hasMore" to chatHasMore,
+        "loading" to chatLoading,
+        "page" to page
+    )
+
+    /** IR-11D test hook: open photo preview exactly as a thumbnail tap does. */
+    @VisibleForTesting
+    internal fun openPhotoForTest(entryId: Long) {
+        val entry = chatEntries.firstOrNull { it.id == entryId }
+            ?: entries.firstOrNull { it.id == entryId }
+            ?: return
+        showPhoto(entry)
+    }
+
+    /**
+     * IR-11D: delete one saved message and refresh the chat page from cache.
+     *
+     * Runs the DB delete on the IO executor. On success the row is dropped from
+     * BOTH the inbox list and the loaded chat page, so refreshChat() cannot
+     * re-display deleted content; the pagination cursor is deliberately left
+     * untouched. A failed delete is reported honestly and changes nothing.
+     */
+    private fun deleteMessageNow(messageId: Long) {
+        io.execute {
+            val db = InboxDatabase(this@MainActivity)
+            val removed = try {
+                db.deleteMessage(messageId)
+                true
+            } catch (_: Exception) {
+                false
+            } finally {
+                db.close()
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (!removed) {
+                    Toast.makeText(this@MainActivity, "刪除失敗，訊息仍保留", Toast.LENGTH_SHORT).show()
+                    return@runOnUiThread
+                }
+                entries = entries.filter { it.id != messageId }
+                chatEntries = chatEntries.filter { it.id != messageId }
+                chatPageSize = chatEntries.size
+                refreshChat()
+            }
+        }
+    }
+
+    /** IR-11D test hook: delete a message through the real delete path. */
+    @VisibleForTesting
+    internal fun deleteMessageForTest(messageId: Long) {
+        deleteMessageNow(messageId)
+    }
+
     internal fun setSearchInputsForTest(query: String?, platform: String?) {
         searchQuery = query
         selectedPlatform = platform
@@ -757,18 +928,140 @@ class MainActivity : ComponentActivity() {
         if (!unlocked) return
         val key = currentThread ?: return showInbox(false)
         page = "chat"
-        val group = entries.filter { threadKey(it) == key }
-            .sortedWith(compareBy<InboxDatabase.Entry> { it.receivedAt }.thenBy { it.id })
+        // IR-01: the DETAIL page pages by MESSAGE, which is the correct unit
+        // here (the user is reading one conversation's history). The inbox page
+        // above pages by CONVERSATION.
+        //
+        // P1 (independent review): the previous version branched on
+        // `key.startsWith("k:")`, but `currentThread` comes from threadKey(),
+        // which returns the RAW legacy key and never carries the "k:" prefix
+        // that conversationPage() adds. The branch was therefore unreachable and
+        // an unlinked conversation still showed exactly one message.
+        //
+        // The routing is now decided by the DATA, not by a string prefix: try the
+        // canonical read first, and fall back to the legacy-key read when it
+        // yields nothing (which is exactly the unlinked case). No prefix
+        // convention can silently break this.
+        //
+        // IR-11A: conversation state isolation. chatEntries/chatCursor/
+        // chatHasMore/chatPageSize belong to a single conversation. If the user
+        // switches to a different conversation, all chat state is reset so no
+        // message from one conversation can leak into another.
+        if (chatConversationId != key) {
+            chatEntries = emptyList()
+            chatCursor = null
+            chatHasMore = false
+            chatPageSize = 0
+            chatLoading = false
+            chatConversationId = key
+        }
+        // IR-11C: separate fetch from render — DB read off UI thread via io.execute,
+        // then render on UI thread. Guard against concurrent fetches so repeated
+        // clicks cannot launch overlapping queries.
+        if (chatLoading) return
+        chatLoading = true
+        val gen = ++chatRequestGen
+        io.execute {
+            val detailPage = runCatching {
+                InboxDatabase(this@MainActivity).use { db ->
+                    val page = if (chatEntries.isNotEmpty() && chatCursor != null) {
+                        // Next page: older messages after the cursor.
+                        val (curTs, curId) = chatCursor!!
+                        val canonical = db.readConversationMessages(
+                            key, limit = CHAT_PAGE_SIZE,
+                            beforeReceivedAt = curTs, beforeId = curId)
+                        if (canonical.entries.isNotEmpty()) canonical
+                        else db.readMessagesByLegacyKey(
+                            key, limit = CHAT_PAGE_SIZE,
+                            beforeReceivedAt = curTs, beforeId = curId)
+                    } else {
+                        // First load: newest page, no cursor.
+                        val canonical = db.readConversationMessages(key, limit = CHAT_PAGE_SIZE)
+                        if (canonical.entries.isNotEmpty()) canonical
+                        else db.readMessagesByLegacyKey(key, limit = CHAT_PAGE_SIZE)
+                    }
+                    page
+                }
+            }
+            runOnUiThread {
+                // IR-11D: invalidate stale callbacks — only act if this is the
+                // latest request, the activity is still alive, still unlocked,
+                // and still on the chat page for the same conversation.
+                // A stale generation owns nothing: it must not render, and it
+                // must NOT clear chatLoading, which belongs to the newer request.
+                if (gen != chatRequestGen) return@runOnUiThread
+                // From here on this callback owns chatLoading and must release it
+                // on every path, including invalidation by lock / navigation.
+                if (isFinishing || isDestroyed) { chatLoading = false; return@runOnUiThread }
+                if (!unlocked) { chatLoading = false; return@runOnUiThread }
+                if (page != "chat") { chatLoading = false; return@runOnUiThread }
+                if (currentThread != key) { chatLoading = false; return@runOnUiThread }
+                renderChatPage(detailPage.getOrNull())
+                chatLoading = false
+            }
+        }
+    }
+
+    /**
+     * IR-11C: render a single page of chat messages on the UI thread. Never
+     * performs a DB query. Called from showChat() after the off-thread DB read
+     * completes, or from loadOlderChatMessages() after its own off-thread read.
+     */
+    private fun renderChatPage(detailPage: InboxDatabase.ReadResult?) {
+        val group: List<InboxDatabase.Entry> = if (detailPage != null && detailPage.entries.isNotEmpty()) {
+            chatHasMore = detailPage.hasMore
+            val newEntries = detailPage.entries.sortedWith(
+                compareBy<InboxDatabase.Entry> { it.receivedAt }.thenBy { it.id }
+            )
+            // Append older pages to what we already loaded (dedup by id).
+            val existingIds = chatEntries.map { it.id }.toSet()
+            val appended = newEntries.filter { it.id !in existingIds }
+            chatEntries = (chatEntries + appended)
+                .sortedWith(compareBy<InboxDatabase.Entry> { it.receivedAt }.thenBy { it.id })
+                .reversed() // newest first for display
+            // IR-11B: advance cursor to the OLDEST message on this page, using
+            // the full (received_at, id) pair as the keyset cursor — not just
+            // received_at, which would break ordering when multiple messages
+            // share a timestamp.
+            val oldest = detailPage.entries.sortedWith(compareBy<InboxDatabase.Entry> { it.receivedAt }.thenBy { it.id }).firstOrNull()
+            chatCursor = oldest?.let { it.receivedAt to it.id }
+            chatPageSize = chatEntries.size
+            chatEntries
+        } else {
+            // Fall back to the already-loaded chat entries (no cursor advance,
+            // no DB read — used by refreshChat() when returning from photo preview
+            // or after message deletion) or to the inbox page's rows for this
+            // conversation if nothing has been loaded yet.
+            val key = currentThread ?: return
+            if (chatConversationId == key && chatEntries.isNotEmpty()) {
+                chatEntries.sortedWith(compareBy<InboxDatabase.Entry> { it.receivedAt }.thenBy { it.id })
+            } else {
+                entries.filter { threadKey(it) == key }
+                    .sortedWith(compareBy<InboxDatabase.Entry> { it.receivedAt }.thenBy { it.id })
+            }
+        }
         // Opening the thread marks everything currently stored in it as seen, so the
         // chat list badge reflects newly captured messages only.
-        group.maxByOrNull { it.receivedAt }?.let {
-            LocalSettings.markSeen(this, key, it.receivedAt)
+        currentThread?.let { key ->
+            group.maxByOrNull { it.receivedAt }?.let {
+                LocalSettings.markSeen(this, key, it.receivedAt)
+            }
         }
         val root = column()
         root.addView(toolbar(currentTitle.orEmpty(), { showInbox(false) }))
         val container = column().apply {
             setBackgroundColor(BG)
             setPadding(9.dp(), 10.dp(), 9.dp(), 22.dp())
+        }
+        // IR-01 P2: a REAL affordance for older history. The flag used to be
+        // written and never read, so a conversation with more than
+        // CHAT_PAGE_SIZE messages was silently truncated with no way forward.
+        if (chatHasMore) {
+            container.addView(txt("載入更早的訊息", 14f, BLUE).apply {
+                gravity = Gravity.CENTER
+                setPadding(0, 10.dp(), 0, 12.dp())
+                setOnClickListener { loadOlderChatMessages() }
+            })
         }
         var lastDay = ""
         for (entry in group) {
@@ -822,16 +1115,7 @@ class MainActivity : ComponentActivity() {
                         .setMessage("這則通知副本與已保存的照片將永久刪除。")
                         .setNegativeButton("取消", null)
                         .setPositiveButton("刪除") { _, _ ->
-                            io.execute {
-                                val db = InboxDatabase(this@MainActivity)
-                                runCatching { db.deleteMessage(entry.id) }
-                                db.close()
-                                runOnUiThread {
-                                    if (isFinishing || isDestroyed) return@runOnUiThread
-                                    entries = entries.filter { it.id != entry.id }
-                                    showChat()
-                                }
-                            }
+                            deleteMessageNow(entry.id)
                         }.show()
                 }
             }
@@ -857,11 +1141,81 @@ class MainActivity : ComponentActivity() {
         chatScroller.post { chatScroller.fullScroll(View.FOCUS_DOWN) }
     }
 
+    /**
+     * IR-11D: render-only refresh of the existing chat screen. Re-draws the
+     * already-loaded chatEntries without touching the database or advancing the
+     * cursor. Used when returning from photo preview or after deleting a
+     * message — never re-fetches, never changes pagination state.
+     */
+    private fun refreshChat() {
+        if (!unlocked || currentThread == null) return
+        // IR-11D: this is also the return path from photo preview, so the page
+        // may still be "photo". Switching back to chat is safe and does not
+        // fetch or advance the cursor — it only re-draws already-loaded state.
+        page = "chat"
+        refreshBackState()
+        renderChatPage(null)
+    }
+
+    /**
+     * IR-01 P2: extend the open conversation's history backwards.
+     *
+     * Re-reads the conversation with a larger limit rather than paginating with
+     * a cursor: the chat view scrolls to the bottom on entry, so growing the
+     * window keeps the reading position stable and cannot skip a row.
+     */
+    private fun loadOlderChatMessages() {
+        val key = currentThread ?: return
+        if (!chatHasMore || chatLoading) return
+        // Same async pattern as showChat(): read off the UI thread, render on
+        // the UI thread. This prevents blocking the UI thread with DB I/O and
+        // bulk decryption while still keeping the reading position stable.
+        chatLoading = true
+        val gen = ++chatRequestGen
+        io.execute {
+            val detailPage = runCatching {
+                InboxDatabase(this@MainActivity).use { db ->
+                    val page = if (chatEntries.isNotEmpty() && chatCursor != null) {
+                        val (curTs, curId) = chatCursor!!
+                        val canonical = db.readConversationMessages(
+                            key, limit = CHAT_PAGE_SIZE,
+                            beforeReceivedAt = curTs, beforeId = curId)
+                        if (canonical.entries.isNotEmpty()) canonical
+                        else db.readMessagesByLegacyKey(
+                            key, limit = CHAT_PAGE_SIZE,
+                            beforeReceivedAt = curTs, beforeId = curId)
+                    } else {
+                        val canonical = db.readConversationMessages(key, limit = CHAT_PAGE_SIZE)
+                        if (canonical.entries.isNotEmpty()) canonical
+                        else db.readMessagesByLegacyKey(key, limit = CHAT_PAGE_SIZE)
+                    }
+                    page
+                }
+            }
+            runOnUiThread {
+                // IR-11D: invalidate stale callbacks — only act if this is the
+                // latest request, the activity is still alive, still unlocked,
+                // and still on the chat page for the same conversation.
+                // A stale generation owns nothing: it must not render, and it
+                // must NOT clear chatLoading, which belongs to the newer request.
+                if (gen != chatRequestGen) return@runOnUiThread
+                // From here on this callback owns chatLoading and must release it
+                // on every path, including invalidation by lock / navigation.
+                if (isFinishing || isDestroyed) { chatLoading = false; return@runOnUiThread }
+                if (!unlocked) { chatLoading = false; return@runOnUiThread }
+                if (page != "chat") { chatLoading = false; return@runOnUiThread }
+                if (currentThread != key) { chatLoading = false; return@runOnUiThread }
+                renderChatPage(detailPage.getOrNull())
+                chatLoading = false
+            }
+        }
+    }
+
     private fun showPhoto(entry: InboxDatabase.Entry) {
         if (!unlocked) return
         page = "photo"
         val root = column().apply { setBackgroundColor(Color.BLACK) }
-        root.addView(toolbar("照片預覽", { showChat() }))
+        root.addView(toolbar("照片預覽", { refreshChat() }))
         val holder = FrameLayout(this)
         val zoom = PhotoZoomView(this).apply {
             setBackgroundColor(Color.BLACK)

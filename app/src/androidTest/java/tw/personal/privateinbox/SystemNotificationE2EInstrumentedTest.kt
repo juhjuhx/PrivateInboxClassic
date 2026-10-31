@@ -69,9 +69,47 @@ class SystemNotificationE2EInstrumentedTest {
 
     // ------------------------------------------------------------------ tests
 
+    /**
+     * IR-06 P1: grant POST_NOTIFICATIONS to THIS app before posting.
+     *
+     * `postCustom()` returns false without it on Android 13+, so the suite used
+     * to pass only because another test class happened to grant it earlier in
+     * the same instrumentation process. That is exactly the ordering-dependent
+     * pattern that produced the original "flake" misdiagnosis. The test now
+     * establishes its own precondition instead of inheriting one.
+     */
+    private fun grantPostNotifications() {
+        if (android.os.Build.VERSION.SDK_INT < 33) return
+        val pkg = ctx.packageName
+        // The instrumentation process cannot grant a permission to another
+        // package directly, so use the shell (uiAutomation runs as shell).
+        runCatching {
+            val ui = androidx.test.platform.app.InstrumentationRegistry
+                .getInstrumentation().uiAutomation
+            val fd = ui.executeShellCommand("pm grant $pkg android.permission.POST_NOTIFICATIONS")
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(fd).use { it.readBytes() }
+        }
+        // Confirm the grant actually took effect; never proceed on a guess.
+        val deadline = System.currentTimeMillis() + 10_000
+        while (System.currentTimeMillis() < deadline) {
+            val granted = ctx.checkSelfPermission(
+                android.Manifest.permission.POST_NOTIFICATIONS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (granted) return
+            Thread.sleep(200)
+        }
+        // Not granted: the test cannot prove the pipeline, so it must fail
+        // loudly rather than silently skipping the assertion.
+        throw AssertionError(
+            "POST_NOTIFICATIONS could not be granted; the E2E assertion would be " +
+                "meaningless without it"
+        )
+    }
+
     @Test
     fun systemPostedNotificationIsCapturedLinkedAndRendered() {
         enableSelfTest()
+        grantPostNotifications()
         grantListener()
 
         // The notification must be posted by the APP package so the self-test
@@ -167,9 +205,20 @@ class SystemNotificationE2EInstrumentedTest {
                         "the renamed conversation still renders as exactly one box",
                         1, renamedGroups.size
                     )
+                    // IR-01: the inbox holds ONE entry per conversation, so
+                    // the box carries the conversation's NEWEST message. The
+                    // full history (both messages) is read through the detail
+                    // path, which is what the chat screen uses.
                     assertEquals(
-                        "and that box carries both messages",
-                        2, renamedGroups.first().value.size
+                        "the inbox box carries the conversation's newest message",
+                        1, renamedGroups.first().value.size
+                    )
+                    val detail = InboxDatabase(ctx).use {
+                        it.readConversationMessages(rows[0].conversationId!!, 100)
+                    }
+                    assertEquals(
+                        "the conversation's full history holds both messages",
+                        2, detail.entries.size
                     )
                 }
             }

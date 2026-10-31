@@ -133,11 +133,15 @@ class ConversationUiLifecycleInstrumentedTest {
                     "a renamed conversation must render as ONE box after recreate",
                     1, canonicalBoxes
                 )
-                // PAGE_SIZE is 50: the first page holds 50 of the 60 rows. The
-                // box count (ONE) is the assertion that matters; the remaining
-                // rows arrive with loadMorePages() and still group into the SAME
-                // canonical box.
-                assertEquals("first page rows are in that one box", 50, groups.first().value.size)
+                // IR-01: the inbox pages by CONVERSATION, so this single
+                // conversation contributes exactly ONE entry to `entries` (its
+                // newest message), regardless of how many messages it holds.
+                // Before IR-01 the page held 50 of the 60 MESSAGES, which is
+                // the defect these assertions used to encode.
+                assertEquals(
+                    "the conversation contributes exactly one inbox entry",
+                    1, activity.entries.size
+                )
             }
             // Recreate (configuration change / rotation path).
             scenario.recreate()
@@ -149,7 +153,10 @@ class ConversationUiLifecycleInstrumentedTest {
                         "from SQLite, not from an in-memory resolver",
                     1, canonicalBoxes
                 )
-                assertEquals("page still holds 50 rows after recreate", 50, groups.first().value.size)
+                assertEquals(
+                    "still exactly one inbox entry for the conversation after recreate",
+                    1, activity.entries.size
+                )
             }
         }
     }
@@ -254,14 +261,18 @@ class ConversationUiLifecycleInstrumentedTest {
         for (i in 1..3) link(save("搜尋B", "other-$i", 1_700_000_000_000L + i), b)
 
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            onLoadedActivity(scenario) {
-                assertEquals(6, canonicalKeyCount())
+            onLoadedActivity(scenario) { activity ->
+                // canonicalKeyCount() counts message LINKS (6 messages); the
+                // inbox entry count is what IR-01 changed.
+                assertEquals("six message links exist", 6, canonicalKeyCount())
+                assertEquals("two conversations render as two inbox entries",
+                    2, activity.entries.size)
             }
             scenario.recreate()
             onLoadedActivity(scenario) { activity ->
                 // The canonical map must be reloaded after recreate: grouping
                 // cannot depend on state that vanish with the Activity.
-                assertEquals(6, activity.entries.size)
+                assertEquals("one inbox entry per conversation", 2, activity.entries.size)
                 assertEquals(2, activity.threads(activity.entries).size)
             }
         }

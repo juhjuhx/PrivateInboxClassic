@@ -1,10 +1,10 @@
 {
   "project": "PrivateInboxClassic",
   "target": "v0.4.6",
-  "head": "bb36c83f524c0aa87ba04680f0f4c0bfea79318f",
-  "branch": "v045-reliability",
-  "tracking": "origin/fix/x200pro-notification-burst",
-  "updated": "2026-10-24T22:00:00+08:00",
+  "head": "d376f407976f511837f963227115e5610f42083f",
+  "branch": "v046-integration-repair-final",
+  "tracking": "https://github.com/juhjuhx/PrivateInboxClassic/pull/4",
+  "updated": "2026-11-01T03:40:00+08:00",
   "tasks": {
     "T00": {
       "status": "PASS",
@@ -74,13 +74,14 @@
       "files": "README.md README.zh-TW.md"
     },
     "T12": {
-      "status": "PASS_W_FLAKY",
-      "full": "239 run / 1 flaky (SystemE2E link) / 0 product failures",
-      "isolated": "SystemE2E 3/3, Qa01 8/8, BurstCapture 10/10"
+      "status": "PASS",
+      "full": "291 run / 0 failed / 0 skipped",
+      "isolated": "SystemE2E 3/3, Qa01 8/8, BurstCapture 10/10",
+      "superseded": "HISTORICAL (pre-IR-11 tree). Superseded by 291/291 on HEAD d376f40, CI run 41231048769."
     },
     "T13": {
       "status": "SELF_REVIEW_ONLY",
-      "note": "no second independent reviewer available in this harness; adversarial self-review performed across the round (7 defects caught+fixed); independent review still required before integration"
+      "note": "Still SELF_REVIEW_ONLY. 0 formal reviews on PR #4; GitHub blocks self-review."
     },
     "T14": {
       "status": "PASS",
@@ -100,7 +101,8 @@
       "status": "PARTIAL",
       "fixed": 4,
       "unresolved": "SystemE2E link flake under full ordering (FLAKY_UNRESOLVED)",
-      "evidence": "FLAKE-ANALYSIS.md updated"
+      "evidence": "FLAKE-ANALYSIS.md updated",
+      "superseded": "HISTORICAL record. Not observed in CI run 41013529150; not claimed permanently fixed."
     },
     "H04": {
       "status": "PASS",
@@ -109,7 +111,8 @@
     },
     "H05": {
       "status": "PASS",
-      "full": "239/1 flaky/0 product failures"
+      "full": "239/1 flaky/0 product failures",
+      "superseded": "HISTORICAL (pre-IR-11 tree). Superseded by 290/290 on HEAD 79f2942."
     },
     "W00": {
       "status": "PASS"
@@ -124,30 +127,127 @@
     "R00": {
       "status": "PASS",
       "evidence": "docs/verification/v0.4.6/RELEASE-BASELINE-TRUTH.md",
-      "head": "bb36c83f524c0aa87ba04680f0f4c0bfea79318f",
-      "branch": "v045-reliability",
-      "dirty_files": 76,
-      "prod_apk_sha256": "a817434edefcb8f5becec48b4ab46ba91badc80bed2b294c0355247c1d6a653c",
-      "version": "11/0.4.6"
+      "head": "d376f407976f511837f963227115e5610f42083f",
+      "branch": "v046-integration-repair-final",
+      "dirty_files": 0,
+      "prod_apk_sha256": "b68fd8210e7ea43c12fe4818459dbafb9bb53cc31162d475b9926e30353996a7",
+      "version": "11/0.4.6",
+      "superseded": "HISTORICAL baseline snapshot (bb36c83). Current code HEAD is d376f40."
     },
     "R01": {
       "status": "PASS",
-      "evidence": "Full instrumentation 239/239 PASS, JVM 157/157 PASS, Lint PASS, Audits PASS",
-      "flaky": "testJ_groupSummaryAndChildren resolved"
+      "evidence": "Full instrumentation 291/291 PASS, JVM 157/157 PASS, Lint PASS, Audits PASS",
+      "superseded": "HISTORICAL. Superseded: instrumentation 291/291 on HEAD d376f40, CI run 41231048769."
     },
     "R04": {
       "status": "PASS",
       "evidence": "Public v0.4.4-alpha (key A) -> local v0.4.6 prod (key A) via adb install -r SUCCESS",
       "public_apk_sha256": "6c6def174902a192cf5f65846261c517ff42edff62bde8ee9c72104ddd8c1556",
-      "candidate_apk_sha256": "a817434edefcb8f5becec48b4ab46ba91badc80bed2b294c0355247c1d6a653c",
+      "candidate_apk_sha256": "b68fd8210e7ea43c12fe4818459dbafb9bb53cc31162d475b9926e30353996a7",
       "cert_sha256": "c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4"
     },
     "R02": {
       "status": "PASS",
       "evidence": "docs/handoff/current/INDEPENDENT-REVIEW-REPORT.md",
-      "verdict": "SHIP IT",
+      "verdict": "SELF_REVIEW_ONLY \u2014 not independent sign-off; must not be cited as approval",
       "findings": "0 CRITICAL, 0 HIGH, 1 MEDIUM (link pending recovery, handled), 2 LOW (docs inconsistency, backfill contention)",
-      "health": "IMPROVES"
+      "health": "IMPROVES",
+      "superseded": "HISTORICAL. Current review state: REVIEW_PENDING (0 formal GitHub reviews on PR #4)."
+    },
+    "IR-01": {
+      "status": "PASS",
+      "evidence": "IR01ConversationPaginationInstrumentedTest 4/4; MainActivity pages via conversationPage"
+    },
+    "IR-02": {
+      "status": "PASS",
+      "evidence": "IR02FailClosedReadInstrumentedTest 6/6; fail-closed union of alias+link"
+    },
+    "IR-03": {
+      "status": "PASS",
+      "evidence": "IR03NulSafeLinkingInstrumentedTest 6/6; SaveResult.NEW carries real id"
+    },
+    "IR-04": {
+      "status": "PASS",
+      "evidence": "IR04SummaryCardinalityInstrumentedTest 5/5; alias join pinned to one row"
+    },
+    "IR-05": {
+      "status": "PASS",
+      "evidence": "IR05SchemaRepairInstrumentedTest 5/5; tri-state verified repair"
+    },
+    "IR-06": {
+      "status": "PASS",
+      "evidence": "postSelfTest implemented; || true removed; SystemE2E passes for real"
+    },
+    "IR-07": {
+      "status": "PASS",
+      "evidence": "CI run 41231048769 green on HEAD d376f40",
+      "superseded": "HISTORICAL. Current HEAD d376f40."
+    },
+    "R07-E": {
+      "status": "PASS",
+      "evidence": "CI run 41231048769 green on HEAD d376f40, all IR-01\u2026IR-11 tests pass (291/291 instrumentation)",
+      "superseded": "HISTORICAL (IR-10 era). Superseded: CI run 41231048769 green at 291/291 on HEAD d376f40."
+    },
+    "R07-F": {
+      "status": "READY_FOR_REVIEWER",
+      "reason": "All engineering gates complete; only independent reviewer sign-off over 3d56a7f5..fd2338c remains"
+    },
+    "IR-10": {
+      "status": "PASS",
+      "evidence": "IR10ChatHistoryPaginationInstrumentedTest 5/5; cursor-based paging in showChat/loadOlderChatMessages"
     }
+  },
+  "verification": {
+    "instrumentation": "291 / 291 PASS (GitHub Actions run 41231048769, source HEAD d376f40)",
+    "ir11": "IR-11A/B/C/D complete; 11 regression tests PASS",
+    "jvm": "157/157 PASS",
+    "lint": "PASS",
+    "builds": "assembleProdDebug + assembleDevtestDebug + assembleDevtestDebugAndroidTest: PASS",
+    "audits": "PASS (audit-secrets, audit-release, audit-test-isolation 50 files)",
+    "dhc": "PASS",
+    "flake_correction": "SystemE2E did not fail in CI run 41013529150. Historical FLAKY_UNRESOLVED record retained in FLAKE-ANALYSIS.md; not claimed permanently fixed."
+  },
+  "artifact": {
+    "name": "PrivateInboxClassic-v0.4.6-alpha-debug.apk",
+    "sha256": "b68fd8210e7ea43c12fe4818459dbafb9bb53cc31162d475b9926e30353996a7",
+    "cert_sha256": "c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4",
+    "keystore": ".android-home/debug.keystore",
+    "versionCode": 11,
+    "versionName": "0.4.6",
+    "variant": "prodDebug",
+    "source_head": "d376f407976f511837f963227115e5610f42083f",
+    "supersedes_sha256": "a817434edefcb8f5becec48b4ab46ba91badc80bed2b294c0355247c1d6a653c (not reproducible from this tree)"
+  },
+  "upgrade_verification": {
+    "status": "VERIFIED (emulator API 33)",
+    "old_apk_sha256": "6c6def174902a192cf5f65846261c517ff42edff62bde8ee9c72104ddd8c1556",
+    "old_cert_sha256": "c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4",
+    "method": "adb install -r, no uninstall, no data clear",
+    "preserved": "app data dir, marker file, shared_prefs/capture_diag.xml; signature [a0e2e7cb] unchanged; launches with no crash",
+    "encrypted_message_table_readability": "VERIFIED (API 33: decrypted and displayed, including after restart)",
+    "limitation": "Closed by IR-12: genuine encrypted data was captured by v0.4.4-alpha, the candidate was installed over it, and the upgraded app decrypted and displayed the message (also after restart). See docs/verification/v0.4.6/IR12-APK-UPGRADE-EVIDENCE.md.",
+    "evidence": "docs/verification/v0.4.6/IR12-APK-UPGRADE-EVIDENCE.md",
+    "new_apk_sha256": "b68fd8210e7ea43c12fe4818459dbafb9bb53cc31162d475b9926e30353996a7"
+  },
+  "review": {
+    "independent_signoff": "PENDING",
+    "formal_github_reviews": 0,
+    "note": "Prior SHIP IT was a self-review by the implementing agent. GitHub rejects self-review. Not APPROVED.",
+    "open_blockers": [
+      "no independent reviewer (non-IR-11 author)",
+      "no release keystore (Debug Alpha only)",
+      "no physical-device/OEM verification",
+      "CI artifact certificate differs from the release candidate; CI artifact must never be uploaded"
+    ]
+  },
+  "documentation_head": "d376f407976f511837f963227115e5610f42083f",
+  "ci_artifact": {
+    "artifact_id": 13043974395,
+    "name": "PrivateInboxClassic-debug-apk",
+    "archive_sha256": "85a0c40ed46bdc8aa484c0ada6b9ce7a6564f26f71e4b956c4473ee314183049",
+    "apk_sha256": "385d85ba59421806123d1b34d685472df872f30757b58bd4617643766d99c971",
+    "cert_sha256": "256bb32f8c3be8060c5b1f6390604936b498d2625fad861b63717a17d2abf0f5",
+    "classification": "INDEPENDENT CI DEBUG BUILD \u2014 signed with the GitHub runner ephemeral debug key; NOT the release candidate and NOT upgrade-compatible with public v0.4.4-alpha",
+    "candidate_identity_match": "NO"
   }
 }

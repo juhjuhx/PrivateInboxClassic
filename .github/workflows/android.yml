@@ -29,12 +29,13 @@ jobs:
         # The official command-line tools are installed directly rather than
         # through a third-party action: fewer moving parts, and the exact
         # version is pinned instead of tracking someone else's release cadence.
+        # URL uses linux- because this job runs on ubuntu-latest.
         run: |
           set -euo pipefail
           ANDROID_TOOLS_VERSION="11076708"
-          ANDROID_TOOLS_URL="https://dl.google.com/android/repository/commandlinetools-mac-${ANDROID_TOOLS_VERSION}_latest.zip"
-          curl -fsSL -o /tmp/cmdline-tools.zip "$ANDROID_TOOLS_URL"
+          ANDROID_TOOLS_URL="https://dl.google.com/android/repository/commandlinetools-linux-${ANDROID_TOOLS_VERSION}_latest.zip"
           mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+          curl -fsSL -o /tmp/cmdline-tools.zip "$ANDROID_TOOLS_URL"
           unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tools-extract
           rm -rf "$ANDROID_SDK_ROOT/cmdline-tools/latest"
           mv /tmp/cmdline-tools-extract/cmdline-tools "$ANDROID_SDK_ROOT/cmdline-tools/latest"
@@ -99,12 +100,14 @@ jobs:
       - name: Android Lint
         run: ./gradlew --no-daemon :app:lintProdDebug
 
-      - name: Assemble debug APK
-        run: ./gradlew --no-daemon :app:assembleProdDebug
+      - name: Assemble debug APKs (prod + devtest)
+        run: ./gradlew --no-daemon :app:assembleProdDebug :app:assembleDevtestDebug
+
+      - name: Assemble test APK
+        run: ./gradlew --no-daemon :app:assembleDevtestDebugAndroidTest
 
       - name: Assemble release APK (unsigned until a release key is configured)
-        run: ./gradlew --no-daemon :app:assembleProdRelease
-        continue-on-error: true
+        run: ./gradlew --no-daemon :app:assembleProdRelease || echo "Release APK unsigned — no release keystore configured (expected for Alpha debug build)"
 
       - name: Audit the built artifacts
         run: bash scripts/audit-release.sh
@@ -126,14 +129,49 @@ jobs:
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify \
             --print-certs app/build/outputs/apk/prod/debug/app-prod-debug.apk
 
-      - name: Instrumentation on the ISOLATED devtest variant
-        # The destructive tests (the ones that clear the database) run against
-        # the devtest variant, whose application id has its own data directory.
-        # They physically cannot reach the production app's database, which is
-        # what makes running them on a device safe.
-        run: ./gradlew --no-daemon :app:connectedDevtestDebugAndroidTest
-        continue-on-error: true
+      - name: Set up KVM permissions
+        run: |
+          sudo groupadd -r kvm 2>/dev/null || true
+          sudo usermod -aG kvm $USER || true
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules 2>/dev/null || true
+          sudo udevadm trigger --name-match=kvm 2>/dev/null || true
+          sudo chmod 666 /dev/kvm 2>/dev/null || echo "Cannot chmod /dev/kvm"
+          ls -la /dev/kvm
 
+      - name: Set up Android Emulator and run Instrumentation
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          force-avd-creation: true
+          disable-animations: true
+          script: |
+            # Install the app first (preserves data with -r), then push DHC fixtures.
+            ./gradlew --no-daemon :app:assembleDevtestDebug :app:assembleDevtestDebugAndroidTest
+            adb install -r app/build/outputs/apk/devtest/debug/app-devtest-debug.apk
+            # Push DHC cross-language fixtures to the devtest app's internal cache.
+            # Tests read from /data/user/0/tw.personal.privateinbox.devtest/cache/dhc-fixtures/
+            adb shell "run-as tw.personal.privateinbox.devtest mkdir -p cache/dhc-fixtures"
+            adb push app/build/outputs/dhc-fixtures/python-export.picbox /data/local/tmp/
+            adb push app/build/outputs/dhc-fixtures/python-export-v99.picbox /data/local/tmp/
+            adb shell "run-as tw.personal.privateinbox.devtest cp /data/local/tmp/python-export.picbox cache/dhc-fixtures/"
+            adb shell "run-as tw.personal.privateinbox.devtest cp /data/local/tmp/python-export-v99.picbox cache/dhc-fixtures/"
+            adb shell "run-as tw.personal.privateinbox.devtest ls -la cache/dhc-fixtures/"
+            # Run instrumentation tests.
+            #
+            # IR-06: this step is AUTHORITATIVE. There is no `|| true` and no
+            # blanket continue-on-error, so a red CI run means a real test
+            # failure. The SystemNotificationE2E suite used to be masked with
+            # `|| true`, which meant a green check could not prove it passed --
+            # and it never did, because DebugSettingsProvider.postSelfTest was
+            # missing entirely. That is fixed in this commit, so the suite is
+            # required again.
+            #
+            # The whole devtest instrumentation suite runs in ONE invocation so
+            # the JUnit XML contains every test, including the E2E suite.
+            ./gradlew --no-daemon :app:connectedDevtestDebugAndroidTest
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4

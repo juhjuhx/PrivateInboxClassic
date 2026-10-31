@@ -119,7 +119,7 @@ so that nobody reports them as defects.
 
 | Environment | Status |
 |-------------|--------|
-| Android 16 (API 36), AOSP emulator | **Tested** — 126 instrumentation tests, 84 unit tests |
+| Android 16 (API 36), AOSP emulator | **Tested** — 291 instrumentation tests, 157 unit tests |
 | Android 9 to 15 | **NOT TESTED** — no device available |
 | vivo OriginOS, Xiaomi HyperOS, OPPO ColorOS, realme UI, HONOR MagicOS, Huawei EMUI | **NOT TESTED** — no device available |
 | Samsung One UI, Motorola | **NOT TESTED** — no device available |
@@ -283,9 +283,9 @@ See [`docs/DATABASE.md`](docs/DATABASE.md) and
 
 | Suite | Count | Command |
 |-------|-------|---------|
-| Instrumentation (isolated variant) | 126 | `./scripts/g.sh :app:connectedDevtestDebugAndroidTest` |
-| Instrumentation (production variant) | 126, destructive ones skip | `./scripts/g.sh :app:connectedProdDebugAndroidTest` |
-| Unit | 84 | `./scripts/g.sh :app:testProdDebugUnitTest` |
+| Instrumentation (isolated variant) | 291 | `./scripts/g.sh :app:connectedDevtestDebugAndroidTest` |
+| Instrumentation (production variant) | 291, destructive ones skip | `./scripts/g.sh :app:connectedProdDebugAndroidTest` |
+| Unit | 157 | `./scripts/g.sh :app:testProdDebugUnitTest` |
 | DHC connector (Python) | 23 | `python3 integrations/dhc/tests/test_connector.py` |
 | Cross-language fixtures | 7 | `DhcPythonFixtureInstrumentedTest` (instrumentation; runs with the suite above) |
 

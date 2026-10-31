@@ -325,7 +325,7 @@ class PrivateNotificationListener : NotificationListenerService() {
                 }
                 for (i in results.indices) {
                     when (val outcome = results[i]) {
-                        InboxDatabase.SaveResult.NEW -> {
+                        is InboxDatabase.SaveResult.NEW -> {
                             CaptureMetrics.dbCommitted.incrementAndGet()
                             CaptureMetrics.endToEnd.record(
                                 (System.nanoTime() - batch.enqueuedAt) / 1_000_000
@@ -335,7 +335,7 @@ class PrivateNotificationListener : NotificationListenerService() {
                                 CaptureDiagnostics.DB_INSERT_SUCCESS, null,
                                 batch.startTs, batch.trace)
                         }
-                        InboxDatabase.SaveResult.DUPLICATE -> {
+                        is InboxDatabase.SaveResult.DUPLICATE -> {
                             CaptureMetrics.dbDuplicated.incrementAndGet()
                             CaptureMetrics.endToEnd.record(
                                 (System.nanoTime() - batch.enqueuedAt) / 1_000_000
@@ -360,7 +360,12 @@ class PrivateNotificationListener : NotificationListenerService() {
                 // in `message_conversation`, and `reconcilePendingLinks()` on
                 // the next open recovers anything left pending.
                 if (failedIndices.isEmpty()) {
-                    linkBatchToCanonicalConversation(app, batch, db)
+                    // IR-03: hand the linker the ids SQLite actually assigned,
+                    // so it never re-derives them from the NUL-containing key.
+                    val committedIds = results.mapNotNull { r ->
+                        (r as? InboxDatabase.SaveResult.NEW)?.id
+                    }
+                    linkBatchToCanonicalConversation(app, batch, committedIds)
                 }
                 if (failedIndices.isEmpty()) continue
                 // Only the failed rows are carried forward. They keep their
@@ -461,9 +466,16 @@ class PrivateNotificationListener : NotificationListenerService() {
     private fun linkBatchToCanonicalConversation(
         app: android.content.Context,
         batch: PreparedBatch,
-        db: InboxDatabase?
+        /**
+         * IR-03: the ids SQLite actually assigned to this batch's NEW rows,
+         * reported by save(). Linking these ids cannot confuse this batch with
+         * a concurrent notification for the same conversation, and it never
+         * compares the NUL-containing legacy key.
+         */
+        newRowIds: List<Long> = emptyList()
     ) {
         if (batch.messages.isEmpty()) return
+        if (newRowIds.isEmpty()) return
         val startNs = System.nanoTime()
         try {
             val store = canonicalStore(app)
@@ -491,18 +503,9 @@ class PrivateNotificationListener : NotificationListenerService() {
                 else CaptureDiagnostics.IDENTITY_RESOLVED, null,
                 batch.startTs, batch.trace)
 
-            // Link the committed rows: rows with this legacy key that are not
-            // linked yet, newest first, limited to this batch's size.
-            val ids = ArrayList<Long>(batch.messages.size)
-            db!!.readableDatabase.rawQuery(
-                "SELECT m.id FROM messages m LEFT JOIN message_conversation l " +
-                    "ON l.message_id = m.id " +
-                    "WHERE m.conversation_key = ? AND l.message_id IS NULL " +
-                    "ORDER BY m.id DESC LIMIT ?",
-                arrayOf(legacyKey, batch.messages.size.toString())
-            ).use { c ->
-                while (c.moveToNext()) ids.add(c.getLong(0))
-            }
+            // Link EXACTLY the rows this batch inserted. No key comparison, no
+            // "newest N" heuristic: the ids come straight from the insert.
+            val ids = newRowIds
             var linked = 0
             for (id in ids) {
                 try {
