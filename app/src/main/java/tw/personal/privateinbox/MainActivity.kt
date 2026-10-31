@@ -829,6 +829,12 @@ class MainActivity : ComponentActivity() {
         showChat()
     }
 
+    /** F-05 test hook: trigger the older-page read path exactly as the UI does. */
+    @VisibleForTesting
+    internal fun loadOlderForTest() {
+        loadOlderChatMessages()
+    }
+
     /** IR-11D test hook: read the live chat pagination state without mutating it. */
     @VisibleForTesting
     internal fun chatStateForTest(): Map<String, Any?> = mapOf(

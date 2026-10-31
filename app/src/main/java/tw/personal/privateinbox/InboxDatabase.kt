@@ -499,7 +499,9 @@ class InboxDatabase(private val appContext: Context) :
         // empty WHERE clause in that case, which silently read (and decrypted)
         // the ENTIRE messages table -- a cross-conversation disclosure.
         if (keyHexes.isEmpty() && !hasAnyLink) {
-            android.util.Log.d("READMODEL", "fail-closed: unknown canonicalId=$canonicalId")
+            // F-05: no canonical id, title or key in logs. The stage code alone
+            // is enough to diagnose this branch.
+            android.util.Log.d("READMODEL", "fail-closed: no alias and no link")
             return ReadResult(emptyList(), CryptoStore.KeyState.KEY_AVAILABLE, 0, false)
         }
         val output = ArrayList<Entry>()
@@ -537,7 +539,17 @@ class InboxDatabase(private val appContext: Context) :
             args += beforeReceivedAt.toString()
             args += beforeId.toString()
         }
-        android.util.Log.d("READMODEL", "sql=${"SELECT id FROM messages WHERE $selection"} args=$args")
+        // F-05: never log the SQL text or its arguments. `args` carries hex-encoded
+        // legacy conversation keys (package \0 shortcut? \0 title) and canonical
+        // conversation ids, which are exactly the metadata AGENTS.md hard rule 4
+        // forbids. Only the shape of the query is recorded: how many predicates
+        // and how many bound values, which is enough to tell a fail-closed empty
+        // selection apart from a real one.
+        android.util.Log.d(
+            "READMODEL",
+            "query: predicates=${if (selection.isEmpty()) 0 else 1} bindArgs=${args.size} " +
+                "bounded=$bounded cursor=${beforeReceivedAt != null && beforeId != null}"
+        )
         readableDatabase.rawQuery(
             "SELECT id, package_name, received_at, source_ts, sealed_content, " +
                 "sealed_image, conversation_key, message_kind FROM messages " +

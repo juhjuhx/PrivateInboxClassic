@@ -28,7 +28,7 @@
 
 | Artifact | SHA-256 |
 |----------|---------|
-| PrivateInboxClassic-v0.4.6-alpha-debug.apk | `d7b348a7ab8ea5971839e8333325478a89cb9216cf45b9e394801f8736d18d67` |
+| PrivateInboxClassic-v0.4.6-alpha-debug.apk | `b68fd8210e7ea43c12fe4818459dbafb9bb53cc31162d475b9926e30353996a7` |
 | Signing cert | `c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4` (keystore `.android-home/debug.keystore`) |
 
 > Superseded: this table previously recorded APK
@@ -63,7 +63,10 @@ header in `FLAKE-ANALYSIS.md`.
 | CI / Build / Migration / DHC | PASS |
 | APK signing verified | PASS — cert `c876051e…`, matches public v0.4.4-alpha |
 | Public upgrade compatibility | VERIFIED (emulator API 33, data preserved) |
-| Encrypted message-table readability after upgrade | **VERIFIED** (API 33: decrypted, displayed, and again after restart) — `IR12-APK-UPGRADE-EVIDENCE.md` |
+| Encrypted message-table readability after upgrade | **VERIFIED on the F-05-fixed APK** (API 33: decrypted, displayed, and again after restart) — `IR12-APK-UPGRADE-EVIDENCE.md` |
+| F-05 privacy logs | **FIXED** — READMODEL no longer logs SQL/args/titles/keys/ids; regression test fails if re-introduced |
+| F-01 release staging | **FIXED** — staging APK replaced with the F-05-fixed build, sums regenerated and verified |
+| F-06/F-07 disclosure | **FIXED** — release notes created; README known-issues rewritten |
 | Unresolved flake disclosed | Historical FLAKY_UNRESOLVED record; not observed in run 41013529150 |
 | IR remediation (IR-01…IR-11) | PASS — evidence in IR-REMEDIATION-EVIDENCE.md + SIGNING-IDENTITY-AUDIT.md |
 | Independent review (2nd reviewer) | **PENDING — blocks publication** |
