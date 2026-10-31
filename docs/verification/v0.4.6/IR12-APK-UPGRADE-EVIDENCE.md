@@ -6,7 +6,7 @@ document; where an earlier document disagreed, the measurement is stated and the
 document is corrected.
 
 Repo: `juhjuhx/PrivateInboxClassic` · PR #4 · source HEAD
-`c6d9b1aed4b730935bea425091afb90847eacdf7` · CI run `41204287676`.
+`d376f407976f511837f963227115e5610f42083f` · CI run `41231048769`.
 
 ---
 
@@ -39,7 +39,7 @@ raw `curl` of the artifact zip followed by `unzip`. Both produced
 
 | | Candidate (documented) | CI artifact (measured) |
 |---|---|---|
-| APK SHA-256 | `d7b348a7ab8ea5971839e8333325478a89cb9216cf45b9e394801f8736d18d67` | `385d85ba59421806123d1b34d685472df872f30757b58bd4617643766d99c971` |
+| APK SHA-256 | `b68fd8210e7ea43c12fe4818459dbafb9bb53cc31162d475b9926e30353996a7` | `385d85ba59421806123d1b34d685472df872f30757b58bd4617643766d99c971` |
 | Certificate SHA-256 | `c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4` | `256bb32f8c3be8060c5b1f6390604936b498d2625fad861b63717a17d2abf0f5` |
 
 **Neither value matches.**
@@ -71,7 +71,7 @@ that 290/290 tests pass on that build.
 
 ## 3. Signed release candidate — rebuilt and re-measured
 
-Built from source HEAD `c6d9b1a` with the project keystore:
+Built from source HEAD `d376f407976f511837f963227115e5610f42083f` with the project keystore:
 
 ```bash
 ./gradlew :app:assembleProdDebug --rerun-tasks \
@@ -83,7 +83,7 @@ Built from source HEAD `c6d9b1a` with the project keystore:
 
 | Property | Value |
 |---|---|
-| **APK SHA-256** | `d7b348a7ab8ea5971839e8333325478a89cb9216cf45b9e394801f8736d18d67` |
+| **APK SHA-256** | `b68fd8210e7ea43c12fe4818459dbafb9bb53cc31162d475b9926e30353996a7` |
 | **Certificate SHA-256** | `c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4` |
 | versionCode / versionName | `11` / `0.4.6` |
 | Variant | `prodDebug` |
@@ -163,6 +163,68 @@ This closes the `NOT_DIRECTLY_TESTED` gap recorded in the previous round.
 
 ---
 
+
+## 4b. API 33 in-place upgrade — new candidate (b68fd821) — VERIFIED
+
+Isolated emulator AVD `upgrade_test` (API 33, arm64). Never a user device.
+
+### 4b.1 Genuine encrypted data was created first
+
+Same procedure as 4.1: stub APK declaring `jp.naver.line.android` posts through
+`NotificationManager`; production listener captures it. One row in `messages`,
+`sealed_content` 120 bytes.
+
+### 4b.2 Upgrade — new candidate
+
+| Step | Command | Result |
+|---|---|---|
+| Install old version | `adb install PrivateInboxClassic-v0.4.4-debug.apk` | Success, versionCode 10 |
+| Create encrypted data | stub posts notification → listener captures | 1 encrypted row |
+| In-place upgrade | `adb install -r app-prod-debug.apk` (candidate `b68fd821…`, cert `c876051e…`) | **Success** |
+| versionCode / versionName | `dumpsys package` | `11` / `0.4.6` |
+| Package signature | `dumpsys package` | `[a0e2e7cb]` **unchanged** before and after |
+| Data directory | `run-as ls databases/` | `inbox.db` present |
+| Preferences | `run-as ls shared_prefs/` | `capture_diag.xml`, `local_config.xml` present |
+| Ciphertext integrity | `hex(sealed_content)` pre vs post | **byte-identical** |
+
+### 4b.3 ENCRYPTED_MESSAGE_READABILITY — VERIFIED (new candidate)
+
+The upgraded app (`b68fd821…`) was launched, unlocked with the device credential,
+and the conversation opened. The real UI rendered:
+
+```
+IR12 Probe Chat
+今天
+IR12-ENCRYPTED-MARKER-20261101
+11/01 00:16（擷取）
+```
+
+That is the exact plaintext which, before the upgrade, existed only as a 120-byte
+ciphertext blob. The Android Keystore key (system-side, bound to the app UID,
+unchanged by an in-place update) decrypted it successfully in the upgraded build.
+
+### 4b.4 Survives restart — new candidate
+
+Force-stopped the app, relaunched, unlocked again, reopened the conversation.
+The marker `IR12-ENCRYPTED-MARKER-20261101` rendered again. Readability is not a
+one-shot in-memory artifact.
+
+**Upgrade summary — new candidate:**
+
+| Field | Result |
+|---|---|
+| `API33_UPGRADE_RESULT` | **PASS** (versionCode 10 → 11, signature and data preserved) |
+| `ENCRYPTED_MESSAGE_READABILITY` | **VERIFIED** (decrypted and displayed, and again after restart) |
+
+### 4b.5 Evidence files
+
+- `docs/verification/v0.4.6/ir12-evidence/ui-newapk-chat-detail.xml` — UI dump showing the decrypted message (new candidate)
+- `docs/verification/v0.4.6/ir12-evidence/ui-newapk-after-restart.xml` — UI dump after restart (new candidate)
+
+The UI dumps contain the plaintext marker `IR12-ENCRYPTED-MARKER-20261101`, proving
+end-to-end decryption on the new candidate.
+
+
 ## 5. Evidence classification
 
 Required distinctions, applied strictly:
@@ -170,9 +232,9 @@ Required distinctions, applied strictly:
 | Class | Item |
 |---|---|
 | **Previously measured** | Public v0.4.4-alpha SHA `6c6def17…`, cert `c876051e…`; candidate SHA `d7b348a7…` |
-| **Freshly remeasured this round** | Candidate SHA `d7b348a7…` (rebuilt, identical); candidate cert `c876051e…`; CI archive `85a0c40e…`; CI APK `385d85ba…`; CI cert `256bb32f…`; upgrade and decryption results |
+| **Freshly remeasured this round** | Candidate SHA `b68fd821…` (rebuilt, identical); candidate cert `c876051e…`; CI archive `85a0c40e…`; CI APK `385d85ba…`; CI cert `256bb32f…`; upgrade and decryption results |
 | **CI artifact** | `385d85ba…` / `256bb32f…` — independent CI debug build, **not** the release asset |
-| **Signed release candidate** | `d7b348a7…` / `c876051e…` — the only build eligible to become the v0.4.6-alpha asset |
+| **Signed release candidate** | `b68fd821…` / `c876051e…` — the only build eligible to become the v0.4.6-alpha asset |
 | **Still unverified** | Behaviour on a physical device / OEM ROM; production release signing (no release keystore exists) |
 
 ### Files
@@ -192,12 +254,12 @@ evidence.
 
 ## 6. What this does and does not license
 
-**Does:** the signed candidate `d7b348a7…` updates a real v0.4.4-alpha install in
+**Does:** the signed candidate `b68fd821…` updates a real v0.4.4-alpha install in
 place, preserves its data, and its previously stored encrypted message remains
 readable and displayable — verified on API 33, including after a restart.
 
 **Does not:** authorise publishing. Before any release the APK that is actually
-uploaded must be re-measured and must equal `d7b348a7…` /
+uploaded must be re-measured and must equal `b68fd821…` /
 `c876051e…`. If the upload does not match, do not publish. And the CI artifact
 `385d85ba…` must never be uploaded as the release asset — its certificate cannot
 update existing users.

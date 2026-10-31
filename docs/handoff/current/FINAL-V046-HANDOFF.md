@@ -2,10 +2,10 @@
 
 **Status:** EVIDENCE_REPAIRED — PENDING INDEPENDENT REVIEW SIGN-OFF  
 **Branch:** `v046-integration-repair-final`  
-**Code HEAD:** `79f2942059a815d275403d924be1c1e25024d786` (product code + tests)  
-**Documentation HEAD:** `ecadb9337426cf9be27d5197d038aba2d201ee71` (docs-only commits on top)  
+**Code HEAD:** `d376f407976f511837f963227115e5610f42083f` (product code + tests)
+**Documentation HEAD:** `d376f407976f511837f963227115e5610f42083f`
 **PR:** https://github.com/juhjuhx/PrivateInboxClassic/pull/4  
-**CI:** [run 41013529150](https://github.com/juhjuhx/PrivateInboxClassic/actions/runs/41013529150) — success, 290/290  
+**CI:** [run 41231048769](https://github.com/juhjuhx/PrivateInboxClassic/actions/runs/41231048769) — success, 291/291
 **Working tree:** clean on this branch
 
 ---
@@ -14,7 +14,7 @@
 
 | Suite | Result |
 |-------|--------|
-| Full instrumentation | **290 / 290 PASS** (0 skipped, 0 failed) |
+| Full instrumentation | **291 / 291 PASS** (0 skipped, 0 failed) |
 | IR-11 regression | **11 / 11 PASS** |
 | JVM unit tests | **157 / 157 PASS** |
 | Android Lint | PASS |
@@ -33,12 +33,12 @@
 
 > Superseded: this table previously recorded APK
 > `a817434edefcb8f5becec48b4ab46ba91badc80bed2b294c0355247c1d6a653c`, which is
-> not reproducible from source HEAD `79f2942`. The measured value replaces it.
+> not reproducible from source HEAD `d376f40`. The measured value replaces it.
 > See `docs/verification/v0.4.6/SIGNING-IDENTITY-AUDIT.md`.
 
 ## Upgrade Compatibility
 **VERIFIED (emulator API 33)** — public `v0.4.4-alpha` (`6c6def17…`, cert
-`c876051e…`) → v0.4.6 (`d7b348a7…`, cert `c876051e…`) via `adb install -r`.
+`c876051e…`) → v0.4.6 (`b68fd821…`, cert `c876051e…`) via `adb install -r`.
 versionCode 10 → 11; app data dir, marker file and `shared_prefs/` preserved;
 package signature `[a0e2e7cb]` unchanged; new build launches with no crash.
 
@@ -67,7 +67,7 @@ header in `FLAKE-ANALYSIS.md`.
 | F-05 privacy logs | **FIXED** — READMODEL no longer logs SQL/args/titles/keys/ids; regression test fails if re-introduced |
 | F-01 release staging | **FIXED** — staging APK replaced with the F-05-fixed build, sums regenerated and verified |
 | F-06/F-07 disclosure | **FIXED** — release notes created; README known-issues rewritten |
-| Unresolved flake disclosed | Historical FLAKY_UNRESOLVED record; not observed in run 41013529150 |
+| Unresolved flake disclosed | Historical FLAKY_UNRESOLVED record; not observed in run 41231048769 |
 | IR remediation (IR-01…IR-11) | PASS — evidence in IR-REMEDIATION-EVIDENCE.md + SIGNING-IDENTITY-AUDIT.md |
 | Independent review (2nd reviewer) | **PENDING — blocks publication** |
 | Release keystore | NOT EXISTS (BLOCKS production release) |
@@ -87,7 +87,7 @@ inferred. Details: `docs/verification/v0.4.6/IR12-APK-UPGRADE-EVIDENCE.md`.
 
 ---
 
-## IR-11 — chat detail pagination safety (source HEAD `79f2942`)
+## IR-11 — chat detail pagination safety (source HEAD `d376f40`)
 
 | Item | Change |
 |---|---|
@@ -114,7 +114,7 @@ inferred. Details: `docs/verification/v0.4.6/IR12-APK-UPGRADE-EVIDENCE.md`.
 
 ### Full instrumentation — 290 / 290 PASS
 
-GitHub Actions run [41011478801](https://github.com/juhjuhx/PrivateInboxClassic/actions/runs/41011478801),
+GitHub Actions run [41231048769](https://github.com/juhjuhx/PrivateInboxClassic/actions/runs/41231048769),
 emulator API 36, 0 skipped, 0 failed. Reproduced locally (`OK (290 tests)`).
 
 ## Review state

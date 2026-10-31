@@ -63,7 +63,7 @@ certificate SHA-256. The keystore that matters is the one whose certificate is
 
 ## 3. The release candidate built for this release
 
-Built from source HEAD `79f2942059a815d275403d924be1c1e25024d786`:
+Built from source HEAD `d376f407976f511837f963227115e5610f42083f`:
 
 ```bash
 ./gradlew :app:assembleProdDebug --rerun-tasks \
@@ -79,14 +79,14 @@ is written into the repository, the build output, or this document.**
 | Property | Measured value |
 |---|---|
 | File | `PrivateInboxClassic-v0.4.6-alpha-debug.apk` |
-| SHA-256 | `d7b348a7ab8ea5971839e8333325478a89cb9216cf45b9e394801f8736d18d67` |
+| SHA-256 | `b68fd8210e7ea43c12fe4818459dbafb9bb53cc31162d475b9926e30353996a7` |
 | Certificate SHA-256 | `c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4` |
 | Certificate DN | `CN=Android Debug, O=Android, C=US` |
 | Application ID | `tw.personal.privateinbox` |
 | versionCode | `11` |
 | versionName | `0.4.6` |
 | Build variant | `prodDebug` |
-| Source HEAD | `79f2942059a815d275403d924be1c1e25024d786` |
+| Source HEAD | `d376f407976f511837f963227115e5610f42083f` |
 | INTERNET permission | **absent** (grep count 0) |
 | Declared permissions | `POST_NOTIFICATIONS`, `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` |
 | Debug provider | present (`tw.personal.privateinbox.debugsettings`), signature-permission guarded |
@@ -95,7 +95,7 @@ is written into the repository, the build output, or this document.**
 
 `./gradlew :app:assembleProdDebug --rerun-tasks` with the same `-P` flags was run
 twice from a clean task graph. Both builds produced
-`d7b348a7ab8ea5971839e8333325478a89cb9216cf45b9e394801f8736d18d67` — the hash is
+`b68fd8210e7ea43c12fe4818459dbafb9bb53cc31162d475b9926e30353996a7` — the hash is
 reproducible from this source tree, so the published value can be re-derived by
 anyone with the keystore.
 
@@ -110,7 +110,7 @@ v0.4.4-alpha certificate.
 > v0.4.6 APK. No file with that hash exists in this build. A build from the same
 > source with the default keystore produced `e051fec4…` (cert `46488e99…`,
 > which would NOT update an existing install); a build with the matching
-> keystore produces `d7b348a7…` (cert `c876051e…`). The published hash was from
+> keystore produces `b68fd821…` (cert `c876051e…`). The published hash was from
 > a build that is not reproducible from this tree and is superseded by the
 > measured value above.
 
@@ -139,7 +139,7 @@ Both APKs used in the test:
 
 - old: `6c6def174902a192cf5f65846261c517ff42edff62bde8ee9c72104ddd8c1556`
   cert `c876051e…`
-- new: `d7b348a7ab8ea5971839e8333325478a89cb9216cf45b9e394801f8736d18d67`
+- new: `b68fd8210e7ea43c12fe4818459dbafb9bb53cc31162d475b9926e30353996a7`
   cert `c876051e…`
 
 ---
@@ -206,10 +206,10 @@ $ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner verify --print-certs \
 
 Publish only if the two values are exactly:
 
-- SHA-256 `d7b348a7ab8ea5971839e8333325478a89cb9216cf45b9e394801f8736d18d67`
+- SHA-256 `b68fd8210e7ea43c12fe4818459dbafb9bb53cc31162d475b9926e30353996a7`
 - Certificate SHA-256 `c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4`
 
-If either differs, do **not** publish: rebuild from code HEAD `79f2942` with
+If either differs, do **not** publish: rebuild from code HEAD `d376f407976f511837f963227115e5610f42083f` with
 `.android-home/debug.keystore` and re-measure, or investigate why the artifact
 changed. A mismatched upload is the one failure this whole audit exists to
 prevent.
@@ -237,5 +237,5 @@ Therefore:
   certificate → Android treats it as a different app).
 - It must **never** be uploaded as the v0.4.6-alpha release asset.
 
-The release candidate remains `d7b348a7…` / `c876051e…`, rebuilt and re-verified
+The release candidate remains `b68fd821…` / `c876051e…`, rebuilt and re-verified
 this round. Only that identity may be published.

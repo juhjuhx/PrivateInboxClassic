@@ -11,9 +11,9 @@ IR-09, IR-10 or IR-11.
 |---|---|
 | Repository | `juhjuhx/PrivateInboxClassic` |
 | PR | #4 — https://github.com/juhjuhx/PrivateInboxClassic/pull/4 |
-| Source HEAD | `c6d9b1aed4b730935bea425091afb90847eacdf7` (code HEAD `79f2942`) |
-| CI | run [41204287676](https://github.com/juhjuhx/PrivateInboxClassic/actions/runs/41204287676) — success, **290/290** instrumentation |
-| Full diff | https://github.com/juhjuhx/PrivateInboxClassic/compare/3d56a7f5...c6d9b1a |
+| Source HEAD | `d376f407976f511837f963227115e5610f42083f` (code HEAD `d376f407976f511837f963227115e5610f42083f`) |
+| CI | run [41231048769](https://github.com/juhjuhx/PrivateInboxClassic/actions/runs/41231048769) — success, **291/291** instrumentation |
+| Full diff | https://github.com/juhjuhx/PrivateInboxClassic/compare/3d56a7f5...d376f407976f511837f963227115e5610f42083f |
 | Current review state | **REVIEW_PENDING** — 0 formal GitHub reviews |
 
 Nothing is merged and nothing is released. `v0.4.4-alpha` is the only published
@@ -72,7 +72,7 @@ formal review exists.
 
 | | Value |
 |---|---|
-| **Signed release candidate** APK SHA-256 | `d7b348a7ab8ea5971839e8333325478a89cb9216cf45b9e394801f8736d18d67` |
+| **Signed release candidate** APK SHA-256 | `b68fd8210e7ea43c12fe4818459dbafb9bb53cc31162d475b9926e30353996a7` |
 | **Signed release candidate** cert SHA-256 | `c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4` |
 | Public v0.4.4-alpha APK SHA-256 | `6c6def174902a192cf5f65846261c517ff42edff62bde8ee9c72104ddd8c1556` |
 | Public v0.4.4-alpha cert SHA-256 | `c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4` |
@@ -93,11 +93,11 @@ $ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner verify --print-certs \
   app/build/outputs/apk/prod/debug/app-prod-debug.apk
 ```
 
-Expected: hash `d7b348a7…`, cert `c876051e…`.
+Expected: hash `b68fd821…`, cert `c876051e…`.
 
 ### ⚠ The CI artifact is NOT the release asset
 
-Artifact `13043974395` from run `41204287676` measures:
+Artifact `13043974395` from run `41231048769` measures:
 
 - APK SHA-256 `385d85ba59421806123d1b34d685472df872f30757b58bd4617643766d99c971`
 - cert `256bb32f8c3be8060c5b1f6390604936b498d2625fad861b63717a17d2abf0f5`
@@ -156,7 +156,7 @@ Do not publish until **all** hold:
 2. No unresolved P0/P1.
 3. CI green on the final source HEAD.
 4. The APK **actually uploaded** re-measured and equal to
-   `d7b348a7…` / `c876051e…`.
+   `b68fd821…` / `c876051e…`.
 5. Release notes and assets consistent with the measured values.
 
 If the uploaded APK does not match, stop — do not publish.

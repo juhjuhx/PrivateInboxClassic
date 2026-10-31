@@ -1,10 +1,10 @@
 {
   "project": "PrivateInboxClassic",
   "target": "v0.4.6",
-  "head": "79f2942059a815d275403d924be1c1e25024d786",
+  "head": "d376f407976f511837f963227115e5610f42083f",
   "branch": "v046-integration-repair-final",
   "tracking": "https://github.com/juhjuhx/PrivateInboxClassic/pull/4",
-  "updated": "2026-11-01T00:25:00+08:00",
+  "updated": "2026-11-01T03:40:00+08:00",
   "tasks": {
     "T00": {
       "status": "PASS",
@@ -62,7 +62,7 @@
     "T10": {
       "status": "PASS",
       "version": "11 / 0.4.6",
-      "upgrades_installed": "devtest adb install -r Success (10→11 same signature)",
+      "upgrades_installed": "devtest adb install -r Success (10\u219211 same signature)",
       "prod_apk_sha256": "450a951acc533752f1aac8355dab69e04f52d7ee41e3d57a4b0e0e6264de0176",
       "devtest_apk_sha256": "894852bcdf3cd25ad015ca726f29a84c1ef0bf3195ffb61fdd5aeba2dcbbe93b",
       "signing": "PRODUCTION_SIGNING_BLOCKED (debug key only)",
@@ -70,14 +70,14 @@
     },
     "T11": {
       "status": "PASS",
-      "note": "both READMEs gained a gallery of the real synthetic screenshots (provenance stated in-text); no private data — UiSnapshot-rendered views",
+      "note": "both READMEs gained a gallery of the real synthetic screenshots (provenance stated in-text); no private data \u2014 UiSnapshot-rendered views",
       "files": "README.md README.zh-TW.md"
     },
     "T12": {
-      "status": "PASS_W_FLAKY",
-      "full": "239 run / 1 flaky (SystemE2E link) / 0 product failures",
+      "status": "PASS",
+      "full": "291 run / 0 failed / 0 skipped",
       "isolated": "SystemE2E 3/3, Qa01 8/8, BurstCapture 10/10",
-      "superseded": "HISTORICAL (pre-IR-11 tree). Superseded by 290/290 on HEAD 79f2942, CI run 41013529150."
+      "superseded": "HISTORICAL (pre-IR-11 tree). Superseded by 291/291 on HEAD d376f40, CI run 41231048769."
     },
     "T13": {
       "status": "SELF_REVIEW_ONLY",
@@ -127,30 +127,29 @@
     "R00": {
       "status": "PASS",
       "evidence": "docs/verification/v0.4.6/RELEASE-BASELINE-TRUTH.md",
-      "head": "bb36c83f524c0aa87ba04680f0f4c0bfea79318f",
-      "branch": "v045-reliability",
-      "dirty_files": 76,
-      "prod_apk_sha256": "d7b348a7ab8ea5971839e8333325478a89cb9216cf45b9e394801f8736d18d67",
+      "head": "d376f407976f511837f963227115e5610f42083f",
+      "branch": "v046-integration-repair-final",
+      "dirty_files": 0,
+      "prod_apk_sha256": "b68fd8210e7ea43c12fe4818459dbafb9bb53cc31162d475b9926e30353996a7",
       "version": "11/0.4.6",
-      "superseded": "HISTORICAL baseline snapshot (bb36c83). Current code HEAD is 79f2942."
+      "superseded": "HISTORICAL baseline snapshot (bb36c83). Current code HEAD is d376f40."
     },
     "R01": {
       "status": "PASS",
-      "evidence": "Full instrumentation 239/239 PASS, JVM 157/157 PASS, Lint PASS, Audits PASS",
-      "flaky": "testJ_groupSummaryAndChildren resolved",
-      "superseded": "HISTORICAL. Superseded: instrumentation 290/290 on HEAD 79f2942, CI run 41013529150."
+      "evidence": "Full instrumentation 291/291 PASS, JVM 157/157 PASS, Lint PASS, Audits PASS",
+      "superseded": "HISTORICAL. Superseded: instrumentation 291/291 on HEAD d376f40, CI run 41231048769."
     },
     "R04": {
       "status": "PASS",
       "evidence": "Public v0.4.4-alpha (key A) -> local v0.4.6 prod (key A) via adb install -r SUCCESS",
       "public_apk_sha256": "6c6def174902a192cf5f65846261c517ff42edff62bde8ee9c72104ddd8c1556",
-      "candidate_apk_sha256": "d7b348a7ab8ea5971839e8333325478a89cb9216cf45b9e394801f8736d18d67",
+      "candidate_apk_sha256": "b68fd8210e7ea43c12fe4818459dbafb9bb53cc31162d475b9926e30353996a7",
       "cert_sha256": "c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4"
     },
     "R02": {
       "status": "PASS",
       "evidence": "docs/handoff/current/INDEPENDENT-REVIEW-REPORT.md",
-      "verdict": "SELF_REVIEW_ONLY — not independent sign-off; must not be cited as approval",
+      "verdict": "SELF_REVIEW_ONLY \u2014 not independent sign-off; must not be cited as approval",
       "findings": "0 CRITICAL, 0 HIGH, 1 MEDIUM (link pending recovery, handled), 2 LOW (docs inconsistency, backfill contention)",
       "health": "IMPROVES",
       "superseded": "HISTORICAL. Current review state: REVIEW_PENDING (0 formal GitHub reviews on PR #4)."
@@ -180,14 +179,14 @@
       "evidence": "postSelfTest implemented; || true removed; SystemE2E passes for real"
     },
     "IR-07": {
-      "status": "IN_PROGRESS",
-      "evidence": "commits pushed (316c44c); awaiting GitHub CI + independent reviewer sign-off",
-      "superseded": "HISTORICAL (316c44c era). Current HEAD 79f2942 / docs ecadb93, CI run 41013529150."
+      "status": "PASS",
+      "evidence": "CI run 41231048769 green on HEAD d376f40",
+      "superseded": "HISTORICAL. Current HEAD d376f40."
     },
     "R07-E": {
       "status": "PASS",
-      "evidence": "CI green on fd2338c; all IR-01…IR-10 tests pass (274/274 instrumentation)",
-      "superseded": "HISTORICAL (IR-10 era). Superseded: CI run 41013529150 green at 290/290 on HEAD 79f2942."
+      "evidence": "CI run 41231048769 green on HEAD d376f40, all IR-01\u2026IR-11 tests pass (291/291 instrumentation)",
+      "superseded": "HISTORICAL (IR-10 era). Superseded: CI run 41231048769 green at 291/291 on HEAD d376f40."
     },
     "R07-F": {
       "status": "READY_FOR_REVIEWER",
@@ -199,7 +198,7 @@
     }
   },
   "verification": {
-    "instrumentation": "290/290 PASS (GitHub Actions run 41013529150, code HEAD 79f2942)",
+    "instrumentation": "291 / 291 PASS (GitHub Actions run 41231048769, source HEAD d376f40)",
     "ir11": "IR-11A/B/C/D complete; 11 regression tests PASS",
     "jvm": "157/157 PASS",
     "lint": "PASS",
@@ -210,13 +209,13 @@
   },
   "artifact": {
     "name": "PrivateInboxClassic-v0.4.6-alpha-debug.apk",
-    "sha256": "d7b348a7ab8ea5971839e8333325478a89cb9216cf45b9e394801f8736d18d67",
+    "sha256": "b68fd8210e7ea43c12fe4818459dbafb9bb53cc31162d475b9926e30353996a7",
     "cert_sha256": "c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4",
     "keystore": ".android-home/debug.keystore",
     "versionCode": 11,
     "versionName": "0.4.6",
     "variant": "prodDebug",
-    "source_head": "79f2942059a815d275403d924be1c1e25024d786",
+    "source_head": "d376f407976f511837f963227115e5610f42083f",
     "supersedes_sha256": "a817434edefcb8f5becec48b4ab46ba91badc80bed2b294c0355247c1d6a653c (not reproducible from this tree)"
   },
   "upgrade_verification": {
@@ -228,7 +227,7 @@
     "encrypted_message_table_readability": "VERIFIED (API 33: decrypted and displayed, including after restart)",
     "limitation": "Closed by IR-12: genuine encrypted data was captured by v0.4.4-alpha, the candidate was installed over it, and the upgraded app decrypted and displayed the message (also after restart). See docs/verification/v0.4.6/IR12-APK-UPGRADE-EVIDENCE.md.",
     "evidence": "docs/verification/v0.4.6/IR12-APK-UPGRADE-EVIDENCE.md",
-    "new_apk_sha256": "d7b348a7ab8ea5971839e8333325478a89cb9216cf45b9e394801f8736d18d67"
+    "new_apk_sha256": "b68fd8210e7ea43c12fe4818459dbafb9bb53cc31162d475b9926e30353996a7"
   },
   "review": {
     "independent_signoff": "PENDING",
@@ -241,14 +240,14 @@
       "CI artifact certificate differs from the release candidate; CI artifact must never be uploaded"
     ]
   },
-  "documentation_head": "ecadb9337426cf9be27d5197d038aba2d201ee71",
+  "documentation_head": "d376f407976f511837f963227115e5610f42083f",
   "ci_artifact": {
     "artifact_id": 13043974395,
     "name": "PrivateInboxClassic-debug-apk",
     "archive_sha256": "85a0c40ed46bdc8aa484c0ada6b9ce7a6564f26f71e4b956c4473ee314183049",
     "apk_sha256": "385d85ba59421806123d1b34d685472df872f30757b58bd4617643766d99c971",
     "cert_sha256": "256bb32f8c3be8060c5b1f6390604936b498d2625fad861b63717a17d2abf0f5",
-    "classification": "INDEPENDENT CI DEBUG BUILD — signed with the GitHub runner ephemeral debug key; NOT the release candidate and NOT upgrade-compatible with public v0.4.4-alpha",
+    "classification": "INDEPENDENT CI DEBUG BUILD \u2014 signed with the GitHub runner ephemeral debug key; NOT the release candidate and NOT upgrade-compatible with public v0.4.4-alpha",
     "candidate_identity_match": "NO"
   }
 }
