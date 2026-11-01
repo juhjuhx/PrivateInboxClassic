@@ -240,7 +240,7 @@
       "CI artifact certificate differs from the release candidate; CI artifact must never be uploaded"
     ]
   },
-  "documentation_head": "d376f407976f511837f963227115e5610f42083f",
+  "documentation_head": "2621034c829e7d583e6e5199a3d9e296fd0d74ba",
   "ci_artifact": {
     "artifact_id": 13043974395,
     "name": "PrivateInboxClassic-debug-apk",
