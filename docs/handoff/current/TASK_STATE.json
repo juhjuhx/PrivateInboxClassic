@@ -62,7 +62,7 @@
     "T10": {
       "status": "PASS",
       "version": "11 / 0.4.6",
-      "upgrades_installed": "devtest adb install -r Success (10\u219211 same signature)",
+      "upgrades_installed": "devtest adb install -r Success (10→11 same signature)",
       "prod_apk_sha256": "450a951acc533752f1aac8355dab69e04f52d7ee41e3d57a4b0e0e6264de0176",
       "devtest_apk_sha256": "894852bcdf3cd25ad015ca726f29a84c1ef0bf3195ffb61fdd5aeba2dcbbe93b",
       "signing": "PRODUCTION_SIGNING_BLOCKED (debug key only)",
@@ -70,7 +70,7 @@
     },
     "T11": {
       "status": "PASS",
-      "note": "both READMEs gained a gallery of the real synthetic screenshots (provenance stated in-text); no private data \u2014 UiSnapshot-rendered views",
+      "note": "both READMEs gained a gallery of the real synthetic screenshots (provenance stated in-text); no private data — UiSnapshot-rendered views",
       "files": "README.md README.zh-TW.md"
     },
     "T12": {
@@ -149,7 +149,7 @@
     "R02": {
       "status": "PASS",
       "evidence": "docs/handoff/current/INDEPENDENT-REVIEW-REPORT.md",
-      "verdict": "SELF_REVIEW_ONLY \u2014 not independent sign-off; must not be cited as approval",
+      "verdict": "SELF_REVIEW_ONLY — not independent sign-off; must not be cited as approval",
       "findings": "0 CRITICAL, 0 HIGH, 1 MEDIUM (link pending recovery, handled), 2 LOW (docs inconsistency, backfill contention)",
       "health": "IMPROVES",
       "superseded": "HISTORICAL. Current review state: REVIEW_PENDING (0 formal GitHub reviews on PR #4)."
@@ -185,7 +185,7 @@
     },
     "R07-E": {
       "status": "PASS",
-      "evidence": "CI run 41231048769 green on HEAD d376f40, all IR-01\u2026IR-11 tests pass (291/291 instrumentation)",
+      "evidence": "CI run 41231048769 green on HEAD d376f40, all IR-01…IR-11 tests pass (291/291 instrumentation)",
       "superseded": "HISTORICAL (IR-10 era). Superseded: CI run 41231048769 green at 291/291 on HEAD d376f40."
     },
     "R07-F": {
@@ -247,7 +247,49 @@
     "archive_sha256": "85a0c40ed46bdc8aa484c0ada6b9ce7a6564f26f71e4b956c4473ee314183049",
     "apk_sha256": "385d85ba59421806123d1b34d685472df872f30757b58bd4617643766d99c971",
     "cert_sha256": "256bb32f8c3be8060c5b1f6390604936b498d2625fad861b63717a17d2abf0f5",
-    "classification": "INDEPENDENT CI DEBUG BUILD \u2014 signed with the GitHub runner ephemeral debug key; NOT the release candidate and NOT upgrade-compatible with public v0.4.4-alpha",
+    "classification": "INDEPENDENT CI DEBUG BUILD — signed with the GitHub runner ephemeral debug key; NOT the release candidate and NOT upgrade-compatible with public v0.4.4-alpha",
     "candidate_identity_match": "NO"
+  },
+  "final_closure": {
+    "mission": "V046_ALPHA_FINAL_CLOSURE",
+    "pr_head": "1d4029fbabf1f0fda0f6f49cb1696f4bb489098d",
+    "binary_source_head": "d376f407976f511837f963227115e5610f42083f",
+    "ci_run": 41275245825,
+    "ci_attempt": 2,
+    "ci_result": "success",
+    "instrumentation": "291/291 PASS",
+    "jvm": "157/157 PASS",
+    "security_audits": "PASS",
+    "apk_sha256": "b68fd8210e7ea43c12fe4818459dbafb9bb53cc31162d475b9926e30353996a7",
+    "cert_sha256": "c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4",
+    "staged_asset_verified": true,
+    "published_asset_verified": false,
+    "open_p0": 0,
+    "open_p1": 0,
+    "formal_review": "PENDING - EXTERNAL_REVIEWER_REQUIRED",
+    "pr_merged": false,
+    "release_status": "NOT_PUBLISHED",
+    "release_url": null,
+    "final_verdict": "READY_FOR_PUBLICATION - blocked on external reviewer",
+    "remaining_external_blocker": "Independent GitHub reviewer APPROVE required (only account is PR author)",
+    "next_action": "Request independent reviewer APPROVE on PR #4; retain Draft until sign-off; do not merge or publish"
+  },
+  "c6_disk_recovery": {
+    "disk_free_before": "6.9Gi (97% used)",
+    "inventory": {
+      "active_worktree": "/tmp/v046-final/ (45MB)",
+      "historical_worktree": "/Users/huang/Desktop/我的已讀不回助理/PrivateInboxClassic-v0.2/codex-integration/ (protected, 43 uncommitted files)",
+      "main_repo_clone": "/Users/huang/Desktop/我的已讀不回助理/PrivateInboxClassic-v0.2/PrivateInboxClassic/ (older state)",
+      "local_android_sdk": "/Users/huang/Desktop/我的已讀不回助理/android-sdk (5.5GB, referenced in scripts but Homebrew SDK complete)",
+      "gradle_home": "/Users/huang/Desktop/我的已讀不回助理/gradle_home (1.1GB)",
+      "apks": "/Users/huang/Desktop/我的已讀不回助理/*.apk (~50MB total historical builds)",
+      "review_reports": "/tmp/v046-final/docs/verification/v0.4.6/review-reports-20261101/ (4 files, checksummed)"
+    },
+    "sdk_decision": "Homebrew SDK (/opt/homebrew/share/android-commandlinetools) has all components (platforms 33/36/36.1, build-tools 30/33/35/36, emulator). Local android-sdk is referenced in scripts but not required for builds. No deletion without owner authorization.",
+    "avd_decision": "test36 AVD (5.2GB) preserved for release verification.",
+    "cleanup_decision": "No destructive cleanup performed without owner authorization. Disk remains at 97% capacity (7.6Gi free). Local builds safe for small operations only.",
+    "space_recovered": 0,
+    "cache_cleaned": false,
+    "workspace_archive": "Review reports copied to /tmp/v046-final/docs/verification/v0.4.6/review-reports-20261101/ with SHA-256 checksums"
   }
 }

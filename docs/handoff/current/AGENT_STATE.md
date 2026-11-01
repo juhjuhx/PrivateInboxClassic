@@ -1,21 +1,51 @@
-```text
-PROJECT=PrivateInboxClassic
-TARGET=v0.4.6
-ACTIVE_GATE=READY_FOR_RC_INTEGRATION_GATE (H-round complete; T13 independent review still pending)
-BRANCH=v045-reliability
-HEAD=bb36c83f524c0aa87ba04680f0f4c0bfea79318f
-TRACKING=origin/fix/x200pro-notification-burst (ahead 7)
-DIRTY=73 entries (no commits created)
-TEST_STATUS=instrumentation 239 run / 1 flaky (SystemE2E link, FLAKY_UNRESOLVED) / 0 product failures · JVM 157/157 · DHC real round trip PASS · lint/build/audits PASS
-LAST_PASS=H05 (RC hardening round: H01/H02/H04/H05 PASS, H03=SELF_REVIEW_ONLY)
-OPEN_FINDINGS=
-  - FLAKY_UNRESOLVED: BurstCapture.testC/testE + SystemNotificationE2E under full-suite ordering (see FLAKE-ANALYSIS.md)
-  - D=REAL_DEVICE_NOT_TESTED (no hardware with LINE/Telegram)
-  - PRODUCTION_SIGNING_BLOCKED (debug key only)
-  - T07: no prior same-conditions baseline (CURRENT_BASELINE_ESTABLISHED)
-  - T13: SELF_REVIEW_ONLY — a genuinely independent reviewer is still required
-NEXT_ACTION=obtain a genuinely independent review of the final diff; then execute the safe public integration plan in FINAL-V046-HANDOFF.md
-VERDICT=RC_PREPARED_SIGNING_BLOCKED
-```
+# Private Inbox Classic v0.4.6 — Agent State
 
-See FINAL-V046-HANDOFF.md for the complete package.
+**Project:** PrivateInboxClassic
+**Target:** v0.4.6 Experimental Debug Alpha
+
+## Current Gates
+
+| Gate | Status |
+|---|---|
+| C0 — Machine and Disk Preflight | PASS (JDK 17, SDK Homebrew complete, 7.6Gi free) |
+| C1 — Repository and Document Recovery | PASS (active worktree at /tmp/v046-final, review reports preserved) |
+| C2 — Live GitHub Validation | PASS (PR #4 open, draft, CI 41275245825 attempt 2 = success, 291/291) |
+| C3 — Final Release Artifact | PASS (SHA-256 b68fd821…, cert c876051e… verified) |
+| C4 — Independent Review | EXTERNAL_REVIEWER_REQUIRED (0 reviews, only author account) |
+| C5 — Conditional Public Alpha Release | NOT_PUBLISHED (blocked on C4) |
+| C6 — Workspace Archive and Disk Recovery | IN_PROGRESS (inventory complete, no deletion without owner authorization) |
+| C7 — Cross-Project Boundary | KU_YIN closed, other projects untouched |
+| C8 — Final Documentation | IN_PROGRESS |
+
+## Verified Baselines
+
+- PR HEAD: `1d4029fbabf1f0fda0f6f49cb1696f4bb489098d`
+- Binary Source HEAD: `d376f407976f511837f963227115e5610f42083f`
+- CI Run: 41275245825 (attempt 2, success)
+- Instrumentation: 291/291 PASS, 0 skipped, 0 failed
+- JVM: 157/157 PASS
+- APK SHA-256: `b68fd8210e7ea43c12fe4818459dbafb9bb53cc31162d475b9926e30353996a7`
+- Cert SHA-256: `c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4`
+- Package: tw.personal.privateinbox, versionCode 11, versionName 0.4.6
+- No INTERNET permission
+
+## Protected Historical Worktrees (DO NOT MODIFY)
+
+- `/Users/huang/Desktop/我的已讀不回助理/PrivateInboxClassic-v0.2/codex-integration` — branch `v045-reliability`, HEAD `bb36c83`, 43 uncommitted files preserved
+- `/tmp/v046-final/` — active release worktree at PR HEAD `1d4029f`
+
+## Disk
+
+- Free before: 6.9Gi (97% used)
+- Local android-sdk: 5.5GB (referenced in scripts but Homebrew SDK is complete — candidate for cleanup only with owner authorization)
+- AVD test36: 5.2GB (preserved for release verification)
+
+## Remaining External Blocker
+
+- FORMAL_REVIEW=PENDING — independent GitHub reviewer APPROVE required
+- Only account `juhjuhx` is PR author; GitHub blocks self-review
+- PR remains DRAFT
+
+## Next Action
+
+Request independent reviewer APPROVE on PR #4; retain Draft until sign-off; do not merge or publish.
