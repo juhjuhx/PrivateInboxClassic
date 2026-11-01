@@ -275,7 +275,7 @@
     "next_action": "Request independent reviewer APPROVE on PR #4; retain Draft until sign-off; do not merge or publish"
   },
   "c6_disk_recovery": {
-    "disk_free_before": "6.9Gi (97% used)",
+    "disk_free_before": "7.4Gi (97% used)",
     "inventory": {
       "active_worktree": "/tmp/v046-final/ (45MB)",
       "historical_worktree": "/Users/huang/Desktop/我的已讀不回助理/PrivateInboxClassic-v0.2/codex-integration/ (protected, 43 uncommitted files)",
@@ -290,6 +290,11 @@
     "cleanup_decision": "No destructive cleanup performed without owner authorization. Disk remains at 97% capacity (7.6Gi free). Local builds safe for small operations only.",
     "space_recovered": 0,
     "cache_cleaned": false,
-    "workspace_archive": "Review reports copied to /tmp/v046-final/docs/verification/v0.4.6/review-reports-20261101/ with SHA-256 checksums"
+    "workspace_archive": "Review reports copied to /tmp/v046-final/docs/verification/v0.4.6/review-reports-20261101/ with SHA-256 checksums",
+    "disk_free_after": "7.4Gi (97% used)",
+    "actual_space_recovered": "0GB",
+    "cleanup_manifest": "docs/verification/v0.4.6/C12-DISK-CLEANUP-DRYRUN.md",
+    "review_evidence_persistent_path": "/Users/huang/Desktop/我的已讀不回助理/PrivateInboxClassic-v0.2/PrivateInboxClassic/docs/verification/v0.4.6/review-reports-20261101/",
+    "review_evidence_checksums_verified": true
   }
 }

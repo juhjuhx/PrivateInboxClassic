@@ -36,7 +36,9 @@
 
 ## Disk
 
-- Free before: 6.9Gi (97% used)
+- Free before: 7.4Gi (97% used)
+- Free after: 7.4Gi (97% used)
+- Space recovered: 0GB (no destructive cleanup without owner authorization)
 - Local android-sdk: 5.5GB (referenced in scripts but Homebrew SDK is complete — candidate for cleanup only with owner authorization)
 - AVD test36: 5.2GB (preserved for release verification)
 
