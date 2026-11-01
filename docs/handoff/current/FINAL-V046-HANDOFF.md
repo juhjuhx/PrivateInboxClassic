@@ -3,7 +3,7 @@
 **Status:** EVIDENCE_REPAIRED — PENDING INDEPENDENT REVIEW SIGN-OFF  
 **Branch:** `v046-integration-repair-final`  
 **Code HEAD:** `d376f407976f511837f963227115e5610f42083f` (product code + tests)
-**Documentation HEAD:** `2621034c829e7d583e6e5199a3d9e296fd0d74ba`
+**Documentation HEAD:** `6c43f28dafdc1491ad156567c519b153e949d48c`
 **PR:** https://github.com/juhjuhx/PrivateInboxClassic/pull/4  
 **CI:** [run 41231048769](https://github.com/juhjuhx/PrivateInboxClassic/actions/runs/41231048769) — success, 291/291
 **Working tree:** clean on this branch
