@@ -39,7 +39,20 @@ object SelfTestNotifier {
      *  [bodyOverride] lets a caller tag the message with a unique marker so the
      *  resulting row can be positively identified as belonging to *this* run,
      *  instead of matching a stale row left over from an earlier run. */
-    fun post(ctx: Context, fixedTimeMs: Long, bodyOverride: String? = null): Boolean {
+    fun post(ctx: Context, fixedTimeMs: Long, bodyOverride: String? = null): Boolean =
+        post(ctx, fixedTimeMs, bodyOverride, null, null, NOTIFICATION_ID)
+
+    /** Post with full control for the T05 system-E2E tests.
+     *
+     * [titleOverride] and [shortcutId] let a test exercise the conversation
+     * identity contract (rename with the same shortcut, title collisions with
+     * different shortcuts). The defaults preserve the historical fixed
+     * self-test notification byte for byte. */
+    fun post(
+        ctx: Context, fixedTimeMs: Long, bodyOverride: String? = null,
+        titleOverride: String? = null, shortcutId: String? = null,
+        notificationId: Int = NOTIFICATION_ID
+    ): Boolean {
         if (!canPost(ctx)) return false
         val nm = ctx.getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= 26) {
@@ -53,15 +66,20 @@ object SelfTestNotifier {
         val style = Notification.MessagingStyle(person)
         style.addMessage(Notification.MessagingStyle.Message(
             body, fixedTimeMs, person))
-        val notification = Notification.Builder(ctx, CHANNEL_ID)
+        val builder = Notification.Builder(ctx, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_classic)
-            .setContentTitle(TITLE)
+            .setContentTitle(titleOverride ?: TITLE)
             .setContentText(body)
             .setStyle(style)
             .setAutoCancel(true)
-            .build()
-        nm.notify(NOTIFICATION_ID, notification)
+        if (shortcutId != null) builder.setShortcutId(shortcutId)
+        nm.notify(notificationId, builder.build())
         return true
+    }
+
+    /** Remove the self-test notification(s) from the tray. */
+    fun cancel(ctx: Context, notificationId: Int = NOTIFICATION_ID) {
+        ctx.getSystemService(NotificationManager::class.java).cancel(notificationId)
     }
 
     /** Whether the user has granted this app notification access (the listener

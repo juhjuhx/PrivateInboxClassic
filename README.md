@@ -17,6 +17,15 @@ delivers, and it has no network access at all.
 
 ---
 
+## Screenshots
+
+Rendered by the app itself (`UiSnapshotInstrumentedTest` draws the real
+views with synthetic data — no private conversations are shown):
+
+| App Lock | Chat List | Conversation | Settings |
+|---|---|---|---|
+| ![App Lock](screenshots/00-lock-screen.png) | ![Chat List](screenshots/01-chat-list.png) | ![Conversation](screenshots/02-conversation.png) | ![Settings](screenshots/03-settings.png) |
+
 ## What it does
 
 - **Captures notifications** from a selected, explicit list of messaging apps

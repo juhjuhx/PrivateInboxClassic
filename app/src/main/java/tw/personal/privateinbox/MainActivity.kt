@@ -58,7 +58,7 @@ class MainActivity : ComponentActivity() {
     private var unlocked = false
     private var page = "locked"
     private lateinit var main: FrameLayout
-    private var entries: List<InboxDatabase.Entry> = emptyList()
+    internal var entries: List<InboxDatabase.Entry> = emptyList()
     private var currentThread: String? = null
     private var currentTitle: String? = null
     /** Currently selected platform filter (package name), or null for "all". */
@@ -312,9 +312,11 @@ class MainActivity : ComponentActivity() {
         if (intent != null) startActivityForResult(intent, AUTH_REQUEST)
     }
 
-    private fun loadEntries() {
+    internal fun loadEntries() {
         // DB read + AES-GCM decryption off the main thread; re-render when ready.
+        android.util.Log.d("LOADENTRIES", "loadEntries dispatched")
         io.execute {
+            android.util.Log.d("LOADENTRIES", "io task running")
             val db = InboxDatabase(this)
             var loaded: List<InboxDatabase.Entry>
             var readState = CryptoStore.KeyState.KEY_AVAILABLE
@@ -322,9 +324,16 @@ class MainActivity : ComponentActivity() {
             var cursor: Pair<Long, Long>? = null
             var more = false
             try {
+                // T03: reconcile any unlinked rows first (idempotent, cheap when
+                // there is nothing to do), then read the canonical map the UI
+                // groups by.
+                val store = ConversationStore(this@MainActivity)
+                try { store.linkAllMessages() } finally { store.close() }
+                refreshCanonicalKeys()
                 // The FIRST page only. The rest is loaded when the user asks
                 // for it, so the first screen never decrypts the whole table.
                 val res = db.readPage(limit = PAGE_SIZE)
+                android.util.Log.d("LOADENTRIES", "readPage rows=${res.entries.size} hasMore=${res.hasMore}")
                 loaded = res.entries
                 readState = res.keyState
                 unreadable = res.unreadableRows
@@ -332,11 +341,13 @@ class MainActivity : ComponentActivity() {
                 more = res.hasMore
                 val days = LocalSettings.retentionDays(this)
                 if (days > 0) runCatching { db.pruneOlderThanDays(days) }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                android.util.Log.e("LOADENTRIES", "loadEntries failed", e)
                 loaded = emptyList()
             } finally { db.close() }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
+                android.util.Log.d("LOADENTRIES", "UI update rows=${loaded.size}")
                 entries = loaded
                 keyState = readState
                 unreadableRows = unreadable
@@ -443,7 +454,10 @@ class MainActivity : ComponentActivity() {
                 hasMore = res.hasMore
             } catch (_: Exception) {
                 // A failed page leaves the list as it was.
-            } finally { db.close() }
+            } finally {
+                refreshCanonicalKeys()
+                db.close()
+            }
             runOnUiThread {
                 loadingPage = false
                 if (isFinishing || isDestroyed) return@runOnUiThread
@@ -464,14 +478,39 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Stable conversation identity: the platform conversation key when available,
-     *  otherwise the legacy package + display title. The source package always
-     *  separates apps, so the same contact in LINE and Messenger never merges. */
-    private fun threadKey(e: InboxDatabase.Entry): String =
-        e.conversationKey.ifEmpty { InboxDatabase.legacyConversationKey(e.packageName, e.title) }
+    /**
+     * Canonical conversation identity for one entry.
+     *
+     * T03: the inbox previously grouped the CURRENT PAGE by the legacy key, so a
+     * conversation whose rows straddled a page boundary appeared twice and a
+     * conversation with only older rows was missed. The grouping is now driven by
+     * the canonical link table, with the legacy key as the fallback for rows that
+     * predate linking (they must stay visible, never vanish).
+     */
+    private var canonicalKeys: Map<Long, String> = emptyMap()
 
-    private fun threads(list: List<InboxDatabase.Entry>) = list.groupBy { threadKey(it) }
-        .entries.sortedByDescending { it.value.maxOf { e -> e.receivedAt } }
+    private fun refreshCanonicalKeys() {
+        val db = InboxDatabase(this)
+        try {
+            val map = HashMap<Long, String>()
+            db.readableDatabase.rawQuery(
+                "SELECT message_id, conversation_id FROM message_conversation", null
+            ).use { c ->
+                while (c.moveToNext()) map[c.getLong(0)] = c.getString(1)
+            }
+            canonicalKeys = map
+        } finally { db.close() }
+    }
+
+    private fun threadKey(e: InboxDatabase.Entry): String =
+        canonicalKeys[e.id]
+            ?: e.conversationKey.ifEmpty {
+                InboxDatabase.legacyConversationKey(e.packageName, e.title)
+            }
+
+    internal fun threads(list: List<InboxDatabase.Entry>) =
+        list.groupBy { threadKey(it) }
+            .entries.sortedByDescending { thread -> thread.value.maxOf { e -> e.receivedAt } }
 
     private fun avatar(name: String, size: Int = 54): TextView {
         val initials = name.trim().take(2).ifEmpty { "?" }
@@ -600,11 +639,15 @@ class MainActivity : ComponentActivity() {
         } else {
             for (thread in threads(visible)) {
                 val first = thread.value.first()
-                data.addView(threadRow(thread.value) {
+                // A stable, content-derived tag so tests can assert on the REAL
+                // view hierarchy: the key is exactly what the row represents.
+                val rowView = threadRow(thread.value) {
                     currentThread = thread.key
                     currentTitle = first.title
                     showChat()
-                }, LinearLayout.LayoutParams(-1, 76.dp()))
+                }
+                rowView.tag = thread.key
+                data.addView(rowView, LinearLayout.LayoutParams(-1, 76.dp()))
                 data.addView(divider())
             }
             // The list is paged. Another page is loaded only when the user
@@ -678,7 +721,14 @@ class MainActivity : ComponentActivity() {
         }
 
     /** Entries after applying the platform filter and the active search query. */
-    private fun filteredEntries(): List<InboxDatabase.Entry> {
+    /** QA hook: let instrumentation drive searchQuery/selectedPlatform without
+     *  touching private fields. */
+    internal fun setSearchInputsForTest(query: String?, platform: String?) {
+        searchQuery = query
+        selectedPlatform = platform
+    }
+
+    internal fun filteredEntries(): List<InboxDatabase.Entry> {
         var list = entries
         val platform = selectedPlatform
         if (platform != null) list = list.filter { it.packageName == platform }

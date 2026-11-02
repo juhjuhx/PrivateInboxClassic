@@ -205,6 +205,33 @@ class DebugSettingsProvider : ContentProvider() {
                 // process, so checkSelfPermission() reports the app's real state.
                 out.putBoolean("canPost", SelfTestNotifier.canPost(ctx))
             }
+            "postSelfTest" -> {
+                // T05-B: post a REAL notification through the app's
+                // NotificationManager so the system routing is exercised. The
+                // arg carries id\0title\0body\0shortcut. The title/body are
+                // SYNTHETIC TEST STRINGS from the instrumentation process, and
+                // they are shown only as the app's own self-test notification —
+                // never logged and never mixed with user data.
+                val parts = (arg ?: "").split('\u0000')
+                val id = parts.getOrNull(0)?.toIntOrNull() ?: 0
+                val title = parts.getOrNull(1).orEmpty()
+                val body = parts.getOrNull(2).orEmpty()
+                val shortcut = parts.getOrNull(3)?.takeIf { it.isNotBlank() }
+                val posted = runCatching {
+                    SelfTestNotifier.post(
+                        ctx, System.currentTimeMillis(), body,
+                        titleOverride = title, shortcutId = shortcut,
+                        notificationId = id.takeIf { it != 0 } ?: SelfTestNotifier.NOTIFICATION_ID
+                    )
+                }.getOrDefault(false)
+                out.putBoolean("posted", posted)
+                out.putString("title", title)
+                out.putString("shortcut", shortcut.orEmpty())
+            }
+            "cancelSelfTest" -> {
+                SelfTestNotifier.cancel(ctx)
+                out.putBoolean("cancelled", true)
+            }
             "requestPostPermission" -> {
                 // Ask the user to grant POST_NOTIFICATIONS through the normal
                 // runtime-permission flow. The activity is launched, and the

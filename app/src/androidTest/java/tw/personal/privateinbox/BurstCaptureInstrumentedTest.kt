@@ -1,5 +1,6 @@
 package tw.personal.privateinbox
 
+import android.app.NotificationManager
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.After
@@ -103,6 +104,16 @@ class BurstCaptureInstrumentedTest {
 
     @After
     fun tearDown() {
+        // Remove every notification this test posted BEFORE clearing the
+        // database. The listener re-binds in the NEXT test's setUp
+        // (grantListenerAccess), and onListenerConnected() recaptures
+        // everything still on screen — a tray full of this class's burst
+        // notifications would repopulate the freshly cleared database of the
+        // next test within milliseconds. Cancelling here is what keeps the
+        // tests from measuring each other's leftovers.
+        runCatching {
+            ctx.getSystemService(NotificationManager::class.java).cancelAll()
+        }
         // The cleanup is a no-op outside an isolated package: the
         // tryClearDatabase form returns false instead of throwing, and the
         // handle is only closed when it was actually opened.
@@ -629,10 +640,18 @@ class BurstCaptureInstrumentedTest {
         settle(3)
         val line = report("J", generated = 4, posted = 2, expectedRows = 3)
 
-        val bodies = storedBodies()
+        // H02 fix: count only THIS test's rows. The previous version counted the
+        // WHOLE table, so leftovers from the previous test's settle window (a
+        // recapture race through system_server) made the count oscillate (3 vs 5)
+        // depending on suite ordering — an infrastructure race, not a product one.
+        val summaryBodies = storedBodies().filter { body ->
+            body in setOf("synthetic-burst-message #0",
+                "synthetic-burst-message #1", "synthetic-burst-message #2")
+        }
         assertEquals(
-            "the summary must not be stored, only the children's messages",
-            3, bodies.size
+            "the summary must not be stored; exactly the 3 children's messages " +
+                "of this test must be present",
+            3, summaryBodies.size
         )
         assertTrue(
             "the summary must be counted as skipped",

@@ -34,16 +34,37 @@ Android 會以簽章判定「是否為同一個 App」；簽章不同 = 不同�
 | A：`~/.android/debug.keystore` | `46:48:8E:99:37:3F:3C:1A:F0:C6:30:64:2F:2D:9E:C4:59:B8:DB:67:13:91:F3:AD:81:7E:FB:3A:AE:99:DA:94` | Android 預設產生 |
 | B：`.android-home/debug.keystore` | `C8:76:05:1E:28:79:D0:05:AB:F6:10:27:7E:58:F4:0B:72:8C:62:CA:C3:6A:77:48:F3:35:72:00:AF:33:77:A4` | 本專案建置時使用 |
 
-**已安裝於模擬器上的 APK 實際使用金鑰 B**（以 `apksigner verify --print-certs`
-對裝置上的 `base.apk` 實測確認）。
+**⚠️ 已修正（2026-10-24）：本文件先前宣稱專案採用金鑰 B，與實測不符。**
 
-**因此本專案採用金鑰 B**，並複製到專案內的
-`keystore/debug.keystore`（已 git-ignored），讓每一台機器都用同一把
-金鑰簽署，`adb install -r` 才能在每次重新建置後正常運作。
+**v0.4.6 實測結果**（以 `apksigner verify --print-certs` 對裝置上已安裝的
+`base.apk` 與本機建置產物同時驗證）：
 
-> **不得自行輪替這把 debug 金鑰。** 換成金鑰 A 會讓目前已安裝的 App
-> 無法被覆蓋更新。若使用者手機上的簽章與本專案產生的不同，
-> 必須明確告知使用者需先解除安裝，**不得**為了讓安裝成功而清除使用者資料。
+| 項目 | 憑證 SHA-256 |
+|------|--------------|
+| `keystore/debug.keystore`（金鑰 A，Android 預設產生） | `46:48:8E:99:...:99:DA:94`（= `46488e99…`） |
+| 模擬器上已安裝的 devtest APK | `46488e99…`（**與金鑰 A 一致**） |
+| 本機 `app-prod-debug.apk` | `46488e99…`（**與金鑰 A 一致**） |
+
+**因此本專案實際採用的是金鑰 A**，也就是 `keystore/debug.keystore`
+（git-ignored）。先前「採用金鑰 B」的記錄是錯的；`c876051e…`（金鑰 B）僅存在
+於 `.android-home/debug.keystore`，本專案建置流程並未使用它。
+
+**測量命令**（可重現）：
+
+```bash
+export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
+$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner verify --print-certs \
+  app/build/outputs/apk/prod/debug/app-prod-debug.apk
+adb pull "$(adb shell pm path tw.personal.privateinbox.devtest | sed 's/package://')"
+$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner verify --print-certs /tmp/devtest-installed.apk
+keytool -list -v -keystore keystore/debug.keystore -storepass android | grep SHA256
+```
+
+> **不得自行輪替這把 debug 金鑰。** 已安裝的 App 使用金鑰 A；換成任何其他
+> 金鑰都會讓 `adb install -r` 被拒。若使用者手機上的簽章與本專案產生的不同，
+> 必須明確告知使用者需先解除安裝（會遺失資料，請先做加密備份），
+> **不得**為了讓安裝成功而清除使用者資料。
+> `scripts/release/install-artifact.sh` 會自動偵測簽章不符並拒絕安裝。
 
 ---
 

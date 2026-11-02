@@ -1,0 +1,86 @@
+{
+  "note": "fingerprintInput golden vectors; input bytes only (HMAC key is per-device Keystore, so the hash is not portable)",
+  "vectors": [
+    {
+      "name": "ascii-basic",
+      "package": "org.telegram.messenger",
+      "timestamp": 1700000000000,
+      "title": "Alice",
+      "text": "hello",
+      "discriminator": "",
+      "expected_input_utf8_hex": "6f72672e74656c656772616d2e6d657373656e676572003137303030303030303030303000416c6963650068656c6c6f"
+    },
+    {
+      "name": "with-discriminator",
+      "package": "org.telegram.messenger",
+      "timestamp": 1700000000000,
+      "title": "Alice",
+      "text": "hello",
+      "discriminator": "c:Alice:hello:i0",
+      "expected_input_utf8_hex": "6f72672e74656c656772616d2e6d657373656e676572003137303030303030303030303000416c6963650068656c6c6f00633a416c6963653a68656c6c6f3a6930"
+    },
+    {
+      "name": "zero-timestamp",
+      "package": "jp.naver.line.android",
+      "timestamp": 0,
+      "title": "家族群組",
+      "text": "你好",
+      "discriminator": "c:Bob:你好:i1",
+      "expected_input_utf8_hex": "6a702e6e617665722e6c696e652e616e64726f6964003000e5aeb6e6978fe7bea4e7b58400e4bda0e5a5bd00633a426f623ae4bda0e5a5bd3a6931"
+    },
+    {
+      "name": "unicode-cjk",
+      "package": "jp.naver.line.android",
+      "timestamp": 1700000000001,
+      "title": "家族群組",
+      "text": "你好，世界",
+      "discriminator": "",
+      "expected_input_utf8_hex": "6a702e6e617665722e6c696e652e616e64726f6964003137303030303030303030303100e5aeb6e6978fe7bea4e7b58400e4bda0e5a5bdefbc8ce4b896e7958c"
+    },
+    {
+      "name": "emoji",
+      "package": "com.whatsapp",
+      "timestamp": 1700000000002,
+      "title": "Bob",
+      "text": "👍🏽",
+      "discriminator": "",
+      "expected_input_utf8_hex": "636f6d2e7768617473617070003137303030303030303030303200426f6200f09f918df09f8fbd"
+    },
+    {
+      "name": "long-text",
+      "package": "com.whatsapp",
+      "timestamp": 1700000000003,
+      "title": "Bob",
+      "text": "長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長長",
+      "discriminator": "",
+      "expected_input_utf8_hex": "636f6d2e7768617473617070003137303030303030303030303300426f6200e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7e995b7"
+    },
+    {
+      "name": "newlines",
+      "package": "com.whatsapp",
+      "timestamp": 1700000000004,
+      "title": "Bob",
+      "text": "line1\nline2",
+      "discriminator": "",
+      "expected_input_utf8_hex": "636f6d2e7768617473617070003137303030303030303030303400426f62006c696e65310a6c696e6532"
+    },
+    {
+      "name": "empty-body",
+      "package": "com.whatsapp",
+      "timestamp": 1700000000005,
+      "title": "Bob",
+      "text": "",
+      "discriminator": "",
+      "expected_input_utf8_hex": "636f6d2e7768617473617070003137303030303030303030303500426f6200"
+    },
+    {
+      "name": "embedded-nul",
+      "package": "com.whatsapp",
+      "timestamp": 1700000000006,
+      "title": "Bob",
+      "text": "a\u0000b",
+      "discriminator": "",
+      "expected_input_utf8_hex": "636f6d2e7768617473617070003137303030303030303030303600426f6200610062"
+    }
+  ]
+}

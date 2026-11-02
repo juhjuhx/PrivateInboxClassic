@@ -31,6 +31,15 @@
 
 ---
 
+## 畫面預覽
+
+截圖由 App 本身產生（`UiSnapshotInstrumentedTest` 以合成資料繪製實際畫面，
+不含任何私人對話）：
+
+| 應用鎖定 | 聊天列表 | 對話內容 | 設定 |
+|---|---|---|---|
+| ![應用鎖定](screenshots/00-lock-screen.png) | ![聊天列表](screenshots/01-chat-list.png) | ![對話內容](screenshots/02-conversation.png) | ![設定](screenshots/03-settings.png) |
+
 ## 功能
 
 | 功能 | 說明 |

@@ -89,6 +89,18 @@ object CaptureDiagnostics {
     const val DB_INSERT_FAILED = "DB_INSERT_FAILED"
     const val DB_DUPLICATE = "DB_DUPLICATE"
     const val DB_INSERT_SUCCESS = "DB_INSERT_SUCCESS"
+    const val DB_INSERT_RETRY_SCHEDULED = "DB_INSERT_RETRY_SCHEDULED"
+    const val DB_INSERT_TERMINAL = "DB_INSERT_TERMINAL"
+    // v0.4.6 identity layer diagnostics. Type names and counts only; never any
+    // conversation title, sender, body or URI.
+    const val SCHEMA_REPAIR_FAILED = "SCHEMA_REPAIR_FAILED"
+    const val IDENTITY_RESOLVED = "IDENTITY_RESOLVED"
+    const val IDENTITY_AMBIGUOUS = "IDENTITY_AMBIGUOUS"
+    const val ALIAS_CONFLICT = "ALIAS_CONFLICT"
+    const val LINK_COMMITTED = "LINK_COMMITTED"
+    const val LINK_RECONCILE_PENDING = "LINK_RECONCILE_PENDING"
+    const val LINK_RECONCILED = "LINK_RECONCILED"
+    const val LINK_FAILED = "LINK_FAILED"
     const val UI_REFRESH_SUCCESS = "UI_REFRESH_SUCCESS"
     const val UI_REFRESH_FAILED = "UI_REFRESH_FAILED"
     const val MEDIA_URI_UNAVAILABLE = "MEDIA_URI_UNAVAILABLE"
