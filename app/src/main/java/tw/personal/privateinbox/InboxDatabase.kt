@@ -89,36 +89,76 @@ class InboxDatabase(private val appContext: Context) :
      * ONCE per process, guarded by this flag, and by a cheap
      * `user_version`/table check that does not take a write lock.
      */
-    private val schemaRepaired = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val repairState = java.util.concurrent.atomic.AtomicInteger(REPAIR_NONE)
 
     override fun onOpen(db: SQLiteDatabase) {
         super.onOpen(db)
-        if (schemaRepaired.compareAndSet(false, true)) {
+        // IR-05: the "already repaired" flag may only be set AFTER the repair
+        // actually succeeded.
+        //
+        // The previous version used compareAndSet(false, true) BEFORE doing the
+        // work, so a single transient failure (SQLITE_BUSY from the capture
+        // writer, a read-only mount, a DDL error part-way through) permanently
+        // marked the schema as repaired for the whole process. Every later open
+        // then skipped the repair and ran against a half-created schema for the
+        // rest of the process lifetime.
+        //
+        // The flag now has three states, expressed as the value of an Int:
+        //   0 = not attempted, 1 = in progress, 2 = verified repaired.
+        // A failure leaves it at 0 so the NEXT open retries; only a verified
+        // success (all six tables present afterwards) moves it to 2.
+        if (repairState.get() == REPAIR_DONE) return
+        if (!repairState.compareAndSet(REPAIR_NONE, REPAIR_RUNNING)) {
+            // Another connection is repairing right now. Do not run the DDL a
+            // second time concurrently; the caller proceeds, and if the other
+            // repair fails the state returns to REPAIR_NONE and this connection
+            // retries on its next open.
+            return
+        }
+        var repaired = false
+        try {
             // Fast, read-only probe: are the journal tables already there?
-            val haveTables = runCatching {
-                db.rawQuery(
-                    "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN " +
-                        "('conversations','conversation_aliases','message_conversation'," +
-                        "'message_conversation_undo','conversation_alias_undo','conversation_merge_log')",
-                    null
-                ).use { c -> c.moveToFirst(); c.getInt(0) }
-            }.getOrDefault(6)
-            if (haveTables < 6) {
+            val haveTables = countCanonicalTables(db)
+            if (haveTables >= CANONICAL_TABLE_COUNT) {
+                repaired = true
+            } else {
                 // An older v6 (or a fresh file): run the full idempotent repair.
-                runCatching { ConversationStore.createSchema(db) }
-                    .onFailure {
-                        CaptureDiagnostics.note(
-                            appContext, null, "DATABASE_OPEN",
-                            CaptureDiagnostics.SCHEMA_REPAIR_FAILED,
-                            it.javaClass.simpleName
-                        )
-                    }
+                ConversationStore.createSchema(db)
                 // The repair may have created the canonical tables for the first
                 // time; make sure pre-existing rows are linked.
-                runCatching { ConversationStore.backfillAliases(db) }
+                ConversationStore.backfillAliases(db)
+                // Verify the repair actually took effect before claiming success.
+                repaired = countCanonicalTables(db) >= CANONICAL_TABLE_COUNT
+                if (!repaired) {
+                    CaptureDiagnostics.note(
+                        appContext, null, "DATABASE_OPEN",
+                        CaptureDiagnostics.SCHEMA_REPAIR_FAILED,
+                        "verification_failed"
+                    )
+                }
             }
+        } catch (e: Throwable) {
+            // Do NOT mark repaired: a transient failure must be retried on the
+            // next open instead of being remembered as success.
+            CaptureDiagnostics.note(
+                appContext, null, "DATABASE_OPEN",
+                CaptureDiagnostics.SCHEMA_REPAIR_FAILED,
+                e.javaClass.simpleName
+            )
+        } finally {
+            repairState.set(if (repaired) REPAIR_DONE else REPAIR_NONE)
         }
     }
+
+    /** How many of the canonical tables exist right now (read-only probe). */
+    private fun countCanonicalTables(db: SQLiteDatabase): Int = runCatching {
+        db.rawQuery(
+            "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN " +
+                "('conversations','conversation_aliases','message_conversation'," +
+                "'message_conversation_undo','conversation_alias_undo','conversation_merge_log')",
+            null
+        ).use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
+    }.getOrDefault(0)
 
     override fun onConfigure(db: SQLiteDatabase) {
         super.onConfigure(db)
@@ -193,7 +233,7 @@ class InboxDatabase(private val appContext: Context) :
             )
             // Back-fill the conversation key for rows captured before v4. The title is
             // encrypted, so it cannot be read here; the key is reconstructed lazily
-            // from the package name at read time (see conversationKeyOf()).
+            // from the package name at read time (see legacyConversationKey).
             db.execSQL("CREATE INDEX IF NOT EXISTS conversation_idx ON messages(conversation_key)")
         }
         if (oldVersion < 5) {
@@ -280,10 +320,27 @@ class InboxDatabase(private val appContext: Context) :
         limit: Int = 50,
         offset: Int = 0,
         packageName: String? = null,
-        search: String? = null
+        /**
+         * P2: a keyset cursor — only conversations strictly OLDER than this
+         * (latestReceived, gid) pair are returned.
+         *
+         * Offset paging over a LIVE table is unstable: a new message arriving in
+         * an already-loaded conversation moves it to the top and shifts every
+         * later row down by one, so the next offset page skips a conversation.
+         * The keyset cursor is immune to that, because it is anchored to the
+         * last row actually seen rather than to a position.
+         */
+        afterLatestReceived: Long? = null,
+        afterGid: String? = null
     ): List<ConversationSummary> {
         val bounded = limit.coerceIn(1, 200)
         val db = readableDatabase
+        // P2: inside a HAVING clause SQLite does NOT apply the column's INTEGER
+        // affinity to a TEXT-bound parameter, so
+        // `MAX(m.received_at) < '1700000031000'` compares TEXT against INTEGER
+        // and never matches -- the keyset filter silently returned the same page
+        // forever. The cursor values are internal Longs (never user input), so
+        // they are inlined as numeric literals to keep the comparison numeric.
         val args = ArrayList<String>()
         // The grouping key: canonical when linked, legacy otherwise. The title is
         // only decrypted for the FINAL page rows, in the caller's loop, so the
@@ -304,21 +361,56 @@ class InboxDatabase(private val appContext: Context) :
                 "LEFT JOIN message_conversation l ON l.message_id = m.id "
             )
             // (the sub-query is the derived table `g`)
-            if (packageName != null) { append("WHERE m.package_name = ? "); args.add(packageName) }
+            val predicates = ArrayList<String>()
+            if (packageName != null) {
+                predicates.add("m.package_name = ?"); args.add(packageName)
+            }
+            if (predicates.isNotEmpty()) {
+                append("WHERE ").append(predicates.joinToString(" AND ")).append(' ')
+            }
+            append("GROUP BY gid, m.package_name ")
+            // P2: the keyset predicate belongs on the AGGREGATED rows, inside
+            // the derived table and BEFORE the LIMIT. Applying it outside would
+            // filter an already-truncated page and repeat rows across pages.
+            // It is anchored to the last (latest_received, gid) actually seen, so
+            // a conversation that jumps to the top on a new insert cannot make
+            // the next page skip one.
+            if (afterLatestReceived != null && afterGid != null) {
+                // The two timestamps are Longs from our own cursor, never user
+                // input, so inlining them is safe and keeps the comparison
+                // numeric (see the note on `args` above). The gid is bound.
+                append(
+                    "HAVING (MAX(m.received_at) < $afterLatestReceived OR " +
+                        "        (MAX(m.received_at) = $afterLatestReceived AND " +
+                        "         COALESCE(l.conversation_id, 'k:' || m.conversation_key) > ?)) "
+                )
+                args.add(afterGid)
+            }
             append(
-                "GROUP BY gid, m.package_name " +
                 "ORDER BY latest_received DESC, gid " +
                 "LIMIT ? OFFSET ?) AS g"
             )
             args.add(bounded.toString()); args.add(offset.toString())
+            // IR-04: the alias lookup MUST NOT multiply rows. A conversation can
+            // own more than one SHORTCUT alias (two shortcut ids resolving to the
+            // same conversation, or a re-issued shortcut), and a plain
+            // LEFT JOIN would then emit one row PER alias for the same
+            // conversation -- inflating the page and repeating conversations.
+            // The join is therefore pinned to exactly ONE alias row, chosen
+            // deterministically (STRONG before WEAK, then by value). This fixes
+            // the one-to-many relation itself; DISTINCT is deliberately NOT used,
+            // because it would hide the bad aggregation instead of correcting it.
             append(
                 " JOIN messages m ON m.id = g.latest_id " +
-                "LEFT JOIN conversation_aliases a " +
-                "  ON a.package_name = g.package_name " +
-                " AND a.alias_type = 'SHORTCUT' " +
-                " AND a.conversation_id = g.gid " +
-                "ORDER BY g.latest_received DESC, g.gid"
+                "LEFT JOIN conversation_aliases a ON a.rowid = (" +
+                "  SELECT a2.rowid FROM conversation_aliases a2 " +
+                "   WHERE a2.package_name = g.package_name " +
+                "     AND a2.alias_type = 'SHORTCUT' " +
+                "     AND a2.conversation_id = g.gid " +
+                "   ORDER BY CASE a2.strength WHEN 'STRONG' THEN 0 ELSE 1 END, a2.alias_value " +
+                "   LIMIT 1) "
             )
+            append("ORDER BY g.latest_received DESC, g.gid")
         }
         val out = ArrayList<ConversationSummary>(bounded)
         db.rawQuery(sql, args.toTypedArray()).use { c ->
@@ -370,14 +462,12 @@ class InboxDatabase(private val appContext: Context) :
         beforeReceivedAt: Long? = null,
         beforeId: Long? = null
     ): ReadResult {
-        // Every legacy key that maps to this conversation.
-        // The legacy keys contain NUL separators, and SQLite's bind API truncates
-        // a bound Java String at the first NUL. Matching by HEX comparison keeps
-        // the whole byte sequence — the same trick the dedup path relies on.
-        // ONLY the LEGACY_KEY aliases can be matched against
-        // `messages.conversation_key`: they are the same string. A SHORTCUT alias
-        // holds just the shortcut id, which is a COMPONENT of the key — hex-
-        // matching it would find nothing (and must never match).
+        // Every LEGACY_KEY alias that maps to this conversation, as hex so the
+        // NUL separators inside the key survive (SQLite truncates a bound String
+        // at the first NUL). ONLY LEGACY_KEY aliases may be compared against
+        // messages.conversation_key: they are the same string. A SHORTCUT alias
+        // holds just the shortcut id, a COMPONENT of the key, and hex-matching
+        // it would find nothing (and must never match).
         val keyHexes = ArrayList<String>()
         readableDatabase.rawQuery(
             "SELECT hex(alias_value) FROM conversation_aliases " +
@@ -386,6 +476,34 @@ class InboxDatabase(private val appContext: Context) :
         ).use { c ->
             while (c.moveToNext()) keyHexes.add(c.getString(0))
         }
+        // IR-02: the message ids explicitly LINKED to this conversation. These
+        // are the authoritative membership signal, and they exist even when no
+        // LEGACY_KEY alias was ever written (a partial migration, or a merge
+        // that moved links without re-writing aliases).
+        //
+        // P2 (independent review): this list used to be read UNBOUNDED and then
+        // turned into one `?` per id. SQLite's default bound-variable limit was
+        // 999 until SQLite 3.32 (2020-05-02), which ships on API 31+; minSdk=28
+        // still runs on devices where the limit is genuinely 999, so a
+        // conversation with more than the device's variable limit threw.
+        // The membership test is now an EXISTS sub-select instead of an IN
+        // list, so the number of messages never affects the number of
+        // placeholders on ANY device.
+        val hasAnyLink = readableDatabase.rawQuery(
+            "SELECT 1 FROM message_conversation WHERE conversation_id = ? LIMIT 1",
+            arrayOf(canonicalId)
+        ).use { c -> c.moveToFirst() }
+        // IR-02 FAIL-CLOSED: with neither an alias nor a link there is NO
+        // evidence that any row belongs to this conversation. Returning an empty
+        // page is the only safe answer. The previous implementation built an
+        // empty WHERE clause in that case, which silently read (and decrypted)
+        // the ENTIRE messages table -- a cross-conversation disclosure.
+        if (keyHexes.isEmpty() && !hasAnyLink) {
+            // F-05: no canonical id, title or key in logs. The stage code alone
+            // is enough to diagnose this branch.
+            android.util.Log.d("READMODEL", "fail-closed: no alias and no link")
+            return ReadResult(emptyList(), CryptoStore.KeyState.KEY_AVAILABLE, 0, false)
+        }
         val output = ArrayList<Entry>()
         var worst = CryptoStore.KeyState.KEY_AVAILABLE
         var unreadable = 0
@@ -393,22 +511,49 @@ class InboxDatabase(private val appContext: Context) :
         val fetch = bounded + 1
         val selection = StringBuilder()
         val args = mutableListOf<String>()
+        // Membership is the UNION of the two signals. A row is in scope when its
+        // legacy key alias-resolves to this conversation OR it is explicitly
+        // linked to it. Neither branch can widen beyond this conversation.
         if (keyHexes.isNotEmpty()) {
             args.addAll(keyHexes)
             selection.append("hex(conversation_key) IN (${keyHexes.joinToString(",") { "?" }})")
         }
+        if (hasAnyLink) {
+            if (selection.isNotEmpty()) selection.append(" OR ")
+            // EXISTS keeps the placeholder count constant regardless of how many
+            // messages the conversation holds.
+            selection.append(
+                "EXISTS (SELECT 1 FROM message_conversation mc " +
+                    "WHERE mc.message_id = messages.id AND mc.conversation_id = ?)"
+            )
+            args.add(canonicalId)
+        }
         if (beforeReceivedAt != null && beforeId != null) {
-            if (selection.isNotEmpty()) selection.append(" AND ")
-            selection.append("(received_at < ? OR (received_at = ? AND id < ?))")
+            // Wrap the membership expression in its own parentheses so the OR
+            // can never escape and combine with the cursor predicate.
+            val membership = selection.toString()
+            selection.setLength(0)
+            selection.append("(").append(membership).append(")")
+            selection.append(" AND (received_at < ? OR (received_at = ? AND id < ?))")
             args += beforeReceivedAt.toString()
             args += beforeReceivedAt.toString()
             args += beforeId.toString()
         }
-        android.util.Log.d("READMODEL", "sql=${"SELECT id FROM messages " + (if (selection.isNotEmpty()) "WHERE $selection" else "")} args=$args")
+        // F-05: never log the SQL text or its arguments. `args` carries hex-encoded
+        // legacy conversation keys (package \0 shortcut? \0 title) and canonical
+        // conversation ids, which are exactly the metadata AGENTS.md hard rule 4
+        // forbids. Only the shape of the query is recorded: how many predicates
+        // and how many bound values, which is enough to tell a fail-closed empty
+        // selection apart from a real one.
+        android.util.Log.d(
+            "READMODEL",
+            "query: predicates=${if (selection.isEmpty()) 0 else 1} bindArgs=${args.size} " +
+                "bounded=$bounded cursor=${beforeReceivedAt != null && beforeId != null}"
+        )
         readableDatabase.rawQuery(
             "SELECT id, package_name, received_at, source_ts, sealed_content, " +
                 "sealed_image, conversation_key, message_kind FROM messages " +
-                (if (selection.isNotEmpty()) "WHERE $selection " else "") +
+                "WHERE $selection " +
                 "ORDER BY received_at DESC, id DESC LIMIT $fetch",
             args.toTypedArray()
         ).use { c ->
@@ -439,6 +584,143 @@ class InboxDatabase(private val appContext: Context) :
                 }
             }
             android.util.Log.d("READMODEL", "rawRows=$__n output=${output.size}")
+        }
+        val finalState = if (worst.isUnrecoverable) CryptoStore.KeyState.RECOVERY_REQUIRED
+                         else worst
+        val hasMore = output.size > bounded
+        if (hasMore) output.removeAt(output.size - 1)
+        return ReadResult(output, finalState, unreadable, hasMore)
+    }
+
+    /**
+     * IR-01: decrypt exactly ONE message row by id.
+     *
+     * The inbox renders one row per CONVERSATION, showing that conversation's
+     * newest message. `conversationPage()` already carries the newest id and its
+     * sealed bytes, but the display title/sender/body must be decrypted, and the
+     * sealed blob alone does not say which package it belongs to. This reads the
+     * single row and decrypts it — O(1), never a table scan.
+     */
+    /**
+     * IR-01 P1: decrypt one conversation's newest message AND report the worst
+     * key state seen.
+     *
+     * The IR-01 rewrite moved the inbox onto `conversationPage()` and, in doing
+     * so, dropped the only assignments to the Activity's `keyState` /
+     * `unreadableRows`. That silently disabled the key-recovery UI: an
+     * invalidated Keystore key was never surfaced, and the diagnostics panel
+     * always claimed KEY_AVAILABLE. The per-conversation decrypt is now the only
+     * place the inbox touches ciphertext, so it is where the signal must come
+     * from.
+     */
+    data class ConversationPreview(
+        val entry: Entry?,
+        /** Worst key state observed while decrypting this preview. */
+        val keyState: CryptoStore.KeyState,
+        /** 1 when the row existed but could not be decrypted. */
+        val unreadable: Int
+    )
+
+    fun entryForMessageId(id: Long): Entry? = conversationPreview(id).entry
+
+    fun conversationPreview(id: Long): ConversationPreview {
+        readableDatabase.rawQuery(
+            "SELECT id, package_name, received_at, source_ts, sealed_content, " +
+                "sealed_image, conversation_key, message_kind FROM messages WHERE id = ?",
+            arrayOf(id.toString())
+        ).use { c ->
+            if (!c.moveToFirst()) {
+                return ConversationPreview(null, CryptoStore.KeyState.KEY_AVAILABLE, 0)
+            }
+            val pkg = c.getString(1)
+            val res = CryptoStore.openWithState(pkg, c.getBlob(4))
+            val plain = res.plaintext
+                ?: return ConversationPreview(null, res.state, 1)
+            val decoded = runCatching {
+                JSONObject(String(plain, Charsets.UTF_8))
+            }.getOrNull()
+                ?: return ConversationPreview(null, CryptoStore.KeyState.DECRYPT_FAILED, 1)
+            val key = c.getString(6)?.takeIf { it.isNotEmpty() }
+                ?: legacyConversationKey(pkg, decoded.optString("title"))
+            return ConversationPreview(
+                Entry(
+                    c.getLong(0), pkg, c.getLong(2), c.getLong(3),
+                    decoded.optString("title"), decoded.optString("sender"),
+                    decoded.optString("body"), !c.isNull(5),
+                    key, c.getString(7) ?: SourceRegistry.MessageKind.UNKNOWN.name
+                ),
+                res.state,
+                0
+            )
+        }
+    }
+
+    /**
+     * IR-01 P2: read an UNLINKED conversation's messages by its legacy key.
+     *
+     * `conversationPage()` groups unlinked rows under `"k:" + conversation_key`.
+     * The detail screen must be able to open such a group, and
+     * `readConversationMessages()` (correctly) refuses a canonical id with
+     * neither an alias nor a link. This reads by the legacy key itself, using
+     * the same hex comparison that survives the NUL separators.
+     */
+    fun readMessagesByLegacyKey(
+        legacyKey: String,
+        limit: Int = 100,
+        beforeReceivedAt: Long? = null,
+        beforeId: Long? = null
+    ): ReadResult {
+        val bounded = limit.coerceIn(1, 500)
+        val fetch = bounded + 1
+        val keyHex = legacyKey.toByteArray(Charsets.UTF_8)
+            .joinToString("") { "%02X".format(it) }
+        val output = ArrayList<Entry>()
+        var worst = CryptoStore.KeyState.KEY_AVAILABLE
+        var unreadable = 0
+        val selection = StringBuilder("hex(conversation_key) = ?")
+        val args = mutableListOf<String>(keyHex)
+        if (beforeReceivedAt != null && beforeId != null) {
+            selection.append(" AND (received_at < ? OR (received_at = ? AND id < ?))")
+            args += beforeReceivedAt.toString()
+            args += beforeReceivedAt.toString()
+            args += beforeId.toString()
+        }
+        readableDatabase.rawQuery(
+            "SELECT id, package_name, received_at, source_ts, sealed_content, " +
+                "sealed_image, conversation_key, message_kind FROM messages " +
+                "WHERE $selection " +
+                "ORDER BY received_at DESC, id DESC LIMIT $fetch",
+            args.toTypedArray()
+        ).use { c ->
+            while (c.moveToNext()) {
+                val pkg = c.getString(1)
+                val res = CryptoStore.openWithState(pkg, c.getBlob(4))
+                val plain = res.plaintext
+                if (plain == null) {
+                    unreadable++
+                    if (res.state.isUnrecoverable) worst = res.state
+                    else if (worst == CryptoStore.KeyState.KEY_AVAILABLE) worst = res.state
+                    continue
+                }
+                val decoded = runCatching {
+                    JSONObject(String(plain, Charsets.UTF_8))
+                }.getOrNull()
+                if (decoded == null) {
+                    unreadable++
+                    if (worst == CryptoStore.KeyState.KEY_AVAILABLE) {
+                        worst = CryptoStore.KeyState.DECRYPT_FAILED
+                    }
+                    continue
+                }
+                val key = c.getString(6)?.takeIf { it.isNotEmpty() }
+                    ?: legacyConversationKey(pkg, decoded.optString("title"))
+                output += Entry(
+                    c.getLong(0), pkg, c.getLong(2), c.getLong(3),
+                    decoded.optString("title"), decoded.optString("sender"),
+                    decoded.optString("body"), !c.isNull(5),
+                    key, c.getString(7) ?: SourceRegistry.MessageKind.UNKNOWN.name
+                )
+            }
         }
         val finalState = if (worst.isUnrecoverable) CryptoStore.KeyState.RECOVERY_REQUIRED
                          else worst
@@ -482,8 +764,23 @@ class InboxDatabase(private val appContext: Context) :
     /** Outcome of a single insert attempt, so callers can distinguish "stored",
      *  "deduped" and "failed" without touching the encrypted rows themselves. */
     sealed class SaveResult {
-        object NEW : SaveResult()
-        object DUPLICATE : SaveResult()
+        /**
+         * IR-03: a NEW row, carrying the ACTUAL id SQLite assigned.
+         *
+         * Canonical linking used to rediscover this id with
+         * `WHERE conversation_key = ? ORDER BY id DESC LIMIT <batch size>`.
+         * That is a guess: `conversation_key` contains NUL separators (SQLite
+         * truncates a bound String at the first NUL, so the comparison could
+         * silently match the wrong rows), and "newest N rows with this key"
+         * also picks up rows written by a CONCURRENT notification for the same
+         * conversation. The insert already returns the real id -- carrying it
+         * removes the guess entirely.
+         */
+        class NEW(val id: Long) : SaveResult()
+
+        /** A row that already existed. [id] is the existing row id when known. */
+        class DUPLICATE(val id: Long = -1L) : SaveResult()
+
         class FAILURE(val cause: Throwable) : SaveResult()
     }
 
@@ -585,21 +882,35 @@ class InboxDatabase(private val appContext: Context) :
             }
             val inserted = db.insertWithOnConflict("messages", null, cv, SQLiteDatabase.CONFLICT_IGNORE)
             when {
-                inserted != -1L -> SaveResult.NEW
+                inserted != -1L -> SaveResult.NEW(inserted)
                 protectedImage != null -> {
                     // Photo appeared in a follow-up edit of the *same* notification.
                     db.execSQL(
                         "UPDATE messages SET sealed_image=? WHERE fingerprint=? AND sealed_image IS NULL",
                         arrayOf<Any>(protectedImage, fingerprint)
                     )
-                    SaveResult.DUPLICATE
+                    SaveResult.DUPLICATE(existingIdForFingerprint(db, fingerprint))
                 }
-                else -> SaveResult.DUPLICATE
+                else -> SaveResult.DUPLICATE(existingIdForFingerprint(db, fingerprint))
             }
         } catch (e: Exception) {
             SaveResult.FAILURE(e)
         }
     }
+
+
+    /**
+     * The id of an existing row with [fingerprint], or -1 when it cannot be
+     * resolved. Used only to REPORT a duplicate's id; never to decide what to
+     * link (NEW rows carry their id directly).
+     */
+    private fun existingIdForFingerprint(db: SQLiteDatabase, fingerprint: ByteArray): Long =
+        runCatching {
+            db.rawQuery(
+                "SELECT id FROM messages WHERE fingerprint = ? LIMIT 1",
+                arrayOf(String(fingerprint, Charsets.ISO_8859_1))
+            ).use { c -> if (c.moveToFirst()) c.getLong(0) else -1L }
+        }.getOrDefault(-1L)
 
     /**
      * One row to write, in a batch.
@@ -807,6 +1118,16 @@ class InboxDatabase(private val appContext: Context) :
     }
 
     companion object {
+        // IR-05 repair state machine.
+        /** Not attempted yet (also the state after a FAILED repair, so it retries). */
+        const val REPAIR_NONE = 0
+        /** A repair is currently running on another connection. */
+        const val REPAIR_RUNNING = 1
+        /** The schema was VERIFIED present; no further repair this process. */
+        const val REPAIR_DONE = 2
+        /** Number of canonical journal tables a complete repair produces. */
+        const val CANONICAL_TABLE_COUNT = 6
+
         /** The grouping key used before schema v4: package + display title.
          *  Rows captured before the conversation_key column existed are grouped
          *  with this so old data keeps grouping exactly as it did, without a

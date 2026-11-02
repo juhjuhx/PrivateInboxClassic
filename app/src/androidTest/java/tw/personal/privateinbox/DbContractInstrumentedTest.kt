@@ -39,7 +39,7 @@ class DbContractInstrumentedTest {
             val ts = 1_711_000_000_000L
             db.save("db-contract-dup", ts, 0L, "Dup", "D", "same body", null)
             val second = db.save("db-contract-dup", ts, 0L, "Dup", "D", "same body", null)
-            assertEquals(InboxDatabase.SaveResult.DUPLICATE, second)
+            assertTrue(second is InboxDatabase.SaveResult.DUPLICATE)
         } finally { db.close() }
     }
 
@@ -50,8 +50,8 @@ class DbContractInstrumentedTest {
             val ts = 1_711_000_000_001L
             val a = db.save("db-contract-dist", ts, 0L, "Dist", "D", "body A", null)
             val b = db.save("db-contract-dist", ts, 0L, "Dist", "D", "body B", null)
-            assertEquals(InboxDatabase.SaveResult.NEW, a)
-            assertEquals(InboxDatabase.SaveResult.NEW, b)
+            assertTrue(a is InboxDatabase.SaveResult.NEW)
+            assertTrue(b is InboxDatabase.SaveResult.NEW)
         } finally { db.close() }
     }
 

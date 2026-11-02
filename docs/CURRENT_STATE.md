@@ -1,22 +1,23 @@
 # Private Inbox Classic — Current Engineering State
 
 **Single source of truth for "where the project is right now."**
-Updated: 2026-10-24 · Target: v0.4.6 · Verdict: PARTIAL (see §5)
+Updated: 2026-11-01 · Target: v0.4.6 Experimental Debug Alpha · Verdict: REVIEW_PENDING (independent GitHub reviewer APPROVE required)
 
 ## 1. Where things are
 
-| What | Path |
+| What | Path/Value |
 |---|---|
-| The only working tree | `/Users/huang/Desktop/我的已讀不回助理/PrivateInboxClassic-v0.2/codex-integration` |
-| Branch / HEAD | `v045-reliability` @ `bb36c83f524c0aa87ba04680f0f4c0bfea79318f` (uncommitted work on top) |
-| Tracking | `origin/fix/x200pro-notification-burst` (ahead 7) — NOT the public default `integration/dsh-v040` |
+| The only active working tree | `/tmp/v046-final` |
+| Branch / HEAD | `v046-integration-repair-final` @ `1d4029fbabf1f0fda0f6f49cb1696f4bb489098d` |
+| PR | https://github.com/juhjuhx/PrivateInboxClassic/pull/4 (open, DRAFT) |
+| Tracking | `origin/integration/dsh-v040` |
 | Task ledger | `docs/handoff/current/TASK_STATE.json` |
 | Agent state | `docs/handoff/current/AGENT_STATE.md` |
 | Test matrix | `docs/verification/v0.4.6/FINAL-TEST-MATRIX.md` |
-| Environment | JDK 17 (Homebrew aarch64), Gradle 8.13, SDK at `~/Desktop/我的已讀不回助理/android-sdk`, AVD `test36` at `~/Desktop/我的已讀不回助理/.android-home/avd` |
-| Snapshots | `~/Desktop/pi-v046-r0-snapshot/`, `~/Desktop/pi-v046-r1postfix-snapshot/`, `~/Desktop/pi-v046-t00-snapshot/` |
+| Environment | JDK 17 (Homebrew aarch64), Gradle 8.13, SDK at `/opt/homebrew/share/android-commandlinetools` |
+| Snapshots | Not created in this cycle (release is docs-only; no new product build) |
 
-**Every build/test command must run after `source scripts/_env.sh`.**
+**No product code has changed since `d376f40`. All commits after `d376f40` are documentation-only.**
 
 ## 2. SQLite schema: version 6 (+ idempotent onOpen repair)
 
@@ -45,31 +46,52 @@ Updated: 2026-10-24 · Target: v0.4.6 · Verdict: PARTIAL (see §5)
 
 | Layer | Status |
 |---|---|
-| Listener → resolver → link → reconcile | DONE (`PrivateNotificationListener`: linkBatchToCanonicalConversation, reconcilePendingLinks via flushPrepared with the batch context) |
-| UI canonical grouping | DONE (`MainActivity`: refreshCanonicalKeys + threadKey canonical-first + reconcile in loadEntries) |
-| Search / filters | DONE (QA-01C: keyword, source, combined, date, unicode, empty, rename) |
+| Listener → resolver → link → reconcile | DONE |
+| UI canonical grouping | DONE |
+| Search / filters | DONE |
 | Read model | DONE (`conversationPage`, `conversationCountAll`, `readConversationMessages` — NUL-safe hex matching, no full-table decrypt) |
 | Portable archive (Phase 2) | DESIGN_ONLY — not implemented |
 | Persistent Intake Journal | DESIGN_ONLY |
 | Rust/UniFFI | DESIGN_ONLY |
 
-## 5. Verification summary (fresh)
+## 5. Verification summary
 
-- Instrumentation: 226+ run across suites; 0 product failures; 1 known flake
-  (`BurstCapture.testJ`, tray-scheduling race under full-suite ordering; passes
-  alone 3/3 and as a class 10/10).
-- JVM: 157/157.
-- DHC interop: Python 27 pass, Kotlin 14 pass, REAL round trip PASS, wrong
-  passphrase rejected.
-- Performance: CURRENT_BASELINE_ESTABLISHED (see PERFORMANCE-EVIDENCE.md).
-- Signing: debug key `46488e99…`; **PRODUCTION_SIGNING_BLOCKED**.
+- Instrumentation: **291 / 291 PASS** (0 skipped, 0 failed) — CI run 41275245825 attempt 2
+- JVM: 157 / 157 PASS
+- Lint: PASS
+- Security audits: PASS (secrets + history, test isolation 51 files)
+- DHC connector: PASS
+- Release audit / version regression: PASS / PASS
+- Signing: debug key `c876051e…`; **PRODUCTION_SIGNING_BLOCKED**. Upgrade over public v0.4.4-alpha verified via `adb install -r` on API 33 emulator.
 
-## 6. Known limitations / blockers
+## 6. IR-12 upgrade verification (corrected)
+
+- Public `v0.4.4-alpha` (`6c6def17…`, cert `c876051e…`) → v0.4.6 (`b68fd821…`, cert `c876051e…`)
+- Method: `adb install -r`, no uninstall, no data clear
+- versionCode 10 → 11; signature `[a0e2e7cb]` unchanged before and after
+- Encrypted message-table readability: **VERIFIED on API 33 emulator** — genuine
+  encrypted data was captured by v0.4.4-alpha, the candidate was installed over
+  it in place, and the upgraded app decrypted and displayed the message,
+  including after a force-stop and relaunch.
+- Evidence: `docs/verification/v0.4.6/IR12-APK-UPGRADE-EVIDENCE.md`
+- Limitation: Emulator-only validation; no OEM/real-device verification.
+
+## 7. Known limitations / blockers
+
 1. Rename changes the fingerprint input → re-delivered message is a new ROW.
 2. Messages captured during a merge stay with the target after unmerge.
 3. Process death between capture and commit loses in-flight rows.
 4. Emulator-only evidence; no OEM/real-device verification.
-5. Release signing does not exist; debug-only artifacts.
+5. Release signing does not exist; debug-only artifacts (Debug Alpha).
+6. No in-place upgrade path to a future production-signed build (data loss on switch).
+7. DHC export is one-way; no in-app restore.
 
-## 7. Next atomic action
-T13 independent review of the final diff, then T14 handoff package.
+## 8. Remaining external blocker
+
+- **FORMAL_REVIEW=PENDING** — independent GitHub reviewer APPROVE required
+- Only account `juhjuhx` is PR author; GitHub blocks self-review
+- PR remains DRAFT until reviewer signs off
+
+## 9. Next atomic action
+
+Request independent reviewer APPROVE on PR #4; upon approval, merge PR #4 and proceed to conditional v0.4.6-alpha publication.

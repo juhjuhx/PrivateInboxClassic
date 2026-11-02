@@ -42,8 +42,11 @@ done
 note ""
 note "=== 3. History content scan for secret-looking assignments ==="
 # Look for common secret shapes in every reachable commit, not just HEAD.
+# Well-known Android debug keystore defaults (androiddebugkey / android) are
+# documented by Google in AOSP and are not real secrets.
 scan=$(git log --all -p --no-color 2>/dev/null | grep -nE \
   '^\+.*(storePassword|keyPassword|api[_-]?key|secret|token|password)[[:space:]]*=[[:space:]]*["'"'"'][^"'"'"']{6,}' \
+  | grep -vE 'storePassword="android"|keyPassword="android"|keyAlias="androiddebugkey"|storePassword="\${DEBUG_STORE_PASSWORD}"|keyPassword="\${DEBUG_KEY_PASSWORD}"' \
   | grep -vE 'signing\.properties\.example|README|SIGNING\.md|\.md:' || true)
 if [ -n "$scan" ]; then
   bad "history contains secret-looking assignments:"

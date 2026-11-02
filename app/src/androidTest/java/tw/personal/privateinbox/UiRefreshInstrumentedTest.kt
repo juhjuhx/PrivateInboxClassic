@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNotNull
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -29,8 +30,7 @@ class UiRefreshInstrumentedTest {
         writer.close()
         // The writer's insert must be a real NEW row, not a swallowed failure.
         assertNotNull(row)
-        assertEquals(InboxDatabase.SaveResult.NEW, row)
-
+        assertTrue(row is InboxDatabase.SaveResult.NEW)
         // A brand-new handle (what the UI opens on resume) must see the row.
         val reader = InboxDatabase(ctx)
         try {

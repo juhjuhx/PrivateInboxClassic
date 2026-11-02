@@ -151,8 +151,7 @@ class ConversationIdentityInstrumentedTest {
             pkg = pkgLine, title = "家族群組", sender = "Alice", body = body,
             ts = ts, discriminator = "c:Alice:$body:i0", conversationKey = legacyBefore
         )
-        assertEquals("the first delivery is new", InboxDatabase.SaveResult.NEW, first)
-
+        assertTrue("the first delivery is new", first is InboxDatabase.SaveResult.NEW)
         // 3. Resolve the canonical conversation BEFORE and AFTER the rename.
         val beforeRename = resolve(pkgLine, shortcut, "家族群組")
         val afterRename = resolve(pkgLine, shortcut, "家族群組（新）")
@@ -196,8 +195,7 @@ class ConversationIdentityInstrumentedTest {
             pkg = pkgLine, title = "家族群組（新）", sender = "Alice", body = newBody,
             ts = ts + 1, discriminator = "c:Alice:$newBody:i1", conversationKey = legacyAfter
         )
-        assertEquals("a genuinely new message must be stored", InboxDatabase.SaveResult.NEW, added)
-
+        assertTrue("a genuinely new message must be stored", added is InboxDatabase.SaveResult.NEW)
         val db1 = InboxDatabase(ctx)
         val finalCount = try { db1.recent(100).size } finally { db1.close() }
         assertEquals("3 rows total: original, re-delivery, new message", 3, finalCount)
@@ -207,10 +205,9 @@ class ConversationIdentityInstrumentedTest {
             pkg = pkgLine, title = "家族群組（新）", sender = "Alice", body = newBody,
             ts = ts + 1, discriminator = "c:Alice:$newBody:i1", conversationKey = legacyAfter
         )
-        assertEquals(
-            "an identical message under an unchanged title is a DUPLICATE",
-            InboxDatabase.SaveResult.DUPLICATE, dup
-        )
+        assertTrue("an identical message under an unchanged title is a DUPLICATE",
+            dup
+         is InboxDatabase.SaveResult.DUPLICATE)
         val db2 = InboxDatabase(ctx)
         val countAfterDup = try { db2.recent(100).size } finally { db2.close() }
         assertEquals("the duplicate must not add a row", 3, countAfterDup)
@@ -324,7 +321,7 @@ class ConversationIdentityInstrumentedTest {
         for ((i, b) in bodies.withIndex()) {
             val r = save(pkgLine, "家族群組", "Alice", b, ts = 1_700_000_000_000L + i,
                 discriminator = "c:Alice:$b:i$i")
-            assertEquals(InboxDatabase.SaveResult.NEW, r)
+            assertTrue(r is InboxDatabase.SaveResult.NEW)
         }
 
         // 2) Snapshot every observable property BEFORE any re-open.

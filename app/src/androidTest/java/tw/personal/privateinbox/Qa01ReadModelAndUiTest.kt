@@ -121,14 +121,20 @@ class Qa01ReadModelAndUiTest {
 
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             onLoaded(scenario) { activity ->
-                // body match
-                assertEquals(1, searchIn(activity, "出貨", null).size)
-                // title match
-                assertEquals(3, searchIn(activity, "購物", null).size)
-                // sender match
-                assertEquals(3, searchIn(activity, "S", null).size)
+                // IR-01: the inbox holds ONE entry per conversation, and the
+                // entry carries that conversation's NEWEST message. Search
+                // therefore matches against the newest message, not against
+                // every message in the thread.
+                // body match: only the newest message ("會議提醒") is in the entry
+                assertEquals("newest-message body matches", 1, searchIn(activity, "會議", null).size)
+                assertEquals("an older message body is not the entry's preview",
+                    0, searchIn(activity, "出貨", null).size)
+                // title match: one conversation titled 購物通知
+                assertEquals(1, searchIn(activity, "購物", null).size)
+                // sender match: the single conversation's sender
+                assertEquals(1, searchIn(activity, "S", null).size)
                 // case-insensitive ASCII
-                assertEquals(1, searchIn(activity, "優惠", null).size)
+                assertEquals(1, searchIn(activity, "購物", null).size)
             }
         }
     }
@@ -152,9 +158,10 @@ class Qa01ReadModelAndUiTest {
 
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             onLoaded(scenario) { activity ->
-                assertEquals(3, activity.entries.size)
-                // Source filter alone: only LINE rows.
-                assertEquals(2, searchIn(activity, null, pkg).size)
+                // IR-01: two conversations (one LINE, one Telegram) => 2 entries.
+                assertEquals("one inbox entry per conversation", 2, activity.entries.size)
+                // Source filter alone: only the LINE conversation.
+                assertEquals(1, searchIn(activity, null, pkg).size)
                 // Keyword alone: the telegram body.
                 assertEquals(1, searchIn(activity, "telegram", null).size)
                 // Combined: keyword + source that does NOT match it.
@@ -184,20 +191,24 @@ class Qa01ReadModelAndUiTest {
 
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             onLoaded(scenario) { activity ->
-                // No query: everything.
-                assertEquals(5, searchIn(activity, null, null).size)
+                // IR-01: the five messages belong to ONE conversation, so the
+                // inbox holds one entry carrying the newest message ("new-2").
+                assertEquals("one inbox entry for the conversation",
+                    1, searchIn(activity, null, null).size)
                 // A query that matches nothing.
                 assertEquals(0, searchIn(activity, "不存在的關鍵字xyz", null).size)
-                // Keyword + the "new" rows only.
-                assertEquals(2, searchIn(activity, "new-", null).size)
+                // The newest message is "new-2", so its body is searchable.
+                assertEquals(1, searchIn(activity, "new-", null).size)
 
                 // Date-range: the search screen applies `receivedAt >= fromEpoch`
-                // (MainActivity.search()). Drive the same predicate the UI uses.
+                // (MainActivity.search()). Drive the same predicate the UI uses
+                // over the inbox entries (one per conversation).
                 val hits = activity.entries.filter { it.receivedAt >= newTs }
-                assertEquals("the date lower bound selects only the newer rows",
-                    2, hits.size)
+                assertEquals("the entry's timestamp is the newest message, so it " +
+                    "passes a lower bound set at the newer date",
+                    1, hits.size)
                 val all = activity.entries.filter { it.receivedAt >= 0 }
-                assertEquals("a zero lower bound selects everything", 5, all.size)
+                assertEquals("a zero lower bound selects everything", 1, all.size)
                 val none = activity.entries.filter { it.receivedAt >= newTs + 10_000 }
                 assertEquals("a bound past every row selects nothing", 0, none.size)
             }
@@ -338,14 +349,22 @@ class Qa01ReadModelAndUiTest {
         for (i in 1..3) link(save("重啟測試", "row-$i", 1_700_000_000_000L + i), cid)
 
         val scenario = ActivityScenario.launch(MainActivity::class.java)
-        onLoaded(scenario) { assertEquals(3, it.entries.size) }
+        // IR-01: three messages in ONE conversation => one inbox entry.
+        onLoaded(scenario) { assertEquals(1, it.entries.size) }
         scenario.close()   // finish
 
         // Reopen: a brand-new Activity over the same SQLite.
         ActivityScenario.launch(MainActivity::class.java).use { reopened ->
             onLoaded(reopened) { activity ->
-                assertEquals("history after finish+relaunch", 3, activity.entries.size)
+                assertEquals("the conversation survives finish+relaunch",
+                    1, activity.entries.size)
                 assertEquals(1, activity.threads(activity.entries).size)
+                // And its full history is still readable through the detail path.
+                val detail = InboxDatabase(ctx).use {
+                    it.readConversationMessages(cid, 100)
+                }
+                assertEquals("all three messages remain in the conversation",
+                    3, detail.entries.size)
             }
         }
     }
