@@ -81,9 +81,16 @@ android {
         // The version code is monotonic: 8 was v0.4.2, 9 was v0.4.3, so this
         // is 10. The version is asserted by scripts/audit-release.sh, which
         // also checks that the release bundle is not signed with the debug key.
-        versionCode = 11
-        versionName = "0.4.6"
+        // v0.4.7: OriginOS listener reliability hotfix.
+        versionCode = 12
+        versionName = "0.4.7"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    // BuildConfig is needed so the diagnostics export reports the real version
+    // instead of a hard-coded string that silently goes stale.
+    buildFeatures {
+        buildConfig = true
     }
 
     // ---------------------------------------------------------------------

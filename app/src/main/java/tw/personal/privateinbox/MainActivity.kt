@@ -1602,7 +1602,7 @@ class MainActivity : ComponentActivity() {
             setLineSpacing(0f, 1.35f)
         })
         panel.addView(txt("版本資訊", 18f, INK, true).apply { setPadding(0, 22.dp(), 0, 10.dp()) })
-        panel.addView(txt("Private Inbox Classic v0.3.1（內部測試）\n沒有網路權限 · 沒有雲端 · 沒有廣告 · 沒有帳號\n本機離線保存通知文字與通知實際附帶的照片", 12f, SECONDARY).apply {
+        panel.addView(txt("Private Inbox Classic v" + BuildConfig.VERSION_NAME + "（內部測試）\n沒有網路權限 · 沒有雲端 · 沒有廣告 · 沒有帳號\n本機離線保存通知文字與通知實際附帶的照片", 12f, SECONDARY).apply {
             setLineSpacing(0f, 1.35f)
         })
         panel.addView(txt("沒有 INTERNET 權限、沒有雲端備份，也不提供分享功能。退出畫面後需重新用手機螢幕鎖驗證。", 12f, SECONDARY).apply {
@@ -1629,6 +1629,20 @@ class MainActivity : ComponentActivity() {
             else -> "未授權"
         }))
         panel.addView(diagRow("監聽器連線狀態", status))
+        // v0.4.7: make the difference between "granted", "requested" and "actually
+        // bound" visible, and show which process/instance produced this view — a
+        // stale CONNECTED flag from a killed process used to look identical.
+        panel.addView(diagRow("本次行程", CaptureDiagnostics.processSession(this)))
+        panel.addView(diagRow("行程啟動次數", CaptureDiagnostics.processStartCount(this).toString()))
+        panel.addView(diagRow("監聽器實例", CaptureDiagnostics.listenerInstance(this) ?: "（尚未連線）"))
+        panel.addView(diagRow("重新綁定次數", CaptureDiagnostics.counters(this)["rebind_count"]?.toString() ?: "0"))
+        if (status == CaptureDiagnostics.STATE_PERMISSION_GRANTED_NOT_CONNECTED) {
+            panel.addView(txt(
+                "權限已授權，但系統目前沒有把通知連線交給本程式。\n" +
+                    "這不等於程式被關閉，也不等於通知一定漏接。\n" +
+                    "可先按下方「重新檢查連線」請系統重新綁定。",
+                12f, SECONDARY).apply { setPadding(0, 8.dp(), 0, 4.dp()) })
+        }
         panel.addView(diagRow("訊息記錄開關", if (LocalSettings.isRecording(this)) "開啟" else "關閉"))
         panel.addView(diagRow("允許來源數量", LocalSettings.selected(this).size.toString()))
         panel.addView(diagRow("收到通知事件", diagCount(c, "received")))
@@ -1675,6 +1689,22 @@ class MainActivity : ComponentActivity() {
             "${CaptureMetrics.queueWait.snapshot().p95} / " +
                 "${CaptureMetrics.queueWait.snapshot().p99} ms"))
         panel.addView(divider().apply { setPadding(0, 14.dp(), 0, 4.dp()) })
+
+        // v0.4.7: OriginOS / aggressive-OEM guidance. The app cannot change these
+        // system settings, so it must tell the user exactly where they are rather
+        // than pretending a code fix can override the ROM's background policy.
+        panel.addView(txt("若通知經常中斷（OriginOS / 部分中國品牌）", 16f, INK, true)
+            .apply { setPadding(0, 8.dp(), 0, 6.dp()) })
+        panel.addView(txt(
+            "系統為了省電可能主動斷開背景的通知監聽。請依序檢查：\n" +
+                "1. 設定 → 電池 → 背景耗電管理：將本程式設為「允許背景執行／不受限制」\n" +
+                "2. 設定 → 應用程式 → 本程式 → 自啟動：開啟\n" +
+                "3. 最近任務畫面：長按本程式並鎖定（避免一鍵清理關閉）\n" +
+                "4. 設定 → 通知 → 通知存取權：確認本程式仍為開啟\n" +
+                "以上為系統設定，本程式無法代為變更。",
+            12f, SECONDARY).apply { setLineSpacing(0f, 1.35f) })
+        panel.addView(divider().apply { setPadding(0, 14.dp(), 0, 4.dp()) })
+
         val diagActions = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, 10.dp(), 0, 0)
@@ -1730,21 +1760,19 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun recheckListenerConnection() {
-        // Ask the system to (re)bind the listener on user action only. Guarded against
-        // restart loops: this is a single, user-initiated call, never a timer. The
-        // real CONNECTED/DISCONNECTED evidence still comes from the service's own
-        // onListenerConnected / onListenerDisconnected callbacks — a rebind request
-        // that was merely accepted must not be logged as a connection.
-        val requested = CaptureDiagnostics.rebind(this)
+        // A single user-initiated rebind request. Never a timer, never a retry loop.
+        // rebind() already records REBIND_REQUESTED / ACCEPTED / REFUSED itself, so
+        // this method must NOT also record a disconnect — doing so previously made a
+        // mere request look like a connection state change.
+        val requested = CaptureDiagnostics.rebind(this, userInitiated = true)
         io.execute {
             Thread.sleep(800)
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 if (!requested) {
-                    // rebind() refused (not bound / not granted): record the failure,
-                    // but do not fabricate a connection state.
-                    CaptureDiagnostics.note(this, packageName, "lifecycle",
-                        CaptureDiagnostics.LISTENER_DISCONNECTED, "rebind_refused")
+                    Toast.makeText(this@MainActivity,
+                        "重新綁定請求未被系統接受；請確認通知存取權限仍然開啟。",
+                        Toast.LENGTH_LONG).show()
                 }
                 showSettings()
             }

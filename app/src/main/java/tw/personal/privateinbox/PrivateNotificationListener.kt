@@ -704,7 +704,9 @@ class PrivateNotificationListener : NotificationListenerService() {
     override fun onListenerDisconnected() {
         runCatching {
             val app = applicationContext ?: return@runCatching
-            CaptureDiagnostics.markDisconnected(app)
+            // No reason is supplied by the platform for this callback, so the
+            // reason is recorded as "system_disconnect" rather than guessed.
+            CaptureDiagnostics.markDisconnected(app, "system_disconnect")
         }
     }
 
@@ -1140,6 +1142,14 @@ class PrivateNotificationListener : NotificationListenerService() {
     }
 
     override fun onDestroy() {
+        // Record destruction BEFORE tearing down. On OriginOS the service can be
+        // destroyed without a preceding onListenerDisconnected(), so this is the
+        // only signal that the bind ended. Recording first also means the event
+        // is written while the process is still alive.
+        runCatching {
+            val app = applicationContext ?: return@runCatching
+            CaptureDiagnostics.markDestroyed(app)
+        }
         // The worker is a daemon thread and blocks on take(); interrupting it
         // is what stops it. We wait for the worker to actually finish so that
         // no in-flight database writes can race with the next test's clearDatabase().
