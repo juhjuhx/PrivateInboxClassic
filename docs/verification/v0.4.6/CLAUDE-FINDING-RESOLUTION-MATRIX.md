@@ -6,10 +6,12 @@ findings raised by the corrective re-review.
 
 | | |
 |---|---|
-| Reviewed HEAD (code) | `d376f407976f511837f963227115e5610f42083f` |
+| Reviewed HEAD (code) | `d376f407976f511837f963227115e5610f42083f` (v0.4.6 release source) |
+| Current HEAD | `04c640db52a02b9751ce40139fe543fa726bb965` (PR #5, v0.4.7 line) |
 | Historical code baseline | `79f2942` (pre-F-05; cannot produce the release APK) |
 | Original review HEAD | `cf220061` |
-| CI | run [41231048769](https://github.com/juhjuhx/PrivateInboxClassic/actions/runs/41231048769) — 291/291 |
+| CI (v0.4.6 release) | run [41231048769](https://github.com/juhjuhx/PrivateInboxClassic/actions/runs/41231048769) — 291/291 |
+| CI (current HEAD) | run [41777489965](https://github.com/juhjuhx/PrivateInboxClassic/actions/runs/41777489965) — 302/302 |
 
 **Original finding census (unchanged):** P0 = 0, **P1 = 1**, **P2 = 6**, **P3 = 7**
 → 14 findings. All 14 appear below with their original severity.
@@ -34,6 +36,8 @@ Status vocabulary: `FIXED` / `DEFERRED` / `ACCEPTED_RISK` / `NOT_APPLICABLE` / `
 ### F-02 — P2 — Image scaling/JPEG encoding and serialized media reads run on the notification callback (main) thread
 - **Status:** DEFERRED (disclosed)
 - **Deferred version:** v0.4.7
+- **Original severity preserved: P2.** (An earlier revision of this matrix
+  downgraded it to P3 without rationale; that was wrong and is corrected here.)
 - **Evidence:** unchanged in code. Disclosed in `docs/releases/v0.4.6-RELEASE-NOTES.md`
   and README item 7 ("image capture off by default; decode/encode still run on the
   notification callback thread"). Backlog entry added.
@@ -56,6 +60,8 @@ Status vocabulary: `FIXED` / `DEFERRED` / `ACCEPTED_RISK` / `NOT_APPLICABLE` / `
 ### F-04 — P2 — Pagination can stop early or stay stuck when a page contains an undecryptable row / is empty
 - **Status:** DEFERRED (disclosed)
 - **Deferred version:** v0.4.7
+- **Original severity preserved: P2.** (An earlier revision of this matrix
+  downgraded it to P3 without rationale; that was wrong and is corrected here.)
 - **Evidence:** unchanged in code. Disclosed in release notes and README item 9.
   Backlog entry added.
 - **Release blocking:** NO (disclosed)
@@ -92,11 +98,18 @@ Status vocabulary: `FIXED` / `DEFERRED` / `ACCEPTED_RISK` / `NOT_APPLICABLE` / `
 - **Release blocking:** NO (closed)
 
 ### F-08 — P3 — Stale test numbers in user/handoff docs
-- **Status:** FIXED this round (was PARTIAL)
-- **Fixed commit:** this documentation commit
-- **Evidence:** `README.md` 126/84 → 291 instrumentation / 157 unit;
-  `README.zh-TW.md`, handoff, closure, release notes, reconciliation, baseline-truth
-  and `TASK_STATE.json` all updated to 291/291 and 157/157 against run 41231048769.
+- **Status:** FIXED (verified)
+- **Fixed commit:** `2621034` (documentation) — counts later advanced by the v0.4.7 line
+- **Evidence:** `README.md:122,286-288` now read 291 instrumentation / 157 unit
+  (was 126 / 84). `docs/handoff/current/AGENT_STATE.md` reads 291/291 and 157/157.
+  `README.zh-TW.md`, closure, release notes, reconciliation, baseline-truth and
+  `TASK_STATE.json` all updated.
+  The only remaining 239/239 is in
+  `docs/handoff/current/INDEPENDENT-REVIEW-REPORT.md`, which carries an explicit
+  scope-limitation header stating it is a dated historical record (2026-10-27)
+  and is **not** current sign-off — so that figure is correctly historical.
+- **Current count (v0.4.7 branch):** 302/302 instrumentation, 157/157 JVM
+  (CI run 41777489965).
 - **Release blocking:** NO
 
 ### F-09 — P3 — Merge/unmerge is unreachable but has latent atomicity defects
@@ -107,11 +120,21 @@ Status vocabulary: `FIXED` / `DEFERRED` / `ACCEPTED_RISK` / `NOT_APPLICABLE` / `
 - **Release blocking:** NO
 
 ### F-10 — P3 — CI masks a release-build failure
-- **Status:** OPEN (unchanged)
+- **Status:** OPEN (verified still open on the v0.4.7 branch)
 - **Evidence:** `.github/workflows/android.yml:110` still runs
-  `:app:assembleProdRelease || echo "..."`. Not modified this round (documentation-only).
-- **Release blocking:** NO — noted as a CI weakness; the Alpha asset is `prodDebug`,
-  not the release build.
+  `./gradlew --no-daemon :app:assembleProdRelease || echo "Release APK unsigned — no
+  release keystore configured (expected for Alpha debug build)"`.
+  Re-verified against the v0.4.7 branch: `git diff 8e31810..HEAD --name-only`
+  shows **no workflow file changed**, so the masking is still present.
+- **Why it is still masked:** the Alpha release key does not exist, so an unsigned
+  release build is the *expected* outcome. Removing the `|| echo` today would fail
+  CI for a reason that is not a defect.
+- **Release blocking:** NO — a CI weakness, not an artifact defect. The shipped
+  Alpha asset is the `prodDebug` APK (`b68fd821…` / cert `c876051e…`), which is
+  built and signed by the project keystore and verified by
+  `scripts/release/verify-artifact.sh`.
+- **Follow-up:** remove the `|| echo` when a release keystore exists, and make the
+  release-build failure non-zero at that time. Tracked in the v0.4.7 backlog.
 
 ### F-11 — P3 — UI-test effectiveness (reflective `unlocked=false` hooks)
 - **Status:** OPEN (unchanged)
@@ -130,11 +153,16 @@ Status vocabulary: `FIXED` / `DEFERRED` / `ACCEPTED_RISK` / `NOT_APPLICABLE` / `
 - **Release blocking:** NO (no duplicate insertion; id-reporting defect only)
 
 ### F-13 — P3 — Settings screen shows the wrong version
-- **Status:** OPEN (unchanged)
-- **Evidence:** `MainActivity.kt:1605` still renders
-  `Private Inbox Classic v0.3.1（內部測試）`. This is **product code**, which this
-  documentation-only round must not modify.
-- **Release blocking:** NO (cosmetic/incorrect label; tracked for v0.4.7)
+- **Status:** FIXED (verified in code)
+- **Fixed commit:** `f71a9a3` (v0.4.7 branch `fix/v047-originos-listener-reliability`)
+- **Evidence:** `MainActivity.kt:1605` now renders
+  `"Private Inbox Classic v" + BuildConfig.VERSION_NAME + "（內部測試）"`.
+  `buildConfig = true` was enabled in `app/build.gradle.kts` for this, so the
+  label follows the real version instead of a literal that goes stale.
+  The same change replaced the hard-coded `"0.4.0-alpha"` in the diagnostics
+  export with `BuildConfig.VERSION_NAME` / `BuildConfig.VERSION_CODE`.
+- **Release blocking:** NO (fixed in the v0.4.7 line; v0.4.6 itself is published
+  and must not be altered)
 
 ### F-14 — P3 — PR #4 body carries stale CI and upgrade narrative
 - **Status:** FIXED this round (re-verified after the PR body update)
@@ -153,7 +181,7 @@ Status vocabulary: `FIXED` / `DEFERRED` / `ACCEPTED_RISK` / `NOT_APPLICABLE` / `
 | P0 | 0 | — | — | 0 |
 | **P1** | **1** | 1 | 0 | **0** |
 | **P2** | **6** | 3 (F-05, F-06, F-07) | 3 (F-02, F-03, F-04) | 0 |
-| **P3** | **7** | 2 (F-08, F-14) | 1 (F-09) | 4 (F-10, F-11, F-12, F-13) |
+| **P3** | **7** | 3 (F-08, F-13, F-14) | 1 (F-09) | 3 (F-10, F-11, F-12) |
 | **Total** | **14** | 6 | 4 | 4 |
 
 **Open P0 = 0. Open P1 = 0.**

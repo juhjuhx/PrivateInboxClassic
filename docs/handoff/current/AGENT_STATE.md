@@ -42,12 +42,47 @@
 - Local android-sdk: 5.5GB (referenced in scripts but Homebrew SDK is complete — candidate for cleanup only with owner authorization)
 - AVD test36: 5.2GB (preserved for release verification)
 
-## Remaining External Blocker
+## Current Line — v0.4.7 (PR #5)
 
-- FORMAL_REVIEW=PENDING — independent GitHub reviewer APPROVE required
-- Only account `juhjuhx` is PR author; GitHub blocks self-review
-- PR remains DRAFT
+| Item | Value |
+|---|---|
+| PR | #5 — https://github.com/juhjuhx/PrivateInboxClassic/pull/5 |
+| HEAD | `04c640db52a02b9751ce40139fe543fa726bb965` |
+| Branch | `fix/v047-originos-listener-reliability` |
+| CI | run 41777489965 — success, **302/302** instrumentation, 157/157 JVM |
+| Version | 12 / 0.4.7 (v0.4.6 released as `v0.4.6-alpha`, unchanged) |
+| Signed APK | `990150d3f7e7d09f6e08967b515b1cc16de9ae0b4234acf0d769b356aa1018d3` |
+| Cert | `c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4` |
+
+### Findings status (14 original, 8 delta)
+
+| | Count | Fixed | Deferred / accepted | Open |
+|---|---|---|---|---|
+| P0 | 0 | — | — | 0 |
+| P1 | 1 | 1 | 0 | **0** |
+| P2 | 6 | 3 | 3 | 0 |
+| P3 | 7 | 3 (F-08, F-13, F-14) | 1 (F-09) | 3 (F-10, F-11, F-12) |
+
+F-13 (settings showed the wrong version) is fixed in the v0.4.7 line —
+`BuildConfig.VERSION_NAME` replaces the hard-coded `v0.3.1`, and the
+diagnostics export no longer hard-codes `0.4.0-alpha`.
+F-10 (CI masks the release-build failure) is **still open** and re-verified as
+such: `.github/workflows/android.yml:110` still has `|| echo`. It stays until a
+release keystore exists, because an unsigned release build is the expected
+outcome today.
+
+## Remaining External Blockers
+
+- **FORMAL_REVIEW=PENDING** — independent GitHub reviewer APPROVE required.
+  Only account `juhjuhx` is the PR author; GitHub blocks self-review.
+- **OriginOS device verification PENDING** — the vivo X200 Pro matrix has not
+  been run, so the background-drop behaviour is **not** proven fixed.
+  Required conditions are listed in
+  `docs/verification/v0.4.7-ROOT-CAUSE-ANALYSIS.md`.
+- PR #5 is open and not draft; it must not be merged until both are resolved.
 
 ## Next Action
 
-Request independent reviewer APPROVE on PR #4; retain Draft until sign-off; do not merge or publish.
+1. Run the v0.4.7 diagnostic matrix on the vivo X200 Pro and export the report.
+2. Request an independent reviewer APPROVE on PR #5.
+3. Do not merge, tag, or publish v0.4.7 until both are done.

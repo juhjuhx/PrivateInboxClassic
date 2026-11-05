@@ -342,5 +342,40 @@
     "other_projects_untouched": true,
     "overall_verdict": "REVIEW_PENDING",
     "next_external_action": "Independent GitHub reviewer (non-juhjuhx) must submit formal APPROVE on PR #4; upon approval, merge PR #4 and proceed to conditional v0.4.6-alpha publication"
+  },
+  "current_state": {
+    "as_of": "2026-11-06",
+    "pr": "#5 (v0.4.7 line) — https://github.com/juhjuhx/PrivateInboxClassic/pull/5",
+    "pr_head": "04c640db52a02b9751ce40139fe543fa726bb965",
+    "branch": "fix/v047-originos-listener-reliability",
+    "base": "integration/dsh-v040",
+    "ci_run": 41777489965,
+    "ci_result": "success",
+    "instrumentation": "302/302 PASS (0 skipped, 0 failed)",
+    "jvm": "157/157 PASS",
+    "lint": "PASS",
+    "audits": "PASS",
+    "v046_release": {
+      "tag": "v0.4.6-alpha",
+      "url": "https://github.com/juhjuhx/PrivateInboxClassic/releases/tag/v0.4.6-alpha",
+      "merge_commit": "8e31810f629c28b1ee86f745edbaa26c5f491130",
+      "apk_sha256": "b68fd8210e7ea43c12fe4818459dbafb9bb53cc31162d475b9926e30353996a7",
+      "cert_sha256": "c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4",
+      "note": "Published; must not be altered."
+    },
+    "v047_candidate": {
+      "version_code": 12,
+      "version_name": "0.4.7",
+      "signed_apk_sha256": "990150d3f7e7d09f6e08967b515b1cc16de9ae0b4234acf0d769b356aa1018d3",
+      "cert_sha256": "c876051e2879d005abf610277e58f40b728c62cac36a7748f3357200af3377a4",
+      "package": "tw.personal.privateinbox",
+      "note": "Locally signed with the preserved project keystore. The GitHub Runner's ephemeral key (53091b91…) is NOT usable for an in-place device update."
+    },
+    "formal_review": "PENDING — 0 formal GitHub reviews on PR #5; only account is the PR author",
+    "origin_os_device_verification": "PENDING — vivo X200 Pro matrix not yet run; see docs/verification/v0.4.7-ROOT-CAUSE-ANALYSIS.md",
+    "release_status": "NOT_PUBLISHED (v0.4.7)",
+    "open_p0": 0,
+    "open_p1": 0,
+    "findings_14_census": "P0=0 P1=1(fixed) P2=6(3 fixed, 3 deferred) P3=7(3 fixed, 1 accepted risk, 3 open)"
   }
 }
