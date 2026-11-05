@@ -1,10 +1,20 @@
 # Private Inbox Classic v0.4.6 — Final Handoff
 
-**Status:** EVIDENCE_REPAIRED — PENDING INDEPENDENT REVIEW SIGN-OFF  
-**Branch:** `v046-integration-repair-final`  
+> **STATUS: v0.4.6-alpha IS PUBLISHED.** Released 2026-11-02 from merge commit
+> `8e31810f629c28b1ee86f745edbaa26c5f491130` under an explicit owner release
+> waiver (see the PR #4 waiver comment). The artifact below is the **published**
+> one and must not be altered.
+>
+> **The current line is v0.4.7 — PR #5** (`fix/v047-originos-listener-reliability`,
+> HEAD `04c640db52a02b9751ce40139fe543fa726bb965`, CI 41777489965, 302/302).
+> Its review state is tracked in `docs/handoff/current/AGENT_STATE.md`.
+> This file remains the v0.4.6 record.
+
+**Status:** RELEASED (v0.4.6-alpha) · v0.4.7 = REVIEW_PENDING
+**Branch:** `v046-integration-repair-final` (v0.4.6 source)
 **Code HEAD:** `d376f407976f511837f963227115e5610f42083f` (product code + tests)
-**Documentation HEAD:** `6c43f28dafdc1491ad156567c519b153e949d48c`
-**PR:** https://github.com/juhjuhx/PrivateInboxClassic/pull/4  
+**Merge commit:** `8e31810f629c28b1ee86f745edbaa26c5f491130`
+**Release:** https://github.com/juhjuhx/PrivateInboxClassic/releases/tag/v0.4.6-alpha
 **CI:** [run 41231048769](https://github.com/juhjuhx/PrivateInboxClassic/actions/runs/41231048769) — success, 291/291
 **Working tree:** clean on this branch
 
@@ -69,12 +79,16 @@ header in `FLAKE-ANALYSIS.md`.
 | F-06/F-07 disclosure | **FIXED** — release notes created; README known-issues rewritten |
 | Unresolved flake disclosed | Historical FLAKY_UNRESOLVED record; not observed in run 41231048769 |
 | IR remediation (IR-01…IR-11) | PASS — evidence in IR-REMEDIATION-EVIDENCE.md + SIGNING-IDENTITY-AUDIT.md |
-| Independent review (2nd reviewer) | **PENDING — blocks publication** |
+| Independent review (2nd reviewer) | **WAIVED by owner** — no arm's-length review was obtained; recorded explicitly in the PR #4 waiver comment. v0.4.7 (PR #5) still requires a real independent review. |
 | Release keystore | NOT EXISTS (BLOCKS production release) |
 
-**Cannot publish Alpha Release until:** a reviewer who did not implement IR-11
-submits a formal GitHub review on PR #4. The previously-cited flake blocker no
-longer applies (it was a missing implementation, fixed by IR-06).
+**v0.4.6 publication:** performed 2026-11-02 under an explicit owner release
+waiver, with `FORMAL_REVIEWS=0` and `INDEPENDENT_REVIEW=NOT_COMPLETED` recorded
+in the waiver comment. The waiver did not modify branch protection (the base
+branch was never protected) and did not fabricate an approval.
+
+**v0.4.7 (PR #5) is a separate line and is NOT waived.** It requires a genuine
+independent GitHub APPROVE and the vivo X200 Pro verification before merge.
 
 **Upgrade evidence (IR-12):** a genuine encrypted message was captured by the
 v0.4.4-alpha install (stored as ciphertext only — the plaintext marker appears
@@ -112,18 +126,26 @@ inferred. Details: `docs/verification/v0.4.6/IR12-APK-UPGRADE-EVIDENCE.md`.
 10. `staleCallbackDoesNotClearNewRequestLoading`
 11. `lockRejectsInFlightChatCallback`
 
-### Full instrumentation — 290 / 290 PASS
+### Full instrumentation — 291 / 291 PASS
 
 GitHub Actions run [41231048769](https://github.com/juhjuhx/PrivateInboxClassic/actions/runs/41231048769),
-emulator API 36, 0 skipped, 0 failed. Reproduced locally (`OK (290 tests)`).
+emulator API 36, 0 skipped, 0 failed. The AGP console reported
+`Finished 291 tests on emulator-5554 - 16`.
+
+> The earlier "290 / 290" figure in this file was a stale count that predated
+> the F-05 regression test. The run's own console summary says **291**, and the
+> table at the top of this file was already correct.
 
 ## Review state
 
-- **No independent sign-off yet.** The PR comment at
+- **v0.4.6:** published under an explicit owner release waiver. The PR comment at
   [#4 (comment)](https://github.com/juhjuhx/PrivateInboxClassic/pull/4#issuecomment-6515429268)
   was written by the same agent that implemented IR-11, so it is **not** an
-  arm's-length review of IR-11 and must not be counted as APPROVED.
-- GitHub rejects self-review (`Can not request changes on your own pull request`),
-  which is why it is a comment rather than a formal review.
+  arm's-length review and was never counted as APPROVED. The waiver records
+  `FORMAL_REVIEWS=0` and `INDEPENDENT_REVIEW=NOT_COMPLETED` explicitly.
+- GitHub rejects self-review (`Can not approve your own pull request`), which is
+  why it is a comment rather than a formal review.
+- **v0.4.7 (PR #5):** 0 formal reviews, no independent sign-off yet. This line
+  is **not** covered by the v0.4.6 waiver.
 - Remaining blockers: no release keystore (Debug Alpha only), no independent
-  reviewer, no physical-device/OEM verification.
+  reviewer for PR #5, no physical-device/OEM verification.

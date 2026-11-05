@@ -67,6 +67,37 @@ object CaptureDiagnostics {
      */
     const val ACTIVE_RECOVERED = "ACTIVE_RECOVERED"
 
+    // ---- v0.4.7 listener reliability diagnostics ---------------------------
+    /**
+     * A rebind request was ISSUED. This is NOT evidence of a connection: the
+     * system may ignore it, refuse it, or bind later. Kept separate from
+     * LISTENER_CONNECTED so a request can never be mistaken for a live bind.
+     */
+    const val REBIND_REQUESTED = "REBIND_REQUESTED"
+    /** requestRebind() returned true (the call was accepted, still not a bind). */
+    const val REBIND_ACCEPTED = "REBIND_ACCEPTED"
+    /** requestRebind() threw or returned false. */
+    const val REBIND_REFUSED = "REBIND_REFUSED"
+    /** A rebind was requested but suppressed because the cooldown had not elapsed. */
+    const val REBIND_COOLDOWN = "REBIND_COOLDOWN"
+    /**
+     * The listener service instance was destroyed. Distinct from
+     * onListenerDisconnected(): onDestroy means the process/service is going
+     * away, which on OriginOS may happen without a clean disconnect callback.
+     */
+    const val LISTENER_DESTROYED = "LISTENER_DESTROYED"
+    /**
+     * Recorded once at process start. Lets a reader tell "the process restarted"
+     * apart from "the listener never connected", which look identical if only
+     * the in-memory connection flag is inspected.
+     */
+    const val PROCESS_STARTED = "PROCESS_STARTED"
+    /**
+     * Stored connection evidence was older than the staleness window, so it is
+     * NOT treated as evidence of a current connection.
+     */
+    const val CONNECTION_EVIDENCE_STALE = "CONNECTION_EVIDENCE_STALE"
+
     /**
      * The source app removed a notification we had already captured.
      *
@@ -125,9 +156,29 @@ object CaptureDiagnostics {
     private const val K_LAST_SUCCESS_TS = "last_successful_capture_at"
     private const val K_LAST_ID = "last_id"
     private const val K_SEQ = "seq"
+    // v0.4.7 process/listener identity, persisted so a restart is visible
+    private const val K_PROCESS_SESSION_ID = "process_session_id"
+    private const val K_PROCESS_START_TS = "process_start_ts"
+    private const val K_PROCESS_START_COUNT = "process_start_count"
+    private const val K_LISTENER_INSTANCE_ID = "listener_instance_id"
+    private const val K_LISTENER_INSTANCE_COUNT = "listener_instance_count"
+    private const val K_LAST_REBIND_TS = "last_rebind_ts"
+    private const val K_REBIND_COUNT = "rebind_count"
+    private const val K_LAST_DISCONNECT_REASON = "last_disconnect_reason"
+
+    /**
+     * How long stored connection evidence stays meaningful. Past this, a
+     * CONNECTED flag left over from a previous process is reported as STALE
+     * rather than as current connectivity. Chosen to outlive a normal
+     * screen-off period but not a multi-hour background kill.
+     */
+    private const val CONNECTION_EVIDENCE_TTL_MS = 30L * 60L * 1000L
+
+    /** Minimum gap between automatic rebind attempts, to avoid a request storm. */
+    const val REBIND_COOLDOWN_MS = 60L * 1000L
 
     /** Schema version of the exported JSON report. Bump when the shape changes. */
-    const val EXPORT_SCHEMA_VERSION = 2
+    const val EXPORT_SCHEMA_VERSION = 3
 
     data class Event(
         val ts: Long,
@@ -146,6 +197,73 @@ object CaptureDiagnostics {
 
     @Volatile private var listenerConnected = false
 
+    // ---------------------------------------------------- process / instance
+
+    /**
+     * Identity of THIS process. Assigned once on first use and persisted, so a
+     * reader can distinguish "the process restarted" from "the listener never
+     * connected". Both counters are monotonic across restarts.
+     */
+    @Volatile private var processSessionId: String? = null
+    @Volatile private var processStartTs: Long = 0L
+    @Volatile private var processStartCount: Int = 0
+
+    /** Identity of THIS listener service instance, distinct from the process. */
+    @Volatile private var listenerInstanceId: String? = null
+
+    private fun ensureProcessSession(ctx: Context) {
+        if (processSessionId != null) return
+        synchronized(this) {
+            if (processSessionId != null) return
+            val p = prefs(ctx)
+            val startTs = System.currentTimeMillis()
+            val count = p.getInt(K_PROCESS_START_COUNT, 0) + 1
+            val sid = "p" + count + "-" + startTs.toString(36)
+            p.edit()
+                .putString(K_PROCESS_SESSION_ID, sid)
+                .putLong(K_PROCESS_START_TS, startTs)
+                .putInt(K_PROCESS_START_COUNT, count)
+                .apply()
+            processSessionId = sid
+            processStartTs = startTs
+            processStartCount = count
+        }
+        // One event per process start: makes restarts countable in the export.
+        note(ctx, ctx.packageName, "lifecycle", PROCESS_STARTED, errorType = "n=$processStartCount")
+    }
+
+    fun processSession(ctx: Context): String {
+        ensureProcessSession(ctx)
+        return processSessionId ?: "unknown"
+    }
+
+    fun processStartTimestamp(ctx: Context): Long {
+        ensureProcessSession(ctx)
+        return processStartTs
+    }
+
+    fun processStartCount(ctx: Context): Int {
+        ensureProcessSession(ctx)
+        return processStartCount
+    }
+
+    /** Called from onListenerConnected; a new instance id per bind. */
+    fun newListenerInstance(ctx: Context): String {
+        ensureProcessSession(ctx)
+        synchronized(this) {
+            val count = prefs(ctx).getInt(K_LISTENER_INSTANCE_COUNT, 0) + 1
+            val iid = "l" + count + "-" + System.currentTimeMillis().toString(36)
+            prefs(ctx).edit()
+                .putString(K_LISTENER_INSTANCE_ID, iid)
+                .putInt(K_LISTENER_INSTANCE_COUNT, count)
+                .apply()
+            listenerInstanceId = iid
+            return iid
+        }
+    }
+
+    fun listenerInstance(ctx: Context): String? = listenerInstanceId
+
     // ------------------------------------------------------------ ids
 
     /** A short, non-private per-notification trace id. Contains no message content;
@@ -163,20 +281,32 @@ object CaptureDiagnostics {
      *  live in-process connection. */
     fun markConnected(ctx: Context) {
         listenerConnected = true
+        val iid = newListenerInstance(ctx)
         prefs(ctx).edit()
             .putLong(K_CONNECTED_TS, System.currentTimeMillis())
             .putBoolean(K_CONNECTED_FLAG, true)
             .apply()
-        note(ctx, ctx.packageName, "lifecycle", LISTENER_CONNECTED)
+        note(ctx, ctx.packageName, "lifecycle", LISTENER_CONNECTED, errorType = iid)
     }
 
-    fun markDisconnected(ctx: Context) {
+    fun markDisconnected(ctx: Context, reason: String? = null) {
         listenerConnected = false
         prefs(ctx).edit()
             .putLong(K_DISCONNECTED_TS, System.currentTimeMillis())
             .putBoolean(K_CONNECTED_FLAG, false)
+            .putString(K_LAST_DISCONNECT_REASON, reason ?: "-")
             .apply()
-        note(ctx, ctx.packageName, "lifecycle", LISTENER_DISCONNECTED)
+        note(ctx, ctx.packageName, "lifecycle", LISTENER_DISCONNECTED, errorType = reason)
+    }
+
+    /** onDestroy: the service instance is going away. On OriginOS this may
+     *  happen without a preceding clean onListenerDisconnected(). */
+    fun markDestroyed(ctx: Context) {
+        val was = listenerConnected
+        listenerConnected = false
+        prefs(ctx).edit().putBoolean(K_CONNECTED_FLAG, false).apply()
+        note(ctx, ctx.packageName, "lifecycle", LISTENER_DESTROYED,
+            errorType = if (was) "was_connected" else "was_not_connected")
     }
 
     /** Live in-process evidence. Resets to false on a process restart; the system
@@ -184,9 +314,27 @@ object CaptureDiagnostics {
      *  it can become true again. A grant flag never counts as this. */
     fun isListenerConnectedInProcess(): Boolean = listenerConnected
 
+    /**
+     * Is there CONNECTED evidence that is still meaningful?
+     *
+     * A persisted flag from a previous process is only evidence if it is recent
+     * — a multi-hour-old flag on a device that aggressively kills background
+     * work says nothing about right now. Past [CONNECTION_EVIDENCE_TTL_MS] the
+     * caller is told the evidence is stale rather than current.
+     */
     fun hasConnectedEvidence(ctx: Context): Boolean {
         if (listenerConnected) return true
-        return prefs(ctx).getBoolean(K_CONNECTED_FLAG, false)
+        val p = prefs(ctx)
+        if (!p.getBoolean(K_CONNECTED_FLAG, false)) return false
+        val ts = p.getLong(K_CONNECTED_TS, 0L)
+        if (ts <= 0L) return false
+        val age = System.currentTimeMillis() - ts
+        if (age > CONNECTION_EVIDENCE_TTL_MS) {
+            note(ctx, ctx.packageName, "lifecycle", CONNECTION_EVIDENCE_STALE,
+                errorType = "age_ms=" + age)
+            return false
+        }
+        return true
     }
 
     /** Public API (minSdk 28): does the system currently consider this component a
@@ -209,16 +357,46 @@ object CaptureDiagnostics {
         else -> STATE_PERMISSION_GRANTED_NOT_CONNECTED
     }
 
-    /** Ask the system to (re)bind the listener. User-initiated only; a rebind request
-     *  that is merely accepted is NOT logged as a connection. */
-    fun rebind(ctx: Context): Boolean {
+    /**
+     * Ask the system to (re)bind the listener.
+     *
+     * A successful call only means the REQUEST was accepted — it is explicitly
+     * NOT recorded as a connection. Only onListenerConnected() can do that.
+     *
+     * [userInitiated] = true skips the cooldown (an explicit tap should always
+     * be honoured); automatic callers are rate-limited so a disconnected
+     * listener cannot produce a request storm.
+     *
+     * @return true when the request was issued.
+     */
+    fun rebind(ctx: Context, userInitiated: Boolean = true): Boolean {
+        val now = System.currentTimeMillis()
+        val last = prefs(ctx).getLong(K_LAST_REBIND_TS, 0L)
+        if (!userInitiated && last > 0 && now - last < REBIND_COOLDOWN_MS) {
+            note(ctx, ctx.packageName, "lifecycle", REBIND_COOLDOWN,
+                errorType = "elapsed_ms=" + (now - last))
+            return false
+        }
+        note(ctx, ctx.packageName, "lifecycle", REBIND_REQUESTED,
+            errorType = if (userInitiated) "user" else "auto")
         val component = ComponentName(ctx, PrivateNotificationListener::class.java)
-        return try {
+        val ok = try {
             NotificationListenerService.requestRebind(component)
             true
         } catch (_: Throwable) {
             false
         }
+        val p = prefs(ctx)
+        if (ok) {
+            p.edit()
+                .putLong(K_LAST_REBIND_TS, now)
+                .putInt(K_REBIND_COUNT, p.getInt(K_REBIND_COUNT, 0) + 1)
+                .apply()
+            note(ctx, ctx.packageName, "lifecycle", REBIND_ACCEPTED)
+        } else {
+            note(ctx, ctx.packageName, "lifecycle", REBIND_REFUSED)
+        }
+        return ok
     }
 
     // ---------------------------------------------------------------- recording
@@ -484,7 +662,10 @@ object CaptureDiagnostics {
             (if (lastSuccessTs > 0) lastSuccessTs else prefs(ctx).getLong(K_LAST_SUCCESS_TS, 0L)),
         "last_id" to (lastId ?: prefs(ctx).getString(K_LAST_ID, null) ?: "-"),
         "connected_ts" to prefs(ctx).getLong(K_CONNECTED_TS, 0L),
-        "disconnected_ts" to prefs(ctx).getLong(K_DISCONNECTED_TS, 0L)
+        "disconnected_ts" to prefs(ctx).getLong(K_DISCONNECTED_TS, 0L),
+        "rebind_count" to prefs(ctx).getInt(K_REBIND_COUNT, 0),
+        "last_rebind_ts" to prefs(ctx).getLong(K_LAST_REBIND_TS, 0L),
+        "process_start_count" to prefs(ctx).getInt(K_PROCESS_START_COUNT, 0)
     )
 
     /** Reset all diagnostic state, including the cross-restart store. */
@@ -535,10 +716,12 @@ object CaptureDiagnostics {
                 .put("code", ev.code)
                 .put("err", ev.errorType ?: "-"))
         }
+        val p = prefs(ctx)
         val root = JSONObject()
             .put("schema_version", EXPORT_SCHEMA_VERSION)
             .put("app", "Private Inbox Classic")
-            .put("version", "0.4.0-alpha")
+            .put("version", BuildConfig.VERSION_NAME)
+            .put("version_code", BuildConfig.VERSION_CODE)
             .put("diagnostics", JSONObject().apply {
                 put("received", c["received"])
                 put("parse_success", c["parse_ok"])
@@ -551,6 +734,22 @@ object CaptureDiagnostics {
                 put("last_diagnostic_event_at", c["last_diagnostic_event_at"])
                 put("last_notification_received_at", c["last_notification_received_at"])
                 put("last_successful_capture_at", c["last_successful_capture_at"])
+
+                // ---- v0.4.7 process / connection identity ----------------
+                put("process_session_id", processSession(ctx))
+                put("process_start_ts", processStartTimestamp(ctx))
+                put("process_start_count", processStartCount(ctx))
+                put("listener_instance_id", listenerInstance(ctx) ?: "-")
+                put("listener_instance_count", p.getInt(K_LISTENER_INSTANCE_COUNT, 0))
+                put("listener_connected_in_process", isListenerConnectedInProcess())
+                put("connection_evidence", hasConnectedEvidence(ctx))
+                put("connected_ts", p.getLong(K_CONNECTED_TS, 0L))
+                put("disconnected_ts", p.getLong(K_DISCONNECTED_TS, 0L))
+                put("last_disconnect_reason", p.getString(K_LAST_DISCONNECT_REASON, "-"))
+                put("rebind_count", p.getInt(K_REBIND_COUNT, 0))
+                put("last_rebind_ts", p.getLong(K_LAST_REBIND_TS, 0L))
+                put("rebind_cooldown_ms", REBIND_COOLDOWN_MS)
+                put("connection_evidence_ttl_ms", CONNECTION_EVIDENCE_TTL_MS)
             })
             .put("recent_events", events)
         val json = root.toString()
